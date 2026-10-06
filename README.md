@@ -140,7 +140,7 @@ python -m tools.skill_loader --validate      # fail loudly on contract violation
 python tools/antigravity_bridge.py --list-skills
 ```
 
-Twelve skills ship with the repository, covering plan hardening, AST/wiring audits, empirical falsification, surgical patching, data contracts, AI evals, runtime security, telemetry, portability, documentation accuracy, retrieval grounding, and agentic tool orchestration. `--skills all` activates the full non-template registry; `kind: template` files are never auto-selected.
+Twelve skills ship with the repository, covering plan hardening, AST/wiring audits, empirical falsification, surgical patching, data contracts, AI evals, runtime security, telemetry, portability, documentation accuracy, retrieval grounding, and agentic tool orchestration. `--skills all` activates the full non-template registry; `kind: template` files are never auto-selected. The v3.0.0 rewrite provenance — defects found, fixes applied, validation evidence — is documented in [`docs/skills-repair-report.md`](docs/skills-repair-report.md).
 
 ---
 
@@ -242,6 +242,8 @@ tools/
   capture/                     PowerShell capture helpers
 Skills/                        adversarial skill registry (12 skills)
 tests/                         deterministic suite (171 tests)
+docs/                          skills repair provenance log
+images/                        creature art source masters
 AGENTS.md                      delegation gates and reconciliation rules
 AgentSkill.md                  agent-facing delegation protocol
 setup.bat                      Windows bootstrap: venv, deps, agy check, validation, tests

@@ -21,7 +21,7 @@ if not defined PY (
   echo     and enable "Add python.exe to PATH", then re-run this script.
   goto :fail
 )
-%PY% -c "import sys; raise SystemExit(0 if sys.version_info ^>= (3, 10) else 1)" >nul 2>nul
+%PY% -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)" >nul 2>nul
 if errorlevel 1 (
   echo [X] Python 3.10 or newer is required.
   goto :fail
