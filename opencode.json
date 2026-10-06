@@ -1,0 +1,17 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "antigravity": {
+      "type": "local",
+      "command": ["cmd.exe", "/c", "tools\\antigravity_mcp.cmd"],
+      "cwd": ".",
+      "enabled": true,
+      "timeout": 3600000,
+      "environment": {
+        "ANTIGRAVITY_HARNESS": "opencode",
+        "ANTIGRAVITY_MODEL": "gemini-3.8-flash-high",
+        "ANTIGRAVITY_FALLBACK_MODEL": "claude-opus-4-6-thinking"
+      }
+    }
+  }
+}

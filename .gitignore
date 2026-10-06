@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Node / Electron shell (restored with `npm install`)
+tools/wisp_shell/node_modules/
+tools/wisp_shell/npm-debug.log*
+
+# Wisp runtime artifacts: per-workspace reports, live runs, chats,
+# captures, and viewer settings are local state, never source.
+.antigravity-reports/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
