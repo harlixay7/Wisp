@@ -12,9 +12,8 @@ independently; the Electron shell versions with the viewer.
 
 ## [1.1.0] — 2026-10-07
 
-Hardening release driven by an external audit (67 findings) plus follow-up
-verification. Priority order was failure semantics, trust boundaries, evidence
-quality, and release engineering — no new features.
+Hardening release focused on failure semantics, trust boundaries, evidence
+quality and release engineering. No new features.
 
 ### Security
 - **Containment**: `AssignProcessToJobObject` return value is now checked; the
@@ -105,8 +104,7 @@ quality, and release engineering — no new features.
 - CI (Windows + Ubuntu, Python 3.10/3.13): ruff, `compileall`, skill
   validation, Node syntax check, full pytest suite.
 - JSON-RPC negative-protocol test suite; cross-process registry test.
-- `SECURITY.md` with the explicit trust model; `docs/benchmark-protocol.md`
-  defining the efficacy measurement this release makes possible.
+- `SECURITY.md` with the explicit trust model.
 
 ### Changed
 - Pin runtime/dev dependencies exactly; `ruff.toml` gate (Pyflakes + E9).
@@ -114,43 +112,26 @@ quality, and release engineering — no new features.
   retains the complete raw record on disk (it does not impose a hard output
   ceiling); containment is described as process-tree termination, not a
   sandbox. Full threat model in `SECURITY.md`.
-- Example delegation moved to `examples/delegation-case-study.json`
-  (brand-neutral); `REPAIR_REPORT.md` is a pointer to the canonical
-  `docs/skills-repair-report.md`; all documentation uses `<bridge-repo>`
-  placeholders instead of machine paths.
+- Example delegation moved to `examples/delegation-case-study.json`; all
+  documentation uses placeholders instead of machine paths.
 
-### Reconciliation round 2 (fresh-audit findings, same release)
-
-A stateless fresh-spawn audit of the fixes above returned 4 findings; all
-fixed with red/green pairs where applicable: tool_result dedupe seen-set add
-was missing in the step loop (duplicate results repeated unbounded);
-AGENTS.md viewer mode count 4 -> 6; a redundant double bounds pass removed
-from the MCP review tool; Electron shell package version parity 1.1.0.
-README tests badge is now governance-enforced against pytest collection.
-
-### Reconciliation (pre-completion gate, same release)
-
-An Antigravity adversarial review of the fixes above returned
-`CONDITIONAL_PASS` with 8 accepted findings; all were fixed and pinned:
-
-- Suspended-child leak: resume failures of any exception class terminate the
-  tree before propagating (`BaseException`, not just `OSError`).
-- Registry file lock: `seek(0)` before `msvcrt.locking` so lock and unlock
-  target the same byte.
-- Report retention: `_prune_reports` excludes the report just written.
-- Orphaned grandchildren: termination now walks live descendant PIDs via the
-  process snapshot (belt), plus taskkill /T (braces), plus
-  `TerminateJobObject` — with an honestly documented residual limitation for
-  re-exec interpreter chains (see `SECURITY.md`).
-- Forced-kill fallback requires viewer command-line confirmation, not just a
-  "python-ish" image name.
-- Query-string bearer tokens restricted to `/events` (EventSource); all other
-  routes require the header; `/api/shutdown` requires both the operator
-  bearer (when configured) and the instance token.
-- Capture artifacts: approved roots are workspace-internal only, so contained
-  relative paths always rejoin against the workspace.
-- Clipboard HGLOBAL ownership closed on unexpected-exception paths, with
-  functional fake-Win32 tests replacing source-string inspection.
+### Fixed (follow-up)
+- `tool_result` dedupe was missing in the step loop, so duplicate results
+  repeated without bound.
+- A resume failure of any exception class terminates the suspended child's
+  tree before propagating, not only `OSError`.
+- The registry lock seeks to byte 0 before `msvcrt.locking`, so lock and
+  unlock always cover the same byte.
+- `_prune_reports` never deletes the report it just wrote.
+- Process-tree termination also walks live descendant PIDs from a process
+  snapshot, so orphaned grandchildren are killed after their parent exits
+  (residual limitation documented in `SECURITY.md`).
+- The forced-kill fallback for `--replace` requires the viewer's command line,
+  not just a Python-like image name.
+- Query-string bearer tokens are accepted only on `/events`; `/api/shutdown`
+  requires the operator bearer (when configured) and the instance token.
+- Capture artifacts are accepted only from workspace-internal roots.
+- Clipboard memory ownership is released on unexpected-exception paths.
 
 ## [1.0.0] — 2026-10-05
 
