@@ -127,6 +127,51 @@ class TestIpv6Loopback:
 PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
 
 
+class TestRunEndDetection:
+    def test_only_a_run_end_event_ends_the_run(self) -> None:
+        assert viewer.is_run_end_line(json.dumps({"kind": "run_end", "seq": 9}))
+        assert not viewer.is_run_end_line(
+            json.dumps({"kind": "stdout", "text": 'the model printed "run_end" here'})
+        )
+        assert not viewer.is_run_end_line('{"kind": "run_end"')
+        assert not viewer.is_run_end_line('["run_end"]')
+
+
+class TestAskImageMetadata:
+    def test_user_message_records_the_validated_image_path(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import time
+
+        monkeypatch.setenv("WISP_ASK_FAKE", "1")
+        with serving("127.0.0.1", tmp_path) as (host, port, live):
+            image = live.parent / "captures" / "paste-test.png"
+            image.parent.mkdir(parents=True)
+            image.write_bytes(PNG_BYTES)
+            body = json.dumps({"prompt": "look", "image_path": f"  {image}  "})
+            status, data = _request(
+                host,
+                port,
+                "POST",
+                "/api/ask",
+                body=body.encode("utf-8"),
+                headers={"X-Wisp-Request": "1", "Content-Type": "application/json"},
+            )
+            assert status == 200, data
+            thread_id = data["thread_id"]
+            deadline = time.time() + 30
+            thread: dict = {}
+            while time.time() < deadline:
+                _, payload = _request(host, port, "GET", f"/api/chat/thread/{thread_id}")
+                thread = payload["thread"]
+                if (thread.get("run") or {}).get("status") in ("done", "failed"):
+                    break
+                time.sleep(0.1)
+        meta = thread["messages"][0]["meta"]
+        assert meta["image_path"] == ".antigravity-reports/captures/paste-test.png"
+        assert meta["image_paths"] == [meta["image_path"]]
+
+
 class TestModelInventoryCache:
     @pytest.fixture()
     def agy_calls(self, monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:

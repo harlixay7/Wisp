@@ -438,6 +438,15 @@ def _read_last_event(path: Path) -> dict[str, Any] | None:
     return None
 
 
+def is_run_end_line(line: str) -> bool:
+    """True when a live-feed line is the run's terminal ``run_end`` event."""
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        return False
+    return isinstance(event, dict) and event.get("kind") == "run_end"
+
+
 def describe_run(path: Path) -> dict[str, Any]:
     try:
         stat = path.stat()
@@ -1559,7 +1568,7 @@ class ViewerHandler(BaseHTTPRequestHandler):
                 prompt,
                 {
                     "context_text": context_text[:4000],
-                    "image_path": image_path or (image_paths[0] if image_paths else ""),
+                    "image_path": image_paths[0] if image_paths else "",
                     "image_paths": image_paths,
                 },
             )
@@ -1790,7 +1799,7 @@ class ViewerHandler(BaseHTTPRequestHandler):
                     stripped = line.strip()
                     if not stripped:
                         continue
-                    if '"run_end"' in stripped:
+                    if is_run_end_line(stripped):
                         current_done = True
                     if not send("live", stripped):
                         return

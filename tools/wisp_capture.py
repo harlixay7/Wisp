@@ -133,7 +133,6 @@ def _set_clipboard_text_with(user32: Any, kernel32: Any, text: str) -> None:
     if not handle:
         return
     transferred = False
-    clipboard_open = False
     try:
         pointer = kernel32.GlobalLock(handle)
         if pointer:
@@ -142,20 +141,13 @@ def _set_clipboard_text_with(user32: Any, kernel32: Any, text: str) -> None:
             finally:
                 kernel32.GlobalUnlock(handle)
             if user32.OpenClipboard(None):
-                clipboard_open = True
                 try:
                     user32.EmptyClipboard()
                     transferred = bool(user32.SetClipboardData(13, handle))
                 finally:
                     user32.CloseClipboard()
-                    clipboard_open = False
     finally:
-        if clipboard_open:
-            try:
-                user32.CloseClipboard()
-            except Exception:
-                pass
-        if not transferred and handle:
+        if not transferred:
             try:
                 kernel32.GlobalFree(handle)
             except Exception:
