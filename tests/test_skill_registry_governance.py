@@ -252,17 +252,14 @@ class TestDocCanonicalization:
         assert payload.get("skills"), "example must demonstrate explicit skill selection"
         assert not (ROOT / "EXAMPLE_delegation_payload.json").exists()
 
-    def test_readme_badge_matches_collected_test_count(self) -> None:
-        """Doc ground truth (CAN-009): the README tests badge must state the
-        exact number of collected tests, not a drifting approximation."""
+    def test_readme_test_count_matches_collected(self) -> None:
+        """The test count quoted in the README must match what pytest collects."""
         import subprocess
         import sys
 
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
-        match = re.search(
-            r"badge/tests-(\d+)%20passing", readme
-        )
-        assert match, "README tests badge not found"
+        match = re.search(r"#\s*(\d+) test cases", readme)
+        assert match, "README test-case count not found"
         claimed = int(match.group(1))
         result = subprocess.run(
             [sys.executable, "-m", "pytest", "tests/", "--collect-only", "-q"],
@@ -275,6 +272,6 @@ class TestDocCanonicalization:
         assert match_collected, result.stdout[-400:]
         actual = int(match_collected.group(1))
         assert claimed == actual, (
-            f"README badge claims {claimed} tests but {actual} are collected - "
-            "update the badge to the real count"
+            f"README claims {claimed} test cases but {actual} are collected - "
+            "update the README to the real count"
         )
