@@ -119,6 +119,51 @@ class TestRegistryFileLocking:
         missing = expected - paths
         assert not missing, f"lost registry entries under cross-process contention: {missing}"
 
+    def test_lock_propagates_body_import_error_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("ANTIGRAVITY_LIVE_REGISTRY", str(tmp_path / "registry.json"))
+        from tools.antigravity_live import _registry_file_lock
+
+        with pytest.raises(ImportError, match="from the body"):
+            with _registry_file_lock():
+                raise ImportError("from the body")
+
+    def test_lock_timeout_proceeds_with_stderr_notice(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        import tools.antigravity_live as live
+
+        monkeypatch.setenv("ANTIGRAVITY_LIVE_REGISTRY", str(tmp_path / "registry.json"))
+        monkeypatch.setattr(live, "_try_lock", lambda handle: False)
+        monkeypatch.setattr(live, "_REGISTRY_LOCK_ATTEMPTS", 3)
+        monkeypatch.setattr(live, "_REGISTRY_LOCK_RETRY_SECONDS", 0.0)
+        ran = False
+        with live._registry_file_lock():
+            ran = True
+        captured = capsys.readouterr()
+        assert ran
+        assert captured.out == ""
+        assert "without the cross-process lock" in captured.err
+
+    def test_registration_sweeps_only_stale_temp_files(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        registry = tmp_path / "registry.json"
+        monkeypatch.setenv("ANTIGRAVITY_LIVE_REGISTRY", str(registry))
+        stale = tmp_path / "registry.json.tmp.deadbeef"
+        fresh = tmp_path / "registry.json.tmp.cafef00d"
+        for leftover in (stale, fresh):
+            leftover.write_text("[]", encoding="utf-8")
+        old = time.time() - 2 * 3600
+        os.utime(stale, (old, old))
+        register_live_dir(tmp_path / "live")
+        assert not stale.exists()
+        assert fresh.exists()
+
 
 class TestRetentionGrace:
     def test_prune_skips_recently_active_runs(self, tmp_path: Path) -> None:
