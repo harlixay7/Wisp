@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld("pywebview", {
       ipcRenderer.invoke("wisp:set-interactive", interactive),
     move: (dx, dy) => ipcRenderer.invoke("wisp:move", dx, dy),
     toggle_pin: () => ipcRenderer.invoke("wisp:toggle-pin"),
+    is_pinned: () => ipcRenderer.invoke("wisp:is-pinned"),
     refresh: () => ipcRenderer.invoke("wisp:refresh"),
     minimize: () => ipcRenderer.invoke("wisp:minimize"),
     close: () => ipcRenderer.invoke("wisp:close"),
