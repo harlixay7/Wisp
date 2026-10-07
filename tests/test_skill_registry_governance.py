@@ -221,15 +221,12 @@ class TestDocCanonicalization:
         # the local-username check runs on developer machines only (on CI
         # runners Path.home().name is a generic account like "runner").
         checked = [
-            "REPAIR_REPORT.md",
-            "DELEGATION_PLAYBOOK.md",
             "AgentSkill.md",
             "AGENTS.md",
             "README.md",
             "CHANGELOG.md",
             "SECURITY.md",
-            "docs/skills-repair-report.md",
-            "docs/benchmark-protocol.md",
+            "docs/delegation-playbook.md",
         ]
         for name in checked:
             path = ROOT / name

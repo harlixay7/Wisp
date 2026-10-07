@@ -436,16 +436,14 @@ class TestAggregationHardening:
         assert "1 duplicate tool-result fragment(s)" in critique
 
     def test_coalesce_wrapper_matches_buffer_semantics(self) -> None:
-        from tools.antigravity_bridge import _DeltaBuffer, _coalesce_chunks
+        from tools.antigravity_bridge import _DeltaBuffer
 
-        chunks: list[str] = []
-        for delta in ("Hello", "Hello world", " world", "!", "new"):
-            chunks = _coalesce_chunks(chunks, delta)
         buffer = _DeltaBuffer()
         for delta in ("Hello", "Hello world", " world", "!", "new"):
             buffer.append(delta)
-        assert chunks == buffer.chunks
-        assert "".join(chunks) == buffer.text()
+        # Duplicate-and-cumulative folding leaves one clean accumulated text.
+        assert buffer.chunks == ["Hello world", "!", "new"]
+        assert buffer.text() == "Hello world!new"
 
 
 def _fake_result():

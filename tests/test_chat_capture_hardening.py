@@ -181,7 +181,7 @@ class TestCaptureFilenames:
     def test_clipboard_ownership_success_never_frees(self) -> None:
         if __import__("os").name != "nt":
             pytest.skip("Win32 clipboard semantics")
-        from tools.clipboard_fakes import FakeKernel32, FakeUser32
+        from tests.clipboard_fakes import FakeKernel32, FakeUser32
 
         kernel32 = FakeKernel32()
         user32 = FakeUser32(open_clipboard=True, set_succeeds=True)
@@ -195,7 +195,7 @@ class TestCaptureFilenames:
     def test_clipboard_ownership_open_failure_frees(self) -> None:
         if __import__("os").name != "nt":
             pytest.skip("Win32 clipboard semantics")
-        from tools.clipboard_fakes import FakeKernel32, FakeUser32
+        from tests.clipboard_fakes import FakeKernel32, FakeUser32
 
         kernel32 = FakeKernel32()
         user32 = FakeUser32(open_clipboard=False, set_succeeds=True)
@@ -208,7 +208,7 @@ class TestCaptureFilenames:
     def test_clipboard_ownership_set_failure_frees(self) -> None:
         if __import__("os").name != "nt":
             pytest.skip("Win32 clipboard semantics")
-        from tools.clipboard_fakes import FakeKernel32, FakeUser32
+        from tests.clipboard_fakes import FakeKernel32, FakeUser32
 
         kernel32 = FakeKernel32()
         user32 = FakeUser32(open_clipboard=True, set_succeeds=False)
@@ -221,7 +221,7 @@ class TestCaptureFilenames:
     def test_clipboard_ownership_exception_frees_and_propagates(self) -> None:
         if __import__("os").name != "nt":
             pytest.skip("Win32 clipboard semantics")
-        from tools.clipboard_fakes import FakeKernel32, FakeUser32
+        from tests.clipboard_fakes import FakeKernel32, FakeUser32
 
         kernel32 = FakeKernel32()
         user32 = FakeUser32(open_clipboard=True, set_succeeds=True)
@@ -236,7 +236,7 @@ class TestCaptureFilenames:
     def test_clipboard_ownership_lock_failure_frees(self) -> None:
         if __import__("os").name != "nt":
             pytest.skip("Win32 clipboard semantics")
-        from tools.clipboard_fakes import FakeKernel32, FakeUser32
+        from tests.clipboard_fakes import FakeKernel32, FakeUser32
 
         kernel32 = FakeKernel32(lock_ok=False)
         user32 = FakeUser32(open_clipboard=True, set_succeeds=True)

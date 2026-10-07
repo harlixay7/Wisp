@@ -1,4 +1,4 @@
-# Antigravity Delegation Playbook
+# Delegation Payload Guide
 
 How to construct review delegations that get the **most** out of the Antigravity
 bridge: independent second opinions on design decisions *alongside* adversarial
@@ -104,18 +104,7 @@ re-running a hardening pass if the plan changed materially.
   recommendations "max 5" — divergence without runaway scope.
 - **Artifact precision over volume.** 20 exact seams beat 200 vague pointers.
 
-## 6. Guide map (which prompting skill shaped what)
-
-| Guide | In this playbook |
-|---|---|
-| G1 Meta-Prompt Architect | Blueprint section order; declarative scoping; Tier-3 treatment (max ground truth, deep compute); binary-ish return enums |
-| G2 Anti-Slop (generalized) | Phase-0 one-line pre-flight; calibration dials; ban/mandate pairing; disagreement-is-expected framing |
-| G3 Spec-Driven Rigor | CLARIFY-stage positioning (opinions *before* locking the plan); EARS mitigations; phase guardrails |
-| G4 Context Lifecycle | Cache-friendly static→dynamic ordering; Write-Select-Compress-Isolate (targeted seams, no bulk dumps); artifact selection |
-| G5 De-taxing & Hardening | Scratchpad-first; constraint grouping into tagged sections; defense-in-depth (quarantine, read-only gating); directional framing |
-| G6 Agent Governance | Architect-phase vs worker-phase separation; protocol/reasoning decoupling (machine-parseable return contract); closed follow-up loop |
-
-## 7. Ready-to-use example
+## 6. Ready-to-use example
 
 `examples/delegation-case-study.json` — the the Workstation workstation
 redesign delegation built exactly by this playbook (Mode A design opinions on

@@ -940,15 +940,6 @@ def _build_request_with_headers(url: str, headers: dict[str, str]) -> Any:
     return Request(url, data=b"{}", headers=headers, method="POST")
 
 
-def _build_request(url: str, token: str = "") -> Any:
-    from urllib.request import Request
-
-    headers = {SESSION_HEADER: "1", "Origin": f"http://127.0.0.1:{urlparse(url).port}"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    return Request(url, data=b"{}", headers=headers, method="POST")
-
-
 def pid_image_name(pid: int) -> str | None:
     """Best-effort image name of a live PID (None when the PID does not exist)."""
     try:

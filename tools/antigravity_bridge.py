@@ -1213,21 +1213,6 @@ class _DeltaBuffer:
 
     def __bool__(self) -> bool:
         return bool(self.chunks)
-
-
-def _coalesce_chunks(chunks: list[str], delta: str) -> list[str]:
-    """Appends a stream delta, folding duplicate and cumulative resends.
-
-    Compatibility wrapper over :class:`_DeltaBuffer` for direct callers; the
-    aggregation loop uses the buffer class directly.
-    """
-    buffer = _DeltaBuffer()
-    for existing in chunks:
-        buffer.append(existing)
-    buffer.append(delta)
-    return buffer.chunks
-
-
 def _render_lifecycle(
     init_labels: list[str],
     step_meta: dict[int, dict[str, Any]],
