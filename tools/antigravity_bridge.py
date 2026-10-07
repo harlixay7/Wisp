@@ -2098,7 +2098,7 @@ def run_bridge(config: BridgeConfig, launcher: LaunchFn | None = None) -> Bridge
                 time.sleep(reset_seconds)
             primary_results, status = _run_model_chain(config.model)
 
-        if status != "SUCCESS" and config.quota_hook:
+        if status == "RATE_LIMITED" and config.quota_hook:
             _emit("quota_hook", "running quota hook", model=config.model)
             hook_ok, quota_hook_output = run_quota_hook(config.quota_hook)
             quota_hook_used = True

@@ -10,6 +10,7 @@ from __future__ import annotations
 import ctypes
 import json
 import os
+import sys
 import types
 from pathlib import Path
 
@@ -204,3 +205,46 @@ class TestDryRunMatchesDispatch:
         )
         assert exit_code == 2
         assert "command line" in capsys.readouterr().err
+
+
+class TestQuotaHookScope:
+    def test_hook_does_not_run_after_a_non_rate_limit_failure(self, tmp_path: Path) -> None:
+        # The quota wait re-runs the primary model; that rerun fails for an
+        # unrelated reason. Rotating credentials cannot help, so the operator
+        # hook must not run.
+        marker = tmp_path / "hook-ran"
+        hook = f'"{sys.executable}" -c "open({str(marker)!r}, \'w\').close()"'
+        rate_limited = bridge.AttemptResult(
+            exit_code=1, stderr="RESOURCE_EXHAUSTED: quota reached. Resets in 0s."
+        )
+        fatal = bridge.AttemptResult(exit_code=1, stdout="boom", stderr="fatal: bad flag")
+        calls: list[list[str]] = []
+
+        result = bridge.run_bridge(
+            _config(quota_wait_seconds=10, quota_hook=hook),
+            launcher=_scripted([rate_limited, fatal], calls),
+        )
+
+        assert not result.success
+        assert not result.quota_hook_used
+        assert result.quota_hook_output is None
+        assert not marker.exists()
+        assert len(calls) == 2
+        assert not result.failover_used
+
+    def test_hook_runs_when_still_rate_limited_after_the_wait(self, tmp_path: Path) -> None:
+        hook = f'"{sys.executable}" -c "print(1)"'
+        rate_limited = bridge.AttemptResult(
+            exit_code=1, stderr="RESOURCE_EXHAUSTED: quota reached. Resets in 0s."
+        )
+        success = bridge.AttemptResult(exit_code=0, stdout="CRITIQUE")
+        calls: list[list[str]] = []
+
+        result = bridge.run_bridge(
+            _config(quota_wait_seconds=10, quota_hook=hook),
+            launcher=_scripted([rate_limited, rate_limited, success], calls),
+        )
+
+        assert result.success
+        assert result.quota_hook_used
+        assert len(calls) == 3
