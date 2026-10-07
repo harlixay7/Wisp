@@ -94,4 +94,4 @@ trusted, what is not, and what the boundary does and does not guarantee.
 ## Reporting
 
 Open a GitHub issue for anything you find; for sensitive disclosures, use the
-repository's private security-advisory feature rather than a public issue.
+repository's [private security advisories](https://github.com/harlixay7/Wisp/security/advisories/new) rather than a public issue.

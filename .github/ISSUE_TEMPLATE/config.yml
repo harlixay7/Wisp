@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security issue
+    url: https://github.com/harlixay7/Wisp/security/advisories/new
+    about: Report vulnerabilities privately through a security advisory, not a public issue.
