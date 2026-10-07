@@ -150,16 +150,16 @@ The server speaks MCP v1 over stdio; stdout carries protocol frames only, all di
 
 - **opencode** — already configured in this repository's `opencode.json` (`python tools/antigravity_mcp_server.py`, long tool timeout).
 - **Universal launcher** — `tools\antigravity_mcp.cmd` resolves the repository root, pins the model chain, and starts the server.
-- **Claude Code** — `claude mcp add antigravity -- cmd.exe /c "C:\wisp\tools\antigravity_mcp.cmd"` (adjust the path to your clone).
+- **Claude Code** — `claude mcp add antigravity -- cmd.exe /c "<repo-root>\tools\antigravity_mcp.cmd"` (adjust the path to your clone).
 - **Codex** (`~/.codex/config.toml`):
   ```toml
   [mcp_servers.antigravity]
   command = "cmd.exe"
-  args = ["/c", "C:\\wisp\\tools\\antigravity_mcp.cmd"]
+  args = ["/c", "<repo-root>\\tools\\antigravity_mcp.cmd"]
   ```
 - **Cline / Roo / Cursor** — their MCP settings JSON:
   ```json
-  { "mcpServers": { "antigravity": { "command": "cmd.exe", "args": ["/c", "C:\\wisp\\tools\\antigravity_mcp.cmd"] } } }
+  { "mcpServers": { "antigravity": { "command": "cmd.exe", "args": ["/c", "<repo-root>\\tools\\antigravity_mcp.cmd"] } } }
   ```
 
 `AGENTS.md` defines the mandatory delegation gates (plan generation, high-risk seams, pre-commit audit, repeated failure) and the reconciliation rules the calling agent must follow; `AgentSkill.md` and `.opencode/skills/antigravity-delegation/SKILL.md` carry the agent-facing operating protocol.
