@@ -1,20 +1,3 @@
-"""GATE-4 reconciliation tests: the Antigravity pre-completion review
-(2026-10-07, CONDITIONAL_PASS) returned 8 accepted findings; each one gets a
-permanent regression test here or beside the code it pins.
-
-* FL-001: non-OSError failures after Popen cannot leak a suspended child.
-* FL-003: _prune_reports can never delete the report just written.
-* FL-004: descendants survive even when the direct child exits before kill.
-* FL-005: forced-kill fallback requires viewer command-line confirmation.
-* FL-006: query-string tokens work on /events only.
-* FL-007: capture artifacts outside the workspace are rejected, inside ones
-  rejoin against the workspace (worker round-trip).
-* REQ-HARD-003: /api/shutdown demands the bearer token when one is configured.
-* Runtime schema bounds actually dispatch (not just declared).
-"""
-
-from __future__ import annotations
-
 import ctypes
 import http.client
 import json
@@ -76,18 +59,74 @@ class TestFL003PruneExclusion:
         assert len(reports) == 1
 
 
+def _pid_alive(pid: int) -> bool:
+    """True when a process with this PID still exists (Toolhelp snapshot)."""
+    kernel32 = ctypes.windll.kernel32
+    kernel32.CreateToolhelp32Snapshot.restype = ctypes.c_void_p
+    kernel32.CreateToolhelp32Snapshot.argtypes = [ctypes.c_uint32, ctypes.c_uint32]
+
+    class _PROCESSENTRY32(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", ctypes.c_uint32),
+            ("cntUsage", ctypes.c_uint32),
+            ("th32ProcessID", ctypes.c_uint32),
+            ("th32DefaultHeapID", ctypes.c_size_t),
+            ("th32ModuleID", ctypes.c_uint32),
+            ("cntThreads", ctypes.c_uint32),
+            ("th32ParentProcessID", ctypes.c_uint32),
+            ("pcPriClassBase", ctypes.c_long),
+            ("dwFlags", ctypes.c_uint32),
+            ("szExeFile", ctypes.c_char * 260),
+        ]
+
+    snapshot = kernel32.CreateToolhelp32Snapshot(0x00000002, 0)
+    if not snapshot or int(snapshot) == 0xFFFFFFFF:
+        return False
+    try:
+        entry = _PROCESSENTRY32()
+        entry.dwSize = ctypes.sizeof(entry)
+        if kernel32.Process32First(snapshot, ctypes.byref(entry)):
+            while True:
+                if int(entry.th32ProcessID) == pid:
+                    return True
+                if not kernel32.Process32Next(snapshot, ctypes.byref(entry)):
+                    return False
+        return False
+    finally:
+        kernel32.CloseHandle(snapshot)
+
+
+def _terminate_pids(pids: list[int]) -> None:
+    kernel32 = ctypes.windll.kernel32
+    kernel32.OpenProcess.restype = ctypes.c_void_p
+    kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+    kernel32.TerminateProcess.restype = ctypes.c_int
+    kernel32.TerminateProcess.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    for pid in pids:
+        handle = kernel32.OpenProcess(0x0001, 0, pid)  # PROCESS_TERMINATE
+        if handle:
+            try:
+                kernel32.TerminateProcess(handle, 1)
+            finally:
+                kernel32.CloseHandle(handle)
+
+
 @pytest.mark.skipif(os.name != "nt", reason="descendant walk is Toolhelp/Windows")
 class TestFL004DeadParentDescendants:
     @staticmethod
-    def _environment_preserves_pid_chains(tmp_path: Path, grandchild: Path) -> bool:
+    def _environment_preserves_pid_chains(tmp_path: Path) -> bool:
         """Probes whether this environment keeps parent-PID chains intact.
 
         Some interpreter chains (venv launchers re-execing through the
         WindowsApps Store alias) re-parent grandchildren to an intermediate
         host, breaking any snapshot walk from the recorded root. When even a
         LIVE root cannot be walked, the dead-root scenario is untestable here
-        rather than broken.
+        rather than broken. The probe grandchild is a plain sleeper, and the
+        probe cleans up its own descendants afterwards so nothing leaks into
+        sibling tests.
         """
+        grandchild = tmp_path / "probe-grandchild.py"
+        grandchild.write_text("import time; time.sleep(45)\n", encoding="utf-8")
         parent = tmp_path / "probe.py"
         parent.write_text(
             "import subprocess, sys\n"
@@ -100,12 +139,18 @@ class TestFL004DeadParentDescendants:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
+        intact = False
         try:
             time.sleep(0.8)
-            return bool(_descendant_pids(proc.pid))
+            descendants = _descendant_pids(proc.pid)
+            intact = bool(descendants)
+            if intact:
+                # Leave no sleeper behind for sibling tests.
+                _terminate_pids(descendants)
         finally:
             proc.kill()
             proc.wait(timeout=10)
+        return intact
 
     def test_descendant_pids_finds_grandchild_of_live_root(self, tmp_path: Path) -> None:
         marker_grandchild = tmp_path / "grandchild.py"
@@ -127,37 +172,27 @@ class TestFL004DeadParentDescendants:
         try:
             grandchild_pid = int(proc.stdout.readline().strip())
             descendants = _descendant_pids(proc.pid)
-            if not descendants and not self._environment_preserves_pid_chains(
-                tmp_path, marker_grandchild
-            ):
+            if not descendants and not self._environment_preserves_pid_chains(tmp_path):
                 pytest.skip(
                     "environment re-execs the interpreter and re-parents "
                     "grandchildren; PID-chain walking is not meaningful here"
                 )
             assert grandchild_pid in descendants
+            _terminate_pids([pid for pid in descendants if pid != proc.pid])
         finally:
             proc.kill()
             proc.wait(timeout=10)
 
     def test_tree_kill_reaps_orphans_after_parent_exit(self, tmp_path: Path) -> None:
-        heartbeat = tmp_path / "hb.txt"
-        heartbeat.write_text("0", encoding="utf-8")
+        # Sleep-only grandchild: death is verified by PID absence in the
+        # process snapshot, which is immune to stray-writer interference.
         grandchild = tmp_path / "grandchild.py"
-        grandchild.write_text(
-            "import time\n"
-            "handle = open(" + repr(str(heartbeat)) + ", 'w')\n"
-            "end = time.time() + 60\n"
-            "while time.time() < end:\n"
-            "    handle.write(str(time.time()))\n"
-            "    handle.flush()\n"
-            "    time.sleep(0.1)\n",
-            encoding="utf-8",
-        )
-        if not self._environment_preserves_pid_chains(tmp_path, grandchild):
+        grandchild.write_text("import time; time.sleep(60)\n", encoding="utf-8")
+        if not self._environment_preserves_pid_chains(tmp_path):
             pytest.skip(
                 "environment re-execs the interpreter; orphan cleanup relies "
-                "on taskkill/Jet Object termination from a live parent (see "
-                "test_grandchild_dies_with_the_tree_on_timeout) — the dead-"
+                "on taskkill/Job Object termination from a live parent (see "
+                "test_grandchild_dies_with_the_tree_on_timeout) - the dead-"
                 "root walk cannot be exercised on this interpreter chain"
             )
         parent = tmp_path / "parent.py"
@@ -174,30 +209,39 @@ class TestFL004DeadParentDescendants:
         proc.wait(timeout=30)
         assert proc.returncode == 0
         time.sleep(0.5)
-        assert heartbeat.stat().st_size > 0, "grandchild never started"
 
-        from tools.antigravity_bridge import _get_kernel32
+        # The orphaned grandchild is still alive: the walk starts from the
+        # recorded (now dead) parent PID and follows the snapshot chain.
+        orphans = _descendant_pids(proc.pid)
+        assert orphans, "snapshot walk lost the orphaned grandchild"
+        assert all(_pid_alive(pid) for pid in orphans)
 
-        kernel32 = _get_kernel32()
-        kernel32.OpenProcess.restype = ctypes.c_void_p
-        kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
-        kernel32.TerminateProcess.restype = ctypes.c_int
-        kernel32.TerminateProcess.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
-        descendants = _descendant_pids(proc.pid)
-        assert descendants, "snapshot walk lost the orphaned grandchild"
-        for pid in descendants:
-            handle = kernel32.OpenProcess(0x0001, 0, pid)  # PROCESS_TERMINATE
-            if handle:
-                try:
-                    kernel32.TerminateProcess(handle, 1)
-                finally:
-                    kernel32.CloseHandle(handle)
+        # The FL-004 cleanup: terminate the orphans explicitly.
+        _terminate_pids(orphans)
         time.sleep(1.0)
-        before = heartbeat.stat().st_mtime
-        time.sleep(0.8)
-        assert heartbeat.stat().st_mtime == before, (
-            "grandchild orphaned after its parent exited (FL-004)"
+        for pid in orphans:
+            assert not _pid_alive(pid), (
+                f"grandchild {pid} orphaned after its parent exited (FL-004)"
+            )
+
+
+class TestFL005ForcedKillGuard:
+    def test_non_viewer_python_process_is_refused(self) -> None:
+        if os.name != "nt":
+            pytest.skip("tasklist/PowerShell PID inspection")
+        from tools.antigravity_viewer import looks_like_viewer_process
+
+        proc = subprocess.Popen(
+            [PYTHON, "-c", "import time; time.sleep(30)"],
+            stdout=subprocess.DEVNULL,
         )
+        try:
+            # A "python" image alone is NOT enough any more: the recycled PID
+            # must also carry a command line naming this viewer (FL-005).
+            assert looks_like_viewer_process("python.exe", pid=proc.pid) is False
+        finally:
+            proc.kill()
+            proc.wait(timeout=10)
 
 
 class TestFL007ArtifactRoundTrip:
@@ -236,24 +280,6 @@ class TestFL007ArtifactRoundTrip:
         assert context.contain_artifact(str(outside)) is None
 
 
-class TestFL005ForcedKillGuard:
-    def test_non_viewer_python_process_is_refused(self) -> None:
-        if os.name != "nt":
-            pytest.skip("tasklist/PowerShell PID inspection")
-        from tools.antigravity_viewer import looks_like_viewer_process
-
-        proc = subprocess.Popen(
-            [PYTHON, "-c", "import time; time.sleep(30)"],
-            stdout=subprocess.DEVNULL,
-        )
-        try:
-            # Any "python" image is NOT enough on its own any more.
-            assert looks_like_viewer_process("python.exe", pid=proc.pid) is False
-        finally:
-            proc.kill()
-            proc.wait(timeout=10)
-
-
 class TestREQHARD003ShutdownAuth:
     AUTH_TOKEN = "gate4-test-bearer-token"
 
@@ -268,7 +294,7 @@ class TestREQHARD003ShutdownAuth:
             manifest = json.loads((live / "viewer.json").read_text(encoding="utf-8"))
             yield base, manifest
 
-    def _post_shutdown(self, port: int, headers: dict[str, str]) -> int:
+    def _post_shutdown(self, port: int, headers: dict) -> int:
         conn = http.client.HTTPConnection("127.0.0.1", port, timeout=15)
         conn.request("POST", "/api/shutdown", body="{}", headers=headers)
         return conn.getresponse().status
@@ -289,7 +315,7 @@ class TestREQHARD003ShutdownAuth:
                 "Authorization": f"Bearer {self.AUTH_TOKEN}",
             },
         )
-        # Valid bearer but wrong instance token -> 403 (the handshake secret).
+        # Correct bearer but wrong instance token -> 403 (the handshake secret).
         assert status == 403
 
     def test_regular_get_with_wrong_bearer_is_rejected(self, token_viewer) -> None:
@@ -342,3 +368,28 @@ class TestREQHARD003ShutdownAuth:
             ]
         )
         assert exit_code == 2
+
+
+class TestRuntimeBoundsDispatch:
+    def test_oversized_prompt_is_rejected_at_dispatch(self) -> None:
+        with pytest.raises(InvalidParams):
+            handle_request(
+                "tools/call",
+                {
+                    "name": "antigravity_review",
+                    "arguments": {"prompt": "x" * 400_001},
+                },
+            )
+
+    def test_oversized_artifact_array_is_rejected_at_dispatch(self) -> None:
+        with pytest.raises(InvalidParams):
+            handle_request(
+                "tools/call",
+                {
+                    "name": "antigravity_review",
+                    "arguments": {
+                        "prompt": "ok",
+                        "artifacts": [f"p/{index}.py" for index in range(301)],
+                    },
+                },
+            )
