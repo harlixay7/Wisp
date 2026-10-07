@@ -229,7 +229,7 @@ A request from your assistant looks like this:
 }
 ```
 
-For a complete example, including what the reviewer found, see
+For a complete, realistic request, see
 [examples/delegation-case-study.json](examples/delegation-case-study.json).
 [docs/delegation-playbook.md](docs/delegation-playbook.md) covers how to write
 requests that get sharp answers instead of polite agreement.

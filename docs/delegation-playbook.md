@@ -106,11 +106,10 @@ re-running a hardening pass if the plan changed materially.
 
 ## 6. Ready-to-use example
 
-`examples/delegation-case-study.json` — the the Workstation workstation
-redesign delegation built exactly by this playbook (Mode A design opinions on
-D2–D10 + Mode B hardening with the 9 falsifiable claims + 20 artifact seams).
-The stale "ignore the skills registry" line from earlier delegations is gone;
-the `skills` parameter is set.
+`examples/delegation-case-study.json` is a complete request built with this
+playbook: a plan to add retry backoff to a job queue, the context the reviewer
+needs, three falsifiable claims, the exact files to read, and an explicit skill
+selection.
 
 **Rule reminder:** never place non-skill files in `<bridge-repo>/Skills/` —
 every `.md` there must carry YAML frontmatter or the whole registry empties.

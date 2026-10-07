@@ -247,8 +247,9 @@ class TestDocCanonicalization:
         assert example.is_file()
         payload = json.loads(example.read_text(encoding="utf-8"))
         blob = json.dumps(payload)
-        for brand in ("Viducia", "ShortStudio"):
-            assert brand not in blob
+        assert not re.search(r"(?i)viducia|shortstudio", blob), (
+            "the example must not reference private projects"
+        )
         assert payload.get("skills"), "example must demonstrate explicit skill selection"
         assert not (ROOT / "EXAMPLE_delegation_payload.json").exists()
 
