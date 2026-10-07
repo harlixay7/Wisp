@@ -170,7 +170,7 @@ workspace-trust prompt, so the reviewer is allowed to read your code.
 **Your first review:**
 
 ```bat
-.venv\Scripts\python tools\antigravity_bridge.py --prompt "Review my plan to upgrade to pydantic v2" --skills all
+.venv\Scripts\python tools\antigravity_bridge.py --prompt "Review my plan to upgrade to pydantic v2" --skills adversarial-plan-hardening-engine
 ```
 
 To sharpen it, add `--claim "..."` for each statement you want tested and
