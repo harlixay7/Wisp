@@ -173,6 +173,7 @@ class WindowApi:
                 return None
             return int(native.Handle.ToInt64())
         except Exception:
+            # Non-WinForms backends expose other native objects (or none).
             return None
 
     def close(self) -> None:
