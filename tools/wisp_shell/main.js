@@ -233,37 +233,22 @@ ipcMain.handle("wisp:set-view", (event, width, height) => {
   }
   const w = Math.max(200, Math.round(width));
   const h = Math.max(160, Math.round(height));
-  if (!OPAQUE) {
-    return true;
-  }
+  // The transparent shell keeps a fixed canvas and the page sizes its own
+  // widget inside it; only the opaque debug window is resized per mode.
+  if (!OPAQUE) return true;
   if (!userPositioned && !atAutoPosition()) userPositioned = true;
   const [currentWidth, currentHeight] = win.getSize();
+  const [currentX, currentY] = win.getPosition();
   const area = screen.getPrimaryDisplay().workArea;
-  let { x, y } = win.getPosition();
+  let [x, y] = [currentX, currentY];
   if (!userPositioned) {
-    x = Math.max(area.x, area.x + area.width - w - MARGIN);
-    y = Math.max(area.y, area.y + area.height - h - MARGIN);
+    ({ x, y } = bottomRight(w, h));
   } else {
     x = Math.max(area.x, Math.min(x, area.x + area.width - w));
     y = Math.max(area.y, Math.min(y, area.y + area.height - h));
   }
-  const [currentX, currentY] = win.getPosition();
   if (w !== currentWidth || h !== currentHeight) {
-    if (OPAQUE) {
-      win.setBounds({ x, y, width: w, height: h });
-    } else {
-      win.hide();
-      win.setBounds({ x, y, width: w, height: h });
-      win.setBackgroundColor("#00000000");
-      setTimeout(() => {
-        if (!win) return;
-        win.showInactive();
-        win.webContents.invalidate();
-        setTimeout(() => {
-          if (win) win.webContents.invalidate();
-        }, 160);
-      }, 40);
-    }
+    win.setBounds({ x, y, width: w, height: h });
   } else if (x !== currentX || y !== currentY) {
     win.setPosition(x, y);
   }
@@ -299,6 +284,8 @@ ipcMain.handle("wisp:toggle-pin", () => {
   win.setAlwaysOnTop(!win.isAlwaysOnTop());
   return win.isAlwaysOnTop();
 });
+
+ipcMain.handle("wisp:is-pinned", () => (win ? win.isAlwaysOnTop() : false));
 
 ipcMain.handle("wisp:set-interactive", (event, interactive) => {
   if (!win) return false;

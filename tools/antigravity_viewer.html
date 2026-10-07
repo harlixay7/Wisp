@@ -440,7 +440,10 @@ body.electron #app.settings .widget{width:336px;height:452px}
 }
 .toast.on{transform:translateX(-50%);opacity:1}
 .replay-bar.on ~ .toast{bottom:44px}
-@media (prefers-reduced-motion: reduce){.creature,.halo,.spark{animation:none !important}}
+@media (prefers-reduced-motion: reduce){
+  .creature,.halo,.spark,
+  .bubble-inner::before,.drawer::before,.replay-bar::before{animation:none !important}
+}
 
 /* ============================================================
    APPLE GLASS THEME — visual layer only (no functional changes)
@@ -1368,7 +1371,13 @@ const S = {
   chatAutoscroll: true, threadMenuOpen: false, pendingCapture: null,
   pendingImages: [],
   askStartedAt: 0, capturing: false, hoverOn: false, interactiveOn: null,
+  // The live feed carries every delegation (any harness, any workspace). The
+  // chat only consumes the run its own ask started: askRunId is unknown until
+  // that run's run_start arrives, so askAwaitingRun latches onto the first
+  // Wisp-ask run_start seen after the ask was posted.
+  askRunId: null, askAwaitingRun: false, workspace: '',
 };
+const ASK_HARNESS = 'wisp-hotkey';
 const images = {};
 let ringRaf = null, ringEnd = 0, ringTotal = 0;
 const focusQueue = [];
@@ -1727,12 +1736,13 @@ function addEntry(kind, text, ts, meta) {
     lastStream._kind === kind &&
     now - lastStream._ts < 6000
   ) {
-    lastStream._raw += text;
-    lastStream._ts = now;
-    if (!lastStream._raf) {
-      lastStream._raf = requestAnimationFrame(() => {
-        lastStream._raf = null;
-        renderEntryBody(lastStream);
+    const entry = lastStream;
+    entry._raw += text;
+    entry._ts = now;
+    if (!entry._raf) {
+      entry._raf = requestAnimationFrame(() => {
+        entry._raf = null;
+        renderEntryBody(entry);
         const scroller = $('streamScroll');
         if (S.autoscroll) scroller.scrollTop = scroller.scrollHeight;
       });
@@ -1791,7 +1801,9 @@ function pushActivity(kind, text, options, ts) {
 
 let streamLines = 0;
 function burst(count) {
-  if (S.anim === 'off') return;
+  // `.spark` has no animation under reduced motion, so animationend would never
+  // fire and the nodes would pile up.
+  if (S.anim === 'off' || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   const rect = $('creature').getBoundingClientRect();
   const radius = Math.max(rect.width, 90) * 0.5;
   for (let i = 0; i < count; i++) {
@@ -1823,10 +1835,14 @@ function jitter() {
 
 function parseResetSeconds(text) {
   if (!text) return null;
-  const direct = String(text).match(/([0-9]+)\s*([smhdw])/i);
-  if (!direct) return null;
   const units = { s: 1, m: 60, h: 3600, d: 86400, w: 604800 };
-  return parseInt(direct[1], 10) * (units[direct[2].toLowerCase()] || 1);
+  let total = 0;
+  let matched = false;
+  for (const part of String(text).matchAll(/([0-9]+)\s*([smhdw])/gi)) {
+    total += parseInt(part[1], 10) * units[part[2].toLowerCase()];
+    matched = true;
+  }
+  return matched ? total : null;
 }
 
 function startCountdown(resetsText) {
@@ -1862,7 +1878,8 @@ function beginRun(ev) {
   focusQueue.forEach((line) => line.remove());
   focusQueue.length = 0;
   lastFocus = { kind: '', el: null, ts: 0 };
-  lastStream = { kind: '', body: null, ts: 0 };
+  if (lastStream && lastStream._raf) cancelAnimationFrame(lastStream._raf);
+  lastStream = null;
   $('focusLines').innerHTML = '';
   $('streamLines').innerHTML = '';
   $('focusEmpty').style.display = '';
@@ -1955,10 +1972,26 @@ async function loadHistory() {
   } catch (err) { }
 }
 
+function normalizePath(value) {
+  return String(value || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+}
+
+function isOwnAskStart(ev) {
+  if (!S.askAwaitingRun || S.replaying) return false;
+  const meta = ev.meta || {};
+  if (meta.replay || meta.harness !== ASK_HARNESS) return false;
+  return !S.workspace || !meta.workspace || normalizePath(meta.workspace) === normalizePath(S.workspace);
+}
+
 function handleEvent(ev) {
   S.lastEventAt = Date.now();
   if (S.state === 'impatient') setState('deliberating');
-  if (S.chatPending && S.chatStream) {
+  if (ev.kind === 'run_start' && isOwnAskStart(ev)) {
+    S.askRunId = ev.run_id;
+    S.askAwaitingRun = false;
+  }
+  const ownAsk = !!S.askRunId && ev.run_id === S.askRunId;
+  if (ownAsk && S.chatPending && S.chatStream) {
     if (ev.kind === 'thinking' || ev.kind === 'text') {
       chatAppendDelta('text', ev.text);
     } else if (ev.kind === 'tool_call') {
@@ -2036,7 +2069,7 @@ function handleEvent(ev) {
       break;
     case 'run_end':
       endRun(ev);
-      finalizeAsk();
+      if (ownAsk) finalizeAsk();
       break;
     default: break;
   }
@@ -2048,7 +2081,8 @@ function connect(file) {
   const url = file ? '/events?file=' + encodeURIComponent(file) : '/events';
   es = new EventSource(url);
   es.addEventListener('reset', (message) => {
-    const data = JSON.parse(message.data);
+    let data;
+    try { data = JSON.parse(message.data); } catch (err) { return; }
     const changed = !!data.file && data.file !== S.currentFile;
     S.currentFile = data.file || null;
     if (!data.replay) {
@@ -2172,6 +2206,7 @@ async function loadStatus() {
     const response = await fetch('/api/status');
     const data = await response.json();
     applyTestMode(!!data.test_mode);
+    S.workspace = data.workspace || '';
     $('stServer').textContent = data.server.name + ' v' + data.server.version;
     $('stPort').textContent = String(data.port);
     $('stWatching').textContent = S.currentFile || 'idle';
@@ -2446,8 +2481,7 @@ function chatScroll(force) {
 
 function newChat() {
   S.chatThread = null;
-  S.chatPending = false;
-  S.chatStream = null;
+  clearAsk();
   S.pendingCapture = null;
   S.pendingImages = [];
   renderCtxChip();
@@ -2641,6 +2675,8 @@ async function sendAsk(prompt, captureOverride) {
   renderCtxChip();
   renderAttachRow();
   setMode('chat');
+  S.askRunId = null;
+  S.askAwaitingRun = true;
   try {
     const response = await fetch('/api/ask', {
       method: 'POST',
@@ -2648,25 +2684,33 @@ async function sendAsk(prompt, captureOverride) {
       body: JSON.stringify(body),
     });
     const data = await response.json().catch(() => ({}));
-    if (response.status === 409) { toast(data.message || 'Wisp is busy.'); return; }
-    if (!response.ok) { toast(data.error || 'Ask failed.'); return; }
+    if (response.status === 409) { S.askAwaitingRun = false; toast(data.message || 'Wisp is busy.'); return; }
+    if (!response.ok) { S.askAwaitingRun = false; toast(data.error || 'Ask failed.'); return; }
     S.chatPending = true;
     S.askStartedAt = Date.now();
     const thread = await waitForAskStart(data.thread_id);
     if (thread) { S.chatThread = thread; renderChat(); }
     $('chatText').value = '';
     autoGrowChatText();
-    S.chatStream = appendStreamingAssistant();
+    // The ask may already have finished (and been reconciled) while we waited.
+    if (S.chatPending) S.chatStream = appendStreamingAssistant();
     updateChatStatus();
   } catch (err) {
+    S.askAwaitingRun = false;
     toast('Ask failed: ' + err);
   }
 }
 
-async function finalizeAsk() {
-  if (!S.chatPending) return;
+function clearAsk() {
   S.chatPending = false;
   S.chatStream = null;
+  S.askRunId = null;
+  S.askAwaitingRun = false;
+}
+
+async function finalizeAsk() {
+  if (!S.chatPending) return;
+  clearAsk();
   if (S.chatThread) {
     await openThread(S.chatThread.id);
   }
@@ -2683,8 +2727,7 @@ async function reconcilePendingAsk() {
     const data = await response.json();
     if (!data.thread || threadHasPendingAsk(data.thread)) return;
     S.chatThread = data.thread;
-    S.chatPending = false;
-    S.chatStream = null;
+    clearAsk();
     renderChat();
     updateChatStatus();
     loadChatThreads();
@@ -2794,7 +2837,7 @@ function autoGrowChatText() {
 }
 
 function initNativeShell() {
-  if (!(window.pywebview && window.pywebview.api)) return;
+  if (S.native || !(window.pywebview && window.pywebview.api)) return;
   S.native = true;
   S.electronShell = window.pywebview.shell === 'electron';
   document.body.classList.add('native');
@@ -2835,6 +2878,9 @@ function initNativeShell() {
     const pinned = await nativeCall('toggle_pin');
     $('pinBtn').classList.toggle('active', !!pinned);
   });
+  Promise.resolve(nativeCall('is_pinned'))
+    .then((pinned) => $('pinBtn').classList.toggle('active', !!pinned))
+    .catch(() => { });
 }
 window.addEventListener('pywebviewready', initNativeShell);
 
@@ -2945,6 +2991,13 @@ function bind() {
   });
   document.addEventListener('keydown', (event) => {
     if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') return;
+    if (event.key === 'Escape') {
+      if (S.settingsOpen) closeDrawer();
+      if (S.modelMenuOpen) closeModelMenu();
+      if (S.threadMenuOpen) closeThreadMenu();
+      return;
+    }
+    if (event.ctrlKey || event.altKey || event.metaKey) return;
     if (event.key === '1') setMode('emotion');
     if (event.key === '2') setMode('focus');
     if (event.key === '3') setMode('stream');
@@ -2952,7 +3005,6 @@ function bind() {
     if (event.key === '5') setMode('verdict');
     if (event.key === '6') setMode('history');
     if (event.key === 's' || event.key === 'S') (S.settingsOpen ? closeDrawer() : openDrawer());
-    if (event.key === 'Escape') { closeDrawer(); closeModelMenu(); }
   });
 
   const hoverZones = () => [
