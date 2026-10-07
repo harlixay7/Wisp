@@ -263,6 +263,8 @@ body.electron #app.settings .widget{width:336px;height:452px}
 .e-kind.done{color:#6fae8f}
 .e-kind.text{color:#c9a86a}
 .e-kind.sys{color:#8a7fae}
+.e-kind.task{color:#4ade80;font-weight:700}
+.entry.task-entry .e-body{color:#e2e8f0;white-space:pre-wrap}
 .e-body{font-size:10.5px;line-height:1.6;color:var(--dim);word-break:break-word}
 .e-tool-name{font-family:var(--mono);font-size:9px;color:var(--text);margin-right:6px}
 
@@ -1355,8 +1357,8 @@ const app = $('app');
 const MODES = ['emotion', 'focus', 'stream', 'chat', 'verdict', 'history'];
 const SIZES = { emotion: [288, 248], focus: [320, 356], stream: [470, 340], chat: [440, 420], verdict: [352, 372], history: [392, 372] };
 const SETTINGS_SIZE = [336, 452];
-const KIND_LABEL = { think: 'THINK', tool: 'TOOL', result: 'DONE', text: 'TEXT', stderr: 'WARN', raw: 'RAW', sys: 'SYS' };
-const KIND_CLASS = { think: 'think', tool: 'tool', result: 'done', text: 'text', stderr: 'sys', raw: 'sys', sys: 'sys' };
+const KIND_LABEL = { task: 'TASK', think: 'THINK', tool: 'TOOL', result: 'DONE', text: 'TEXT', stderr: 'WARN', raw: 'RAW', sys: 'SYS' };
+const KIND_CLASS = { task: 'task', think: 'think', tool: 'tool', result: 'done', text: 'text', stderr: 'sys', raw: 'sys', sys: 'sys' };
 
 const S = {
   state: 'dormant', runActive: false, replaying: false, lastEventAt: 0,
@@ -1741,7 +1743,7 @@ function addEntry(kind, text, ts, meta) {
   }
   $('streamEmpty').style.display = 'none';
   const entry = document.createElement('div');
-  entry.className = 'entry';
+  entry.className = 'entry' + (KIND_CLASS[kind] ? ' ' + KIND_CLASS[kind] + '-entry' : '');
   const metaRow = document.createElement('div');
   metaRow.className = 'e-meta';
   const time = document.createElement('span');
@@ -1975,6 +1977,11 @@ function handleEvent(ev) {
       setState('deliberating');
       S.counters.thoughts++; renderCounters();
       pushActivity('think', ev.text, undefined, ev.ts);
+      addEntry('think', ev.text, ev.ts);
+      break;
+    case 'task':
+      setState('deliberating');
+      addEntry('task', ev.text, ev.ts);
       break;
     case 'tool_call':
       setState('reaching');

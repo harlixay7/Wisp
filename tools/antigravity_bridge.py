@@ -1946,6 +1946,13 @@ def run_bridge(config: BridgeConfig, launcher: LaunchFn | None = None) -> Bridge
         harness=config.envelope.harness,
         prompt_chars=len(config.envelope.prompt),
     )
+    # Surface the delegation task itself in the live feed: without this, an
+    # operator watching the widget sees the creature react but never sees
+    # WHAT was asked (convergence-loop operator report).
+    task_preview = config.envelope.prompt
+    if len(task_preview) > 4000:
+        task_preview = task_preview[:4000] + "\n\u2026 (truncated; full prompt in the report)"
+    _emit("task", task_preview, model=config.model, harness=config.envelope.harness)
 
     def _execute(model_name: str) -> AttemptResult:
         current_model["name"] = model_name
