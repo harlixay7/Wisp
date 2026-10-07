@@ -52,9 +52,9 @@ from tools.antigravity_aggregate import (  # noqa: E402
 from tools.antigravity_containment import (  # noqa: E402
     _CREATE_SUSPENDED,
     CONTAINMENT_LABELS,
+    _assign_to_job_object,
     _close_job_object,
     _create_job_object,
-    _get_kernel32,
     _resume_primary_thread,
     _signal_process_group,
     _terminate_process_tree,
@@ -596,8 +596,8 @@ def launch_contained(
     """Spawns ``command`` inside an OS containment boundary and captures everything.
 
     On Windows the child is assigned to a Job Object configured with
-    ``JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`` so a forced stop annihilates the
-    entire process tree; the ``AssignProcessToJobObject`` return value is
+    ``JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`` so a forced stop kills the entire
+    process tree; the ``AssignProcessToJobObject`` return value is
     checked, and an assignment failure degrades containment to taskkill-based
     tree termination and is recorded on the attempt (``containment`` field) so
     it can surface in warnings and reports. On POSIX the child starts a new
@@ -636,14 +636,7 @@ def launch_contained(
 
     containment = "process-group" if os.name != "nt" else "taskkill-fallback"
     if job_handle:
-        assigned = False
-        try:
-            assigned = bool(
-                _get_kernel32().AssignProcessToJobObject(job_handle, int(proc._handle))
-            )
-        except Exception:
-            assigned = False
-        if assigned:
+        if _assign_to_job_object(job_handle, int(proc._handle)):
             containment = "job-object"
         else:
             _close_job_object(job_handle)
@@ -652,8 +645,9 @@ def launch_contained(
         try:
             _resume_primary_thread(proc.pid)
         except BaseException:
-            # Any failure (OSError, KeyboardInterrupt, ctypes errors) must
-            # never leak a permanently suspended process (GATE-4 FL-001).
+            # Whatever failed (OSError, KeyboardInterrupt, ctypes), never leave
+            # the child frozen in CREATE_SUSPENDED; kill the tree before
+            # re-raising.
             _terminate_process_tree(proc, job_handle)
             raise
 
@@ -668,13 +662,17 @@ def launch_contained(
                     try:
                         raw_line_sink(name, line)
                     except Exception:
+                        # A failing live sink must never interrupt pipe
+                        # draining; the line is already captured.
                         pass
-        except Exception:
+        except (OSError, ValueError):
+            # The pipe can be closed underneath the reader while the tree is
+            # killed; everything read so far is already captured.
             pass
         finally:
             try:
                 pipe.close()
-            except Exception:
+            except OSError:
                 pass
 
     threads: list[threading.Thread] = []
@@ -708,11 +706,11 @@ def launch_contained(
 
     try:
         proc.wait(timeout=_READER_JOIN_TIMEOUT_SECONDS)
-    except Exception:
+    except subprocess.TimeoutExpired:
         _terminate_process_tree(proc, job_handle)
         try:
             proc.wait(timeout=_READER_JOIN_TIMEOUT_SECONDS)
-        except Exception:
+        except subprocess.TimeoutExpired:
             pass
 
     for thread in threads:
