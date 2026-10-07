@@ -437,14 +437,14 @@ class TestStringArrayContract:
     def test_mcp_string_skills_are_comma_split(self) -> None:
         """The previously-dead comma-split branch becomes reachable and
         functional for skill selectors (CAN-012)."""
-        from tools.antigravity_mcp_server import _bounded
+        from tools.antigravity_mcp_server import _bounded_list
 
-        assert _bounded("a,b", kind="array", limit=10, name="skills", split_commas=True) == [
+        assert _bounded_list("a,b", limit=10, name="skills", split_commas=True) == [
             "a",
             "b",
         ]
-        assert _bounded(
-            "single claim", kind="array", limit=10, name="claims_to_falsify"
+        assert _bounded_list(
+            "single claim", limit=10, name="claims_to_falsify"
         ) == ["single claim"]
 
 
