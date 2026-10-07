@@ -388,7 +388,10 @@ def capture_auto(
     started = start_snip()
     if started.get("kind") != "snip_started":
         return started
-    destination = new_capture_path(live_dir)
+    try:
+        destination = new_capture_path(live_dir)
+    except OSError as exc:
+        return {"kind": "none", "reason": f"Could not prepare the capture folder: {exc}"}
     if wait_for_clipboard_image(destination, timeout_seconds=snip_timeout_seconds):
         prune_captures(live_dir)
         return {"kind": "image", "path": str(destination)}

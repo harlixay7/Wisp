@@ -1357,6 +1357,9 @@ class ViewerHandler(BaseHTTPRequestHandler):
                     result["rel_path"] = relative_to_workspace(
                         Path(result["path"]), self.context.workspace
                     )
+            except OSError as exc:
+                self._send_json(500, {"error": f"capture failed: {exc}"})
+                return
             finally:
                 try:
                     self.context.capture_lock.release()
@@ -1383,7 +1386,11 @@ class ViewerHandler(BaseHTTPRequestHandler):
             if len(blob) > MAX_UPLOAD_BYTES:
                 self._send_json(413, {"error": "image exceeds 12 MB limit"})
                 return
-            saved = save_pasted_image(self.context.live_dir, blob)
+            try:
+                saved = save_pasted_image(self.context.live_dir, blob)
+            except OSError as exc:
+                self._send_json(500, {"error": f"could not save the image: {exc}"})
+                return
             if saved is None:
                 self._send_json(400, {"error": "unsupported image format"})
                 return

@@ -122,3 +122,44 @@ class TestIpv6Loopback:
             )
             assert status == 403
             assert data["error"] == "origin not allowed"
+
+
+PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+
+
+class TestImageSaveFailures:
+    def test_upload_reports_500_when_the_capture_dir_cannot_be_created(
+        self, tmp_path: Path
+    ) -> None:
+        import base64
+
+        with serving("127.0.0.1", tmp_path) as (host, port, live):
+            # A regular file where the captures directory belongs makes mkdir fail.
+            (live.parent / "captures").write_text("blocker", encoding="utf-8")
+            body = json.dumps({"data": base64.b64encode(PNG_BYTES).decode("ascii")})
+            status, data = _request(
+                host,
+                port,
+                "POST",
+                "/api/chat/upload",
+                body=body.encode("utf-8"),
+                headers={"X-Wisp-Request": "1", "Content-Type": "application/json"},
+            )
+            assert status == 500
+            assert "could not save the image" in data["error"]
+
+    def test_capture_auto_returns_none_when_the_capture_dir_is_blocked(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from tools import wisp_capture
+
+        monkeypatch.delenv("WISP_CAPTURE_FAKE", raising=False)
+        monkeypatch.setattr(wisp_capture, "start_snip", lambda: {"kind": "snip_started"})
+        live = tmp_path / ".antigravity-reports" / "live"
+        live.mkdir(parents=True)
+        (live.parent / "captures").write_text("blocker", encoding="utf-8")
+
+        result = wisp_capture.capture_auto(live, prefer_selection=False)
+
+        assert result["kind"] == "none"
+        assert result["reason"]
