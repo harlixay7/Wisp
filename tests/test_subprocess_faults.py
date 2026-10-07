@@ -27,6 +27,25 @@ from tools.antigravity_bridge import launch_contained, sanitize_environment
 PYTHON = sys.executable
 
 
+def _pid_alive(pid: int) -> bool:
+    """True while ``pid`` runs; a zombie awaiting its reaper counts as dead."""
+    if Path("/proc/self/stat").exists():
+        stat = Path(f"/proc/{pid}/stat")
+        try:
+            # The state letter follows the parenthesized command name.
+            state = stat.read_text(encoding="utf-8").rsplit(")", 1)[1].split()[0]
+        except (OSError, IndexError):
+            return False
+        return state not in ("Z", "X")
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
 def _run(script: str, timeout: int, tmp_path: Path):
     return launch_contained(
         [PYTHON, "-c", script],
@@ -106,6 +125,39 @@ class TestTreeContainment:
         time.sleep(0.8)
         after = heartbeat.stat().st_mtime
         assert before == after, "grandchild survived the tree kill"
+
+    @pytest.mark.skipif(os.name == "nt", reason="POSIX process-group semantics")
+    def test_group_member_left_behind_on_clean_exit_is_killed(self, tmp_path: Path) -> None:
+        # The child exits 0 right away but leaves a sleeper in its process
+        # group (like a stdio server agy spawned). Nothing may outlive the run.
+        pid_file = tmp_path / "grandchild.pid"
+        parent = tmp_path / "parent.py"
+        parent.write_text(
+            "import subprocess, sys\n"
+            "child = subprocess.Popen(\n"
+            "    [sys.executable, '-c', 'import time; time.sleep(60)'],\n"
+            "    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,\n"
+            ")\n"
+            f"open({str(pid_file)!r}, 'w').write(str(child.pid))\n"
+            "print('parent-done', flush=True)\n",
+            encoding="utf-8",
+        )
+        result = launch_contained(
+            [PYTHON, str(parent)],
+            cwd=tmp_path,
+            env=sanitize_environment(),
+            hard_timeout_seconds=30,
+        )
+        assert result.exit_code == 0
+        assert "parent-done" in result.stdout
+        grandchild = int(pid_file.read_text(encoding="utf-8"))
+        deadline = time.monotonic() + 5
+        while _pid_alive(grandchild) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        alive = _pid_alive(grandchild)
+        if alive:
+            os.kill(grandchild, 9)
+        assert not alive, "process-group member outlived launch_contained"
 
     def test_partial_output_survives_timeout_kill(self, tmp_path: Path) -> None:
         script = "print('early-lines', flush=True)\nimport time\ntime.sleep(120)\n"

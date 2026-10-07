@@ -369,23 +369,30 @@ def _terminate_process_tree(proc: subprocess.Popen, job_handle: int | None) -> N
             pass
         return
 
-    try:
-        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-    except Exception:
-        try:
-            proc.terminate()
-        except Exception:
-            pass
+    _signal_process_group(proc.pid, signal.SIGTERM)
     try:
         proc.wait(timeout=5)
-    except Exception:
+    except subprocess.TimeoutExpired:
+        _signal_process_group(proc.pid, signal.SIGKILL)
         try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-        except Exception:
-            try:
-                proc.kill()
-            except Exception:
-                pass
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+
+
+def _signal_process_group(pgid: int, sig: int) -> None:
+    """Signals every member of a POSIX process group, tolerating an empty group.
+
+    The child is started with ``start_new_session=True``, so its PID is also
+    its process-group ID. Signalling that ID directly keeps working after the
+    group leader has been reaped, as long as any member survives (os.getpgid
+    would fail at that point). ProcessLookupError means nothing is left, and
+    PermissionError means the remaining members are no longer ours to signal.
+    """
+    try:
+        os.killpg(pgid, sig)
+    except (ProcessLookupError, PermissionError):
+        pass
 
 
 def _is_blocked_variable(name: str) -> bool:
@@ -1024,6 +1031,10 @@ def launch_contained(
     for thread in threads:
         thread.join(timeout=_READER_JOIN_TIMEOUT_SECONDS)
 
+    if os.name != "nt":
+        # Parity with KILL_ON_JOB_CLOSE: whatever the child left running in its
+        # session (e.g. stdio servers agy spawned) must not outlive the run.
+        _signal_process_group(proc.pid, signal.SIGKILL)
     _close_job_object(job_handle)
 
     duration = time.monotonic() - start
