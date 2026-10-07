@@ -158,41 +158,67 @@ def _step_delta(step: Mapping[str, Any]) -> str:
 class _DeltaBuffer:
     """Accumulates stream deltas, folding duplicate and cumulative resends.
 
-    Maintains the accumulated text incrementally so coalescing stays linear:
-    the pre-fix implementation re-joined the whole chunk list on every delta
-    (quadratic in the number of fragments for genuinely incremental streams).
-    ``chunks`` is retained because per-chunk notes are rendered individually.
+    accumulated is maintained incrementally, so each append extends one string
+    instead of re-joining every chunk. chunks is kept because pre-final notes
+    render each chunk separately.
     """
 
-    __slots__ = ("chunks", "accumulated")
+    __slots__ = ("chunks", "accumulated", "_chunk_set")
 
     def __init__(self) -> None:
         self.chunks: list[str] = []
         self.accumulated: str = ""
+        self._chunk_set: set[str] = set()
 
     def append(self, delta: str) -> None:
         if not delta:
             return
-        if not self.chunks:
-            self.chunks = [delta]
-            self.accumulated = delta
+        if not self.chunks or delta.startswith(self.accumulated):
+            # First delta, or a cumulative resend that supersedes everything.
+            self._reset(delta)
             return
-        if delta == self.chunks[-1]:
-            return
-        if delta.startswith(self.accumulated):
-            self.chunks = [delta]
-            self.accumulated = delta
-            return
-        if self.accumulated.endswith(delta):
+        if delta == self.chunks[-1] or self.accumulated.endswith(delta):
             return
         self.chunks.append(delta)
+        self._chunk_set.add(delta)
         self.accumulated += delta
+
+    def _reset(self, delta: str) -> None:
+        self.chunks = [delta]
+        self._chunk_set = {delta}
+        self.accumulated = delta
 
     def text(self) -> str:
         return self.accumulated
 
+    def __contains__(self, chunk: object) -> bool:
+        """O(1) membership test against the current chunks."""
+        return chunk in self._chunk_set
+
     def __bool__(self) -> bool:
         return bool(self.chunks)
+
+
+class _FragmentSet:
+    """Ordered, de-duplicated fragments plus a count of collapsed repeats."""
+
+    __slots__ = ("items", "duplicates", "_seen")
+
+    def __init__(self) -> None:
+        self.items: list[str] = []
+        self.duplicates = 0
+        self._seen: set[str] = set()
+
+    def add(self, fragment: str) -> bool:
+        """Records ``fragment``; returns False (and counts it) when already seen."""
+        if fragment in self._seen:
+            self.duplicates += 1
+            return False
+        self._seen.add(fragment)
+        self.items.append(fragment)
+        return True
+
+
 def _render_lifecycle(
     init_labels: list[str],
     step_meta: dict[int, dict[str, Any]],
@@ -284,51 +310,29 @@ def aggregate_stream_json(raw: str) -> str:
     if not raw or not raw.strip():
         return "_Antigravity produced no stdout._"
 
-    reasoning: list[str] = []
-    actions: list[str] = []
-    duplicate_actions = 0
-    tool_results: list[str] = []
-    duplicate_tool_results = 0
-    notes: list[str] = []
+    reasoning = _FragmentSet()
+    actions = _FragmentSet()
+    tool_results = _FragmentSet()
     unparsed: list[str] = []
     init_labels: list[str] = []
     final_response = ""
     final_status = ""
-    final_from_envelope = False
     step_meta: dict[int, dict[str, Any]] = {}
     step_texts: dict[int, _DeltaBuffer] = {}
     other_texts = _DeltaBuffer()
     tool_counts: dict[str, int] = {}
-    # Companion seen-sets keep dedupe O(1) per fragment (CAN-008: membership
-    # scans against the unbounded lists were quadratic in fragment count).
-    seen_reasoning: set[str] = set()
-    seen_actions: set[str] = set()
-    seen_tool_results: set[str] = set()
 
     def _collect_fragments(data: Any) -> bool:
-        nonlocal duplicate_actions, duplicate_tool_results
+        """Files every fragment of a non-step event; True when any was new."""
         collected = False
         for kind, fragment in _extract_fragments(data):
             if kind == "reasoning":
-                if fragment not in seen_reasoning:
-                    seen_reasoning.add(fragment)
-                    reasoning.append(fragment)
-                    collected = True
+                collected |= reasoning.add(fragment)
             elif kind == "action":
-                if fragment not in seen_actions:
-                    seen_actions.add(fragment)
-                    actions.append(fragment)
-                    collected = True
-                else:
-                    duplicate_actions += 1
+                collected |= actions.add(fragment)
             elif kind == "tool_result":
-                if fragment not in seen_tool_results:
-                    seen_tool_results.add(fragment)
-                    tool_results.append(fragment)
-                    collected = True
-                else:
-                    duplicate_tool_results += 1
-            elif fragment not in other_texts.chunks:
+                collected |= tool_results.add(fragment)
+            elif fragment not in other_texts:
                 other_texts.append(fragment)
                 collected = True
         return collected
@@ -360,7 +364,6 @@ def aggregate_stream_json(raw: str) -> str:
                 response = inner.get("response")
                 if isinstance(response, str) and response.strip():
                     final_response = response.strip()
-                    final_from_envelope = True
                 status = inner.get("status")
                 if isinstance(status, str) and status.strip():
                     final_status = status.strip()
@@ -368,7 +371,6 @@ def aggregate_stream_json(raw: str) -> str:
                     init_labels.append(_beacon_label(data))
             elif isinstance(inner, str) and inner.strip():
                 final_response = inner.strip()
-                final_from_envelope = True
             else:
                 init_labels.append(_beacon_label(data))
             continue
@@ -381,13 +383,10 @@ def aggregate_stream_json(raw: str) -> str:
             step_type = str(step.get("step_type") or "")
             delta = _step_delta(step)
             if delta:
-                if index is not None:
-                    buffer = step_texts.get(index)
-                    if buffer is None:
-                        buffer = step_texts[index] = _DeltaBuffer()
-                    buffer.append(delta)
-                else:
+                if index is None:
                     other_texts.append(delta)
+                else:
+                    step_texts.setdefault(index, _DeltaBuffer()).append(delta)
             tool_name = step.get("tool_name")
             if isinstance(tool_name, str) and tool_name.strip():
                 name = tool_name.strip()
@@ -398,27 +397,18 @@ def aggregate_stream_json(raw: str) -> str:
                         names.append(name)
                 else:
                     tool_counts[name] = tool_counts.get(name, 0) + 1
-            if step.get("tool_calls") is not None:
-                for kind, fragment in _extract_fragments(step):
-                    if kind == "action":
-                        if fragment not in seen_actions:
-                            seen_actions.add(fragment)
-                            actions.append(fragment)
-                        else:
-                            duplicate_actions += 1
+            # Step text arrives through the delta above. Action fragments are
+            # taken only from steps that carry ``tool_calls``; other steps are
+            # summarized by ``tool_name``.
+            has_tool_calls = step.get("tool_calls") is not None
             for kind, fragment in _extract_fragments(step):
-                if kind == "reasoning" and fragment not in seen_reasoning:
-                    seen_reasoning.add(fragment)
-                    reasoning.append(fragment)
+                if kind == "action":
+                    if has_tool_calls:
+                        actions.add(fragment)
+                elif kind == "reasoning":
+                    reasoning.add(fragment)
                 elif kind == "tool_result":
-                    if fragment not in seen_tool_results:
-                        # AST-001 (fresh re-audit): the add was missing here,
-                        # so identical tool_results repeated across step
-                        # updates were never deduplicated or counted.
-                        seen_tool_results.add(fragment)
-                        tool_results.append(fragment)
-                    else:
-                        duplicate_tool_results += 1
+                    tool_results.add(fragment)
             if index is not None and (state or step_type):
                 meta = step_meta.setdefault(index, {})
                 if state:
@@ -436,48 +426,43 @@ def aggregate_stream_json(raw: str) -> str:
             else:
                 unparsed.append(candidate)
 
+    # Without a ``result`` envelope, the highest-index step (or, failing that,
+    # the un-indexed text) stands in as the response and is flagged inferred.
     inferred_final = False
+    step_notes: list[str] = []
     if step_texts:
+        final_step = step_texts.pop(max(step_texts))
         if not final_response:
-            final_index = max(step_texts)
-            final_response = step_texts.pop(final_index).text().strip()
+            final_response = final_step.text().strip()
             inferred_final = True
-        else:
-            step_texts.pop(max(step_texts), None)
-        notes = [
-            f"**step {index}** \u2014 {buffer.text().strip()}"
+        step_notes = [
+            f"**step {index}** — {buffer.text().strip()}"
             for index, buffer in sorted(step_texts.items())
             if buffer.text().strip()
         ]
+    other_notes = [chunk.strip() for chunk in other_texts.chunks if chunk.strip()]
     if other_texts and not final_response:
         final_response = other_texts.text().strip()
         inferred_final = True
-        remaining = [chunk.strip() for chunk in other_texts.chunks if chunk.strip()]
-        remaining = [chunk for chunk in remaining if chunk != final_response]
-    elif other_texts:
-        remaining = [chunk.strip() for chunk in other_texts.chunks if chunk.strip()]
-    else:
-        remaining = []
-    notes = remaining + notes
-    if final_from_envelope:
-        inferred_final = False
+        other_notes = [chunk for chunk in other_notes if chunk != final_response]
+    notes = other_notes + step_notes
 
     for index in sorted(step_meta):
         for name in step_meta[index].get("tools", []):
             tool_counts[name] = tool_counts.get(name, 0) + 1
-    if tool_counts:
-        actions = [
-            f"- `{name}`" + (f" \u00d7{count}" if count > 1 else "")
-            for name, count in sorted(tool_counts.items(), key=lambda item: (-item[1], item[0]))
-        ] + actions
-    if duplicate_actions:
-        actions.append(
-            f"- _{duplicate_actions} duplicate action fragment(s) collapsed; "
+    action_lines = [
+        f"- `{name}`" + (f" ×{count}" if count > 1 else "")
+        for name, count in sorted(tool_counts.items(), key=lambda item: (-item[1], item[0]))
+    ] + actions.items
+    if actions.duplicates:
+        action_lines.append(
+            f"- _{actions.duplicates} duplicate action fragment(s) collapsed; "
             "full detail lives in the raw `attempts[]` streams_"
         )
-    if duplicate_tool_results:
-        tool_results.append(
-            f"- _{duplicate_tool_results} duplicate tool-result fragment(s) collapsed; "
+    tool_result_lines = list(tool_results.items)
+    if tool_results.duplicates:
+        tool_result_lines.append(
+            f"- _{tool_results.duplicates} duplicate tool-result fragment(s) collapsed; "
             "full detail lives in the raw `attempts[]` streams_"
         )
     text_chars = (
@@ -490,9 +475,9 @@ def aggregate_stream_json(raw: str) -> str:
         final_response,
         inferred_final,
         notes,
-        reasoning,
-        actions,
-        tool_results,
+        reasoning.items,
+        action_lines,
+        tool_result_lines,
         lifecycle,
         unparsed,
     )
