@@ -41,6 +41,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import webbrowser
@@ -532,7 +533,14 @@ def collect_status(context: "ViewerContext") -> dict[str, Any]:
 
 
 def switch_account() -> dict[str, Any]:
-    """Clears the stored Google credential and opens an interactive agy sign-in."""
+    """Clears the stored Google credential and opens an interactive agy sign-in.
+
+    The credential lives in the Windows Credential Manager and the sign-in
+    opens in a new console window, so this is Windows-only; elsewhere it
+    reports that nothing was done instead of claiming success.
+    """
+    if os.name != "nt":
+        return {"status": "unsupported", "output": "Account switching is Windows-only."}
     output: list[str] = []
     try:
         result = subprocess.run(
@@ -546,16 +554,17 @@ def switch_account() -> dict[str, Any]:
         message = (result.stdout or "").strip() or (result.stderr or "").strip()
         if message:
             output.append(message)
-    except Exception as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
         output.append(f"credential clear failed: {exc}")
     executable = resolve_agy_executable()
     try:
+        # An argument list (no shell) keeps a path with spaces or shell
+        # metacharacters from being reinterpreted by cmd.exe.
         subprocess.Popen(
-            f'start "Antigravity Sign-In" cmd.exe /k "{executable}"',
-            shell=True,
+            ["cmd.exe", "/c", "start", "Antigravity Sign-In", "cmd.exe", "/k", executable]
         )
         output.append("Sign-in terminal launched — complete the browser OAuth flow.")
-    except Exception as exc:
+    except OSError as exc:
         output.append(f"sign-in terminal failed to launch: {exc}")
     return {"status": "switching", "output": "\n".join(output)}
 
@@ -940,8 +949,37 @@ def _build_request_with_headers(url: str, headers: dict[str, str]) -> Any:
     return Request(url, data=b"{}", headers=headers, method="POST")
 
 
+def _read_proc_file(pid: int, name: str) -> bytes | None:
+    try:
+        return (Path("/proc") / str(int(pid)) / name).read_bytes()
+    except OSError:
+        return None
+
+
+def _ps_field(pid: int, field_name: str) -> str | None:
+    """One ``ps`` column for ``pid``; the fallback where /proc is absent (macOS)."""
+    try:
+        result = subprocess.run(
+            ["ps", "-p", str(int(pid)), "-o", f"{field_name}="],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return (result.stdout or "").strip() or None
+
+
 def pid_image_name(pid: int) -> str | None:
     """Best-effort image name of a live PID (None when the PID does not exist)."""
+    if os.name != "nt":
+        comm = _read_proc_file(pid, "comm")
+        if comm is not None:
+            return comm.decode("utf-8", errors="replace").strip().lower() or None
+        name = _ps_field(pid, "comm")
+        return Path(name).name.lower() if name else None
     try:
         result = subprocess.run(
             ["tasklist", "/FI", f"PID eq {int(pid)}", "/FO", "CSV", "/NH"],
@@ -951,16 +989,22 @@ def pid_image_name(pid: int) -> str | None:
             errors="replace",
             timeout=15,
         )
-        line = (result.stdout or "").strip().splitlines()
-        if not line or line[0].upper().startswith(("INFO", '"ERROR"')):
-            return None
-        return line[0].split(",")[0].strip('"').lower() or None
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         return None
+    line = (result.stdout or "").strip().splitlines()
+    if not line or line[0].upper().startswith(("INFO", '"ERROR"')):
+        return None
+    return line[0].split(",")[0].strip('"').lower() or None
 
 
 def pid_command_line(pid: int) -> str | None:
     """Best-effort command line of a live PID (None when absent or unknown)."""
+    if os.name != "nt":
+        raw = _read_proc_file(pid, "cmdline")
+        if raw is not None:
+            # /proc/<pid>/cmdline separates arguments with NUL bytes.
+            return raw.replace(b"\0", b" ").decode("utf-8", errors="replace").strip() or None
+        return _ps_field(pid, "command")
     try:
         result = subprocess.run(
             [
@@ -977,10 +1021,28 @@ def pid_command_line(pid: int) -> str | None:
             errors="replace",
             timeout=20,
         )
-        line = (result.stdout or "").strip()
-        return line or None
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         return None
+    return (result.stdout or "").strip() or None
+
+
+def terminate_process(pid: int) -> bool:
+    """Forcefully stops ``pid`` (and, on Windows, its child tree)."""
+    if os.name != "nt":
+        try:
+            os.kill(int(pid), signal.SIGTERM)
+        except (OSError, ValueError):
+            return False
+        return True
+    try:
+        result = subprocess.run(
+            ["taskkill", "/PID", str(int(pid)), "/T", "/F"],
+            capture_output=True,
+            timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
 
 
 def looks_like_viewer_process(image_name: str | None, pid: int | None = None) -> bool:
@@ -1757,6 +1819,8 @@ class _RECT(ctypes.Structure):
 
 def work_area() -> tuple[int, int, int, int]:
     """Returns the desktop work area (excludes the taskbar) or a 1080p fallback."""
+    if os.name != "nt":
+        return 0, 0, 1920, 1080
     try:
         rect = _RECT()
         if ctypes.windll.user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(rect), 0):
@@ -1776,7 +1840,7 @@ def bottom_right_position(width: int, height: int, margin: int = 18) -> tuple[in
 
 def open_app_window(url: str, width: int, height: int) -> bool:
     x, y = bottom_right_position(width, height)
-    profile = Path(os.environ.get("TEMP", ".")) / "wisp-app-profile"
+    profile = Path(tempfile.gettempdir()) / "wisp-app-profile"
     for executable in _browser_candidates():
         try:
             subprocess.Popen(
@@ -2118,15 +2182,7 @@ def main(argv: list[str] | None = None) -> int:
                     f"pid {existing['pid']} verified as a viewer process "
                     f"({image}); forcing."
                 )
-                try:
-                    subprocess.run(
-                        ["taskkill", "/PID", str(existing["pid"]), "/T", "/F"],
-                        capture_output=True,
-                        timeout=15,
-                    )
-                    replaced = True
-                except Exception:
-                    replaced = False
+                replaced = terminate_process(existing["pid"])
             else:
                 print(
                     f"[wisp-viewer] refusing to replace: the manifest PID "
