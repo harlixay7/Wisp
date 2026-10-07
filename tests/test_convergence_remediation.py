@@ -446,3 +446,59 @@ class TestStringArrayContract:
         assert _bounded(
             "single claim", kind="array", limit=10, name="claims_to_falsify"
         ) == ["single claim"]
+
+
+# ------------------------------------------------- Round 3 (fresh audit)
+
+
+class TestRound3Findings:
+    def test_viewer_version_tracks_product_version(self) -> None:
+        """AST-001: SERVER_VERSION was hardcoded 1.0.0 while the product is at
+        WISP_VERSION; status API, Server header, and UI footer all derive."""
+        import tools.antigravity_viewer as viewer
+        from tools.antigravity_bridge import WISP_VERSION
+
+        assert viewer.SERVER_VERSION == WISP_VERSION
+
+    def test_invalid_handle_constant_is_pointer_sized(self) -> None:
+        """AST-002: (HANDLE)-1 through c_void_p is pointer-sized; the 32-bit
+        0xFFFFFFFF literal never matched the 64-bit value, so snapshot
+        failure detection was dead on x64."""
+        import ctypes
+
+        from tools import antigravity_bridge as bridge
+
+        expected = ctypes.c_void_p(-1).value
+        assert bridge._INVALID_WINDOWS_HANDLE == expected
+        if ctypes.sizeof(ctypes.c_void_p) == 8:
+            assert bridge._INVALID_WINDOWS_HANDLE == 0xFFFFFFFFFFFFFFFF
+
+    def test_shell_lockfile_version_parity(self) -> None:
+        """PKG-001: package-lock.json must not lag package.json after bumps."""
+        import hashlib
+
+        root = Path(__file__).resolve().parent.parent
+        package = json.loads(
+            (root / "tools" / "wisp_shell" / "package.json").read_text(encoding="utf-8")
+        )
+        lock = json.loads(
+            (root / "tools" / "wisp_shell" / "package-lock.json").read_text(encoding="utf-8")
+        )
+        assert lock["version"] == package["version"]
+        assert lock["packages"][""]["version"] == package["version"]
+
+    def test_agents_blocklist_enumeration_matches_bridge(self) -> None:
+        """DOC-001: the AGENTS.md charter must enumerate the credential
+        families the bridge actually strips (stale list = doc drift)."""
+        agents = (Path(__file__).resolve().parent.parent / "AGENTS.md").read_text(
+            encoding="utf-8"
+        )
+        for marker in (
+            "GOOGLE_APPLICATION_CREDENTIALS",
+            "GOOGLE_API_KEY",
+            "GIT_ASKPASS",
+            "NODE_OPTIONS",
+            "PYTHONPATH",
+            "BLOCKED_ENV_PREFIXES",
+        ):
+            assert marker in agents, f"AGENTS.md missing {marker}"

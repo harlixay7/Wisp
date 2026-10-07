@@ -56,6 +56,7 @@ try:
     from tools.antigravity_bridge import (
         DEFAULT_FALLBACK_MODEL,
         DEFAULT_PRIMARY_MODEL,
+        WISP_VERSION,
         AttemptResult,
         BridgeConfig,
         DelegationEnvelope,
@@ -81,6 +82,7 @@ except ImportError:
     from tools.antigravity_bridge import (  # type: ignore[no-redef]
         DEFAULT_FALLBACK_MODEL,
         DEFAULT_PRIMARY_MODEL,
+        WISP_VERSION,
         AttemptResult,
         BridgeConfig,
         DelegationEnvelope,
@@ -110,7 +112,7 @@ except ImportError:
     )
 
 SERVER_NAME = "wisp-viewer"
-SERVER_VERSION = "1.0.0"
+SERVER_VERSION = WISP_VERSION
 DEFAULT_PORT = 48477
 PORT_SCAN_RANGE = 50
 SESSION_HEADER = "X-Wisp-Request"

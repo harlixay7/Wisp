@@ -731,7 +731,10 @@ CONTAINMENT_LABELS: dict[str, str] = {
 _CREATE_SUSPENDED = 0x0004
 _TH32CS_SNAPTHREAD = 0x00000004
 _THREAD_SUSPEND_RESUME = 0x0002
-_INVALID_WINDOWS_HANDLE = 0xFFFFFFFF
+# (HANDLE)-1 as returned by Win32 through c_void_p: 32-bit on 32-bit
+# Python, 0xFFFF_FFFF_FFFF_FFFF on 64-bit. Compute, never hardcode
+# (fresh audit AST-002: the 32-bit literal never matched on x64).
+_INVALID_WINDOWS_HANDLE = ctypes.c_void_p(-1).value
 
 
 class _THREADENTRY32(ctypes.Structure):

@@ -219,9 +219,16 @@ python tools/antigravity_bridge.py --list-skills
 - **Containment** — Windows: Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`;
   POSIX: new session + process-group kill. Killing the bridge kills the whole tree
   (including servers or test harnesses `agy` spawned).
-- **Credential hygiene** — variables matching `AWS_*`, `AZURE_*`, `GITHUB_*`, `GH_*`,
-  `SSH_*`, `OPENAI_*`, `ANTHROPIC_*`, and `GEMINI_API_KEY` are stripped from the child
-  environment. `~/.gemini/bin` is prepended to `PATH`. OAuth state stays in the OS
+- **Credential hygiene (blocklist)** — credential-bearing variables matching
+  `AWS_*`, `AZURE_*`, `GITHUB_*`, `GH_*`, `SSH_*`, `OPENAI_*`, `ANTHROPIC_*`,
+  `GEMINI_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_API_KEY`,
+  `HF_*`/`HUGGINGFACE*`, `GIT_ASKPASS`, `SSH_ASKPASS`, plus the
+  interpreter/package-manager injection vectors `NODE_OPTIONS`, `PYTHONPATH`,
+  `PYTHONHOME`, `PYTHONSTARTUP`, and `NPM_CONFIG_USERCONFIG`, are stripped
+  from the child environment. The authoritative enumeration is
+  `tools/antigravity_bridge.py::BLOCKED_ENV_PREFIXES` / `BLOCKED_ENV_EXACT`;
+  this is hygiene hardening, not a sandbox (see `SECURITY.md`).
+  `~/.gemini/bin` is prepended to `PATH`. OAuth state stays in the OS
   credential store / `~/.gemini` cache; the bridge never reads or transmits it.
 - **Transient recovery** — connection resets, 5xx, and empty responses are retried
   with exponential backoff. An exit-0 run with no output is treated as a failure,
