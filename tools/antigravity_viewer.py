@@ -175,7 +175,15 @@ FALLBACK_MODELS: tuple[str, ...] = (
 )
 DEFAULT_SELECTED_MODEL = "gemini-3.8-flash-high"
 DEFAULT_SELECTED_FALLBACK = "claude-opus-4-6-thinking"
-_MODEL_CACHE: dict[str, Any] = {"ts": 0.0, "models": []}
+MODEL_CACHE_TTL_SECONDS = 600.0
+# Short TTL for the fallback list: long enough that a missing or broken agy
+# is not re-spawned (up to AGY_MODELS_TIMEOUT_SECONDS) on every request, short
+# enough that a freshly installed agy is picked up quickly.
+MODEL_FALLBACK_TTL_SECONDS = 60.0
+AGY_MODELS_TIMEOUT_SECONDS = 25
+_MODEL_CACHE: dict[str, Any] = {"ts": 0.0, "models": [], "source": ""}
+# Held across the agy call so concurrent requests share one subprocess.
+_MODEL_CACHE_LOCK = threading.Lock()
 _MODEL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
@@ -189,33 +197,44 @@ def parse_model_list(output: str) -> list[str]:
 
 
 def list_models() -> dict[str, Any]:
-    now = time.time()
-    cached = _MODEL_CACHE.get("models") or []
-    if cached and now - float(_MODEL_CACHE.get("ts") or 0) < 600:
-        return {"models": cached, "source": "cache"}
-    try:
-        result = subprocess.run(
-            [resolve_agy_executable(), "models"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=25,
-        )
-        models = parse_model_list(result.stdout or "")
-        if models:
-            _MODEL_CACHE["models"] = models
-            _MODEL_CACHE["ts"] = now
-            return {"models": models, "source": "agy"}
-    except Exception:
-        pass
-    return {"models": list(FALLBACK_MODELS), "source": "fallback"}
+    """Model inventory from ``agy models``, falling back to a built-in list.
+
+    Both outcomes are cached (the fallback briefly) so callers can treat this
+    as cheap after the first call.
+    """
+    with _MODEL_CACHE_LOCK:
+        now = time.time()
+        cached = list(_MODEL_CACHE.get("models") or [])
+        source = _MODEL_CACHE.get("source")
+        age = now - float(_MODEL_CACHE.get("ts") or 0.0)
+        if cached and source == "agy" and age < MODEL_CACHE_TTL_SECONDS:
+            return {"models": cached, "source": "cache"}
+        if cached and source == "fallback" and age < MODEL_FALLBACK_TTL_SECONDS:
+            return {"models": cached, "source": "fallback"}
+        models: list[str] = []
+        try:
+            result = subprocess.run(
+                [resolve_agy_executable(), "models"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=AGY_MODELS_TIMEOUT_SECONDS,
+            )
+            models = parse_model_list(result.stdout or "")
+        except (OSError, subprocess.SubprocessError):
+            models = []
+        source = "agy" if models else "fallback"
+        if not models:
+            models = list(FALLBACK_MODELS)
+        _MODEL_CACHE.update({"ts": now, "models": models, "source": source})
+        return {"models": list(models), "source": source}
 
 
 def _model_known(model: str) -> tuple[bool, list[str]]:
-    """Checks a model id against the current inventory (cached by list_models)."""
-    known = list_models().get("models") or []
-    return (model in known), list(known)
+    """Checks a model id against the (cached) inventory; returns it as well."""
+    known = list_models()["models"]
+    return (model in known), known
 
 
 def settings_path(live_dir: Path) -> Path:
@@ -1303,6 +1322,7 @@ class ViewerHandler(BaseHTTPRequestHandler):
             if not isinstance(payload, dict):
                 self._send_json(400, {"error": "body must be an object"})
                 return
+            inventory = list_models()["models"]
             unknown = [
                 key
                 for key in ("model", "fallback_model", "chat_model")
@@ -1316,20 +1336,19 @@ class ViewerHandler(BaseHTTPRequestHandler):
                     for key in ("model", "fallback_model", "chat_model")
                     if isinstance(payload.get(key), str)
                     and payload[key].strip()
-                    and not _model_known(payload[key].strip())[0]
+                    and payload[key].strip() not in inventory
                 ]
             if unknown:
                 self._send_json(
                     400,
                     {
                         "error": f"unknown model for: {', '.join(unknown)}",
-                        "known_models": list_models().get("models") or [],
+                        "known_models": inventory,
                         "hint": "resubmit with allow_custom=true to force a custom id",
                     },
                 )
                 return
             settings = write_viewer_settings(self.context.live_dir, payload)
-            inventory = list_models().get("models") or []
             for key in ("model", "fallback_model", "chat_model"):
                 value = settings.get(key)
                 settings[f"{key}_known"] = bool(value) and value in inventory

@@ -127,6 +127,59 @@ class TestIpv6Loopback:
 PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
 
 
+class TestModelInventoryCache:
+    @pytest.fixture()
+    def agy_calls(self, monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
+        import subprocess
+
+        calls: list[list[str]] = []
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+            calls.append(list(args))
+            return subprocess.CompletedProcess(args, 1, stdout="", stderr="no agy")
+
+        monkeypatch.setattr(viewer, "_MODEL_CACHE", {"ts": 0.0, "models": [], "source": ""})
+        monkeypatch.setattr(viewer, "resolve_agy_executable", lambda: "agy")
+        monkeypatch.setattr(viewer.subprocess, "run", fake_run)
+        return calls
+
+    def test_fallback_inventory_is_cached(self, agy_calls: list[list[str]]) -> None:
+        first = viewer.list_models()
+        second = viewer.list_models()
+        assert first["source"] == second["source"] == "fallback"
+        assert first["models"] == list(viewer.FALLBACK_MODELS)
+        assert len(agy_calls) == 1
+
+    def test_fallback_cache_expires(self, agy_calls: list[list[str]]) -> None:
+        viewer.list_models()
+        viewer._MODEL_CACHE["ts"] -= viewer.MODEL_FALLBACK_TTL_SECONDS + 1
+        viewer.list_models()
+        assert len(agy_calls) == 2
+
+    def test_model_post_queries_the_inventory_once(
+        self, agy_calls: list[list[str]], tmp_path: Path
+    ) -> None:
+        with serving("127.0.0.1", tmp_path) as (host, port, _live):
+            body = json.dumps(
+                {
+                    "model": "claude-sonnet-4-6",
+                    "fallback_model": "claude-opus-4-6-thinking",
+                    "chat_model": "gemini-3.8-flash-high",
+                }
+            ).encode("utf-8")
+            status, data = _request(
+                host,
+                port,
+                "POST",
+                "/api/model",
+                body=body,
+                headers={"X-Wisp-Request": "1", "Content-Type": "application/json"},
+            )
+        assert status == 200, data
+        assert data["model_known"] is True
+        assert len(agy_calls) == 1
+
+
 class TestImageSaveFailures:
     def test_upload_reports_500_when_the_capture_dir_cannot_be_created(
         self, tmp_path: Path
