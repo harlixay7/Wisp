@@ -6,11 +6,11 @@ is ``{role: "user"|"assistant", content, ts, meta}``. Reads are defensive: a
 corrupt file, or one with schema-level garbage (non-dict message entries),
 is treated as missing/malformed rather than crashing the viewer.
 
-Storage bounds (audit #28): message content is capped at
-``MAX_MESSAGE_CHARS``, a thread holds at most ``MAX_MESSAGES_PER_THREAD``
-messages (oldest pruned), and persistence failures surface as a ``False``
-return from :meth:`ChatStore.save` so callers can tell the operator instead
-of silently reporting success.
+Storage bounds: message content is capped at ``MAX_MESSAGE_CHARS``, a thread
+holds at most ``MAX_MESSAGES_PER_THREAD`` messages (oldest pruned), and
+persistence failures surface as a ``False`` return from
+:meth:`ChatStore.save` (``None`` from the mutators) so callers can tell the
+operator instead of silently reporting success.
 """
 
 from __future__ import annotations
@@ -23,8 +23,8 @@ import sys
 import threading
 import time
 import uuid
-from pathlib import Path
 from collections.abc import Callable, Sequence
+from pathlib import Path
 from typing import Any
 
 CHAT_DIR_NAME = "chat"
@@ -43,6 +43,27 @@ _THREAD_ID_PATTERN = re.compile(r"^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$")
 # thread (e.g. a pin) from overwriting each other's changes. Reentrant so a
 # mutator can call save() while holding it.
 _STORE_LOCK = threading.RLock()
+
+
+def write_json_atomic(path: Path, payload: Any) -> None:
+    """Writes ``payload`` as JSON so readers never observe a partial file.
+
+    The document goes to a uniquely named sibling temp file first and is then
+    moved into place with ``os.replace``. Raises ``OSError`` (or ``TypeError``
+    for unserializable payloads); the temp file is removed on failure.
+    """
+    text = json.dumps(payload, indent=2, ensure_ascii=False)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f"{path.name}.tmp.{uuid.uuid4().hex[:8]}")
+    try:
+        temporary.write_text(text, encoding="utf-8")
+        os.replace(temporary, path)
+    except BaseException:
+        try:
+            temporary.unlink()
+        except OSError:
+            pass
+        raise
 
 
 def new_thread_id() -> str:
@@ -77,7 +98,8 @@ class ChatStore:
 
     @staticmethod
     def _sanitize_messages(messages: Any) -> list[dict[str, Any]]:
-        """Keeps only well-formed message dicts (audit #26: schema-level defense)."""
+        """Keeps only well-formed message dicts; hand-edited or corrupt files
+        must not crash listing."""
         if not isinstance(messages, list):
             return []
         clean: list[dict[str, Any]] = []
@@ -117,36 +139,21 @@ class ChatStore:
     def save(self, thread: dict[str, Any]) -> bool:
         """Persists a thread atomically; returns ``False`` when persistence fails.
 
-        Failures are also written to stderr so a silent-loss scenario becomes
-        visible in any process that launched the viewer or chat CLI (audit #25).
+        Failures are also written to stderr so data loss is visible to
+        whichever process launched the viewer or chat CLI.
         """
-        with _STORE_LOCK:
-            return self._write(thread)
-
-    def _write(self, thread: dict[str, Any]) -> bool:
-        temporary: Path | None = None
         try:
-            self.directory.mkdir(parents=True, exist_ok=True)
             path = self._path(str(thread.get("id") or ""))
-            payload = json.dumps(thread, indent=2, ensure_ascii=False)
-            temporary = path.with_name(path.name + ".tmp." + uuid.uuid4().hex[:8])
-            temporary.write_text(payload, encoding="utf-8")
-            os.replace(temporary, path)
-            temporary = None
+            with _STORE_LOCK:
+                write_json_atomic(path, thread)
             return True
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, TypeError) as exc:
             try:
                 sys.stderr.write(f"[wisp-chat] failed to persist thread: {exc}\n")
                 sys.stderr.flush()
             except OSError:
                 pass
             return False
-        finally:
-            if temporary is not None:
-                try:
-                    temporary.unlink()
-                except OSError:
-                    pass
 
     def delete_thread(self, thread_id: str) -> bool:
         try:
@@ -162,11 +169,10 @@ class ChatStore:
 
     @staticmethod
     def is_fake_thread(thread: dict[str, Any], include_legacy_markers: bool = False) -> bool:
-        """A thread is fake only when ``meta.fake`` says so (audit #29).
+        """True when any assistant message has ``meta.fake`` set to True.
 
-        Content-marker matching once ran unconditionally and could delete a
-        genuine thread whose text merely quoted a canned test phrase; it now
-        runs only in explicit legacy-migration mode.
+        Content-marker matching is opt-in (``include_legacy_markers``) because
+        a real thread may quote a canned test phrase.
         """
         for message in thread.get("messages") or []:
             if not isinstance(message, dict) or message.get("role") != "assistant":
@@ -183,8 +189,9 @@ class ChatStore:
     def clean_fake_threads(self, include_legacy_markers: bool = False) -> list[str]:
         """Deletes fake threads; returns their ids.
 
-        ``include_legacy_markers=True`` also matches the canned pre-#29 test
-        phrases — a legacy migration path, not the default.
+        ``include_legacy_markers=True`` also matches the canned test phrases
+        that threads created before ``meta.fake`` existed carry; it is a
+        migration path, not the default.
         """
         removed: list[str] = []
         try:

@@ -3,37 +3,53 @@
 Two capture modes:
 
 * **selection** — simulate Ctrl+C, read the newly copied text, then restore
-  the previous *text* clipboard content. Honesty note (audit #30): if the
-  clipboard held non-text content (an image, files), the target app's copy
-  replaces it and only text can be restored — non-text clipboard state is NOT
-  preserved. The docstring previously claimed image clipboards were never
-  touched, which was wrong.
+  the previous *text* clipboard content. If the clipboard held non-text
+  content (an image, files), the target app's copy replaces it and only text
+  can be restored: non-text clipboard state is NOT preserved.
 * **snip** — launch the native Windows snip overlay (``ms-screenclip:``) and
   wait for the resulting image to appear on the clipboard, saving it as PNG.
 
-Everything is timeout-bound, crash-contained, and returns structured results;
-no function raises into the server request handler. ``WISP_CAPTURE_FAKE``
-provides deterministic responses for tests (``text:<value>``,
-``image:<path>``, ``none``).
+The capture entry points are timeout-bound and return structured results
+instead of raising, so the server request handler always gets an answer.
+The storage helpers (:func:`new_capture_path`, :func:`save_pasted_image`)
+raise ``OSError`` when the capture directory cannot be written; callers turn
+that into an error response. ``WISP_CAPTURE_FAKE`` provides deterministic
+responses for tests (``text:<value>``, ``image:<path>``, ``none``).
 """
 
 from __future__ import annotations
 
+import ctypes
 import os
 import shutil
 import subprocess
 import time
+from ctypes import wintypes
 from pathlib import Path
 from typing import Any
 
-CAPTURE_DIR_NAME = Path(".antigravity-reports") / "captures"
 SCRIPTS_DIR = Path(__file__).resolve().parent / "capture"
 COPY_SELECTION_SCRIPT = SCRIPTS_DIR / "copy_selection.ps1"
 SAVE_CLIPBOARD_SCRIPT = SCRIPTS_DIR / "save_clipboard_png.ps1"
+CAPTURE_DIR_NAME = "captures"
 DEFAULT_KEEP_CAPTURES = 50
 SELECTION_TIMEOUT_MS = 750
 SNIP_TIMEOUT_SECONDS = 60
 CREATE_NO_WINDOW = 0x08000000
+
+# Win32 constants.
+CF_UNICODETEXT = 13
+GMEM_MOVEABLE = 0x0002
+KEYEVENTF_KEYUP = 0x0002
+KEY_DOWN_MASK = 0x8000
+VK_CONTROL = 0x11
+VK_C = 0x43
+_MODIFIER_VKS = (0x11, 0x12, 0x10, 0x5B, 0x5C)  # Ctrl, Alt, Shift, LWin, RWin
+
+
+def capture_dir(live_dir: Path) -> Path:
+    """Directory holding snips and pasted images (a sibling of the live dir)."""
+    return Path(live_dir).parent / CAPTURE_DIR_NAME
 
 
 def _powershell() -> str:
@@ -58,8 +74,6 @@ def fake_capture() -> dict[str, Any] | None:
     raw = (os.environ.get("WISP_CAPTURE_FAKE") or "").strip()
     if not raw:
         return None
-    if raw == "none":
-        return {"kind": "none", "reason": "Nothing was captured."}
     if raw.startswith("text:"):
         return {"kind": "text", "text": raw[len("text:") :]}
     if raw.startswith("image:"):
@@ -68,9 +82,6 @@ def fake_capture() -> dict[str, Any] | None:
 
 
 def _clipboard_text() -> str | None:
-    import ctypes
-    from ctypes import wintypes
-
     user32 = ctypes.windll.user32
     kernel32 = ctypes.windll.kernel32
     user32.OpenClipboard.argtypes = [wintypes.HWND]
@@ -83,7 +94,7 @@ def _clipboard_text() -> str | None:
     if not user32.OpenClipboard(None):
         return None
     try:
-        handle = user32.GetClipboardData(13)
+        handle = user32.GetClipboardData(CF_UNICODETEXT)
         if not handle:
             return None
         pointer = kernel32.GlobalLock(handle)
@@ -98,10 +109,7 @@ def _clipboard_text() -> str | None:
 
 
 def _set_clipboard_text(text: str) -> None:
-    """Public wrapper binding the real Win32 modules (see the internal form)."""
-    import ctypes
-    from ctypes import wintypes
-
+    """Places ``text`` on the real clipboard (binds the Win32 modules)."""
     user32 = ctypes.windll.user32
     kernel32 = ctypes.windll.kernel32
     kernel32.GlobalAlloc.restype = wintypes.HGLOBAL
@@ -118,18 +126,15 @@ def _set_clipboard_text(text: str) -> None:
 def _set_clipboard_text_with(user32: Any, kernel32: Any, text: str) -> None:
     """Places ``text`` on the clipboard without leaking the allocated HGLOBAL.
 
-    Ownership rules (audit #31, GATE-4 FL-008): memory allocated with
-    ``GlobalAlloc`` is either (a) transferred to the system by a *successful*
-    ``SetClipboardData`` — never freed afterwards — or (b) released with
-    ``GlobalFree`` by the single ownership check in the ``finally``, which
-    fires on every failure or exception path (allocation, lock, clipboard
-    open, unexpected error between open and set).
+    Memory from ``GlobalAlloc`` belongs to the system only after a
+    *successful* ``SetClipboardData`` and must never be freed afterwards.
+    On every other path (lock failure, clipboard busy, set failure, or an
+    exception in between) the ``finally`` frees it. The modules are
+    parameters so tests can drive each path with fakes.
     """
-    import ctypes
-
     buffer = ctypes.create_unicode_buffer(str(text) + "\x00")
     size = ctypes.sizeof(buffer)
-    handle = kernel32.GlobalAlloc(0x0002, size)
+    handle = kernel32.GlobalAlloc(GMEM_MOVEABLE, size)
     if not handle:
         return
     transferred = False
@@ -143,7 +148,7 @@ def _set_clipboard_text_with(user32: Any, kernel32: Any, text: str) -> None:
             if user32.OpenClipboard(None):
                 try:
                     user32.EmptyClipboard()
-                    transferred = bool(user32.SetClipboardData(13, handle))
+                    transferred = bool(user32.SetClipboardData(CF_UNICODETEXT, handle))
                 finally:
                     user32.CloseClipboard()
     finally:
@@ -151,10 +156,8 @@ def _set_clipboard_text_with(user32: Any, kernel32: Any, text: str) -> None:
             try:
                 kernel32.GlobalFree(handle)
             except Exception:
+                # A failing free must not mask the error that got us here.
                 pass
-
-
-_MODIFIER_VKS = (0x11, 0x12, 0x10, 0x5B, 0x5C)  # Ctrl, Alt, Shift, LWin, RWin
 
 
 def _wait_for_modifier_release(timeout_ms: int = 900) -> None:
@@ -163,24 +166,17 @@ def _wait_for_modifier_release(timeout_ms: int = 900) -> None:
     The global hotkey fires on key-down; synthesizing Ctrl+C while the operator
     still holds Ctrl+Alt makes the target app see Ctrl+Alt+C and skip the copy.
     """
-    import ctypes
-
     user32 = ctypes.windll.user32
     deadline = time.monotonic() + (timeout_ms / 1000.0)
     while time.monotonic() < deadline:
-        if not any(user32.GetAsyncKeyState(vk) & 0x8000 for vk in _MODIFIER_VKS):
+        if not any(user32.GetAsyncKeyState(vk) & KEY_DOWN_MASK for vk in _MODIFIER_VKS):
             return
         time.sleep(0.02)
 
 
 def _native_selection_capture(timeout_ms: int = 650) -> str | None:
     """Ctrl+C round-trip implemented with Win32 APIs (no PowerShell startup)."""
-    import ctypes
-
     user32 = ctypes.windll.user32
-    VK_CONTROL = 0x11
-    VK_C = 0x43
-    KEYEVENTF_KEYUP = 0x0002
     _wait_for_modifier_release()
     previous = _clipboard_text()
     sequence_before = user32.GetClipboardSequenceNumber()
@@ -201,6 +197,8 @@ def _native_selection_capture(timeout_ms: int = 650) -> str | None:
         try:
             _set_clipboard_text(previous)
         except Exception:
+            # Restoring the operator's clipboard is best effort; the capture
+            # itself already succeeded or failed on its own terms.
             pass
     return found
 
@@ -215,6 +213,8 @@ def capture_selection(timeout_ms: int = SELECTION_TIMEOUT_MS) -> dict[str, Any]:
             return {"kind": "text", "text": text}
         return {"kind": "none", "reason": "No text selection detected."}
     except Exception:
+        # Any ctypes/Win32 failure in the fast path falls through to the
+        # slower but more tolerant PowerShell helper below.
         pass
 
     script = COPY_SELECTION_SCRIPT
@@ -276,14 +276,18 @@ def wait_for_clipboard_image(
     return result.returncode == 0 and destination.is_file()
 
 
-def new_capture_path(live_dir: Path) -> Path:
-    """Returns a collision-proof capture path (audit #32: random suffix, like
-    the paste path, so two snips finishing in the same second never clobber
-    each other)."""
-    capture_dir = Path(live_dir).parent / "captures"
-    capture_dir.mkdir(parents=True, exist_ok=True)
+def _unique_capture_name(prefix: str, suffix: str) -> str:
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    return capture_dir / f"capture-{stamp}-{os.urandom(3).hex()}.png"
+    return f"{prefix}-{stamp}-{os.urandom(3).hex()}{suffix}"
+
+
+def new_capture_path(live_dir: Path) -> Path:
+    """Returns a unique capture path; the random suffix stops two snips in the
+    same second from overwriting each other. Raises ``OSError`` when the
+    capture directory cannot be created."""
+    directory = capture_dir(live_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory / _unique_capture_name("capture", ".png")
 
 
 def relative_to_workspace(path: Path, workspace: Path) -> str:
@@ -295,9 +299,10 @@ def relative_to_workspace(path: Path, workspace: Path) -> str:
     concern rather than a containment boundary.
     """
     try:
-        return str(Path(path).resolve().relative_to(Path(workspace).resolve())).replace("\\", "/")
+        relative = Path(path).resolve().relative_to(Path(workspace).resolve())
     except ValueError:
         return str(path).replace("\\", "/")
+    return str(relative).replace("\\", "/")
 
 
 def sniff_image_suffix(blob: bytes) -> str | None:
@@ -314,27 +319,29 @@ def sniff_image_suffix(blob: bytes) -> str | None:
 
 
 def save_pasted_image(live_dir: Path, blob: bytes) -> Path | None:
-    """Persists a pasted image under the captures dir; returns None for junk."""
+    """Persists a pasted image under the captures dir; returns None for junk.
+
+    Raises ``OSError`` when the image cannot be written.
+    """
     suffix = sniff_image_suffix(blob)
     if suffix is None:
         return None
-    capture_dir = Path(live_dir).parent / "captures"
-    capture_dir.mkdir(parents=True, exist_ok=True)
-    stamp = time.strftime("%Y%m%d-%H%M%S")
-    destination = capture_dir / f"paste-{stamp}-{os.urandom(3).hex()}{suffix}"
+    directory = capture_dir(live_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    destination = directory / _unique_capture_name("paste", suffix)
     destination.write_bytes(blob)
     prune_captures(live_dir)
     return destination
 
 
 def prune_captures(live_dir: Path, keep: int = DEFAULT_KEEP_CAPTURES) -> None:
-    capture_dir = Path(live_dir).parent / "captures"
+    directory = capture_dir(live_dir)
     try:
         files = sorted(
             (
                 path
                 for pattern in ("capture-*.png", "paste-*")
-                for path in capture_dir.glob(pattern)
+                for path in directory.glob(pattern)
                 if path.is_file()
             ),
             key=lambda path: path.stat().st_mtime,
@@ -362,8 +369,6 @@ def capture_auto(
     """
     scripted = fake_capture()
     if scripted is not None:
-        if scripted.get("kind") == "image":
-            scripted["path"] = str(scripted.get("path") or "")
         try:
             fake_delay = float(os.environ.get("WISP_CAPTURE_FAKE_DELAY", "0") or 0)
         except ValueError:
