@@ -1168,8 +1168,15 @@ class TestRegistryMounting:
         assert str(registry) in dirs
 
     def test_foreign_workspace_falls_back_and_mounts_registry(
-        self, tmp_path: Path
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        # This test verifies fallback + mounting logic, not payload size; the
+        # shipped registry's two-skill render exceeds the real Windows command
+        # line, so neutralize the preflight (its behavior has dedicated tests
+        # in tests/test_convergence_remediation.py::TestArgvLimitPreflight).
+        monkeypatch.setattr(
+            "tools.antigravity_bridge._WINDOWS_COMMAND_LINE_LIMIT", 10**9
+        )
         launcher = ScriptedLauncher([successful_attempt("CRITIQUE")])
         config = BridgeConfig(
             envelope=envelope(),

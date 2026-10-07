@@ -90,6 +90,7 @@ DEFAULT_GRACE_SECONDS = 60
 WISP_VERSION = "1.1.0"
 REPORT_SCHEMA_VERSION = 1
 DEFAULT_KEEP_REPORTS = 50
+_WINDOWS_COMMAND_LINE_LIMIT = 30_000
 
 RATE_LIMIT_PATTERN = re.compile(
     r"RESOURCE_EXHAUSTED|code\s*429|individual quota reached|rate limit exceeded",
@@ -1330,23 +1331,31 @@ def aggregate_stream_json(raw: str) -> str:
     step_texts: dict[int, _DeltaBuffer] = {}
     other_texts = _DeltaBuffer()
     tool_counts: dict[str, int] = {}
+    # Companion seen-sets keep dedupe O(1) per fragment (CAN-008: membership
+    # scans against the unbounded lists were quadratic in fragment count).
+    seen_reasoning: set[str] = set()
+    seen_actions: set[str] = set()
+    seen_tool_results: set[str] = set()
 
     def _collect_fragments(data: Any) -> bool:
         nonlocal duplicate_actions, duplicate_tool_results
         collected = False
         for kind, fragment in _extract_fragments(data):
             if kind == "reasoning":
-                if fragment not in reasoning:
+                if fragment not in seen_reasoning:
+                    seen_reasoning.add(fragment)
                     reasoning.append(fragment)
                     collected = True
             elif kind == "action":
-                if fragment not in actions:
+                if fragment not in seen_actions:
+                    seen_actions.add(fragment)
                     actions.append(fragment)
                     collected = True
                 else:
                     duplicate_actions += 1
             elif kind == "tool_result":
-                if fragment not in tool_results:
+                if fragment not in seen_tool_results:
+                    seen_tool_results.add(fragment)
                     tool_results.append(fragment)
                     collected = True
                 else:
@@ -1424,15 +1433,17 @@ def aggregate_stream_json(raw: str) -> str:
             if step.get("tool_calls") is not None:
                 for kind, fragment in _extract_fragments(step):
                     if kind == "action":
-                        if fragment not in actions:
+                        if fragment not in seen_actions:
+                            seen_actions.add(fragment)
                             actions.append(fragment)
                         else:
                             duplicate_actions += 1
             for kind, fragment in _extract_fragments(step):
-                if kind == "reasoning" and fragment not in reasoning:
+                if kind == "reasoning" and fragment not in seen_reasoning:
+                    seen_reasoning.add(fragment)
                     reasoning.append(fragment)
                 elif kind == "tool_result":
-                    if fragment not in tool_results:
+                    if fragment not in seen_tool_results:
                         tool_results.append(fragment)
                     else:
                         duplicate_tool_results += 1
@@ -1841,6 +1852,32 @@ def run_bridge(config: BridgeConfig, launcher: LaunchFn | None = None) -> Bridge
         registry_path if skill_blocks else None,
     )
     env = sanitize_environment()
+
+    # NEW-001 (convergence loop): Windows CreateProcess caps a single command
+    # line at 32,767 characters. A payload plus rendered skills can exceed
+    # that, and the OS error ("filename or extension is too long") surfaces as
+    # a misleading launch failure. Fail here, before spawning, with the
+    # actionable remedy instead.
+    if os.name == "nt":
+        probe_command = build_agy_command(
+            executable,
+            payload,
+            workspace,
+            config.model,
+            config.print_timeout_seconds,
+            extra_add_dirs=extra_add_dirs,
+        )
+        command_chars = sum(len(part) + 3 for part in probe_command)
+        if command_chars > _WINDOWS_COMMAND_LINE_LIMIT:
+            return _failure_result(
+                config,
+                "Delegation payload too large for the Windows command line: "
+                f"~{command_chars} chars (limit {_WINDOWS_COMMAND_LINE_LIMIT}). "
+                "Shorten the prompt/context or activate fewer skills - the "
+                "full payload includes rendered skill instructions.",
+                exit_code=2,
+            )
+
     attempts: list[AttemptResult] = []
     launch_errors: list[str] = []
     max_retries = max(int(config.retries), 0)

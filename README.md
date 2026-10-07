@@ -6,7 +6,7 @@ The dilemma it resolves is structural: an agent that wrote the code cannot neutr
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
-![tests](https://img.shields.io/badge/tests-300%2B%20passing-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-310%20passing-brightgreen.svg)
 
 ---
 
@@ -131,6 +131,18 @@ The chat asks and the MCP server share one engine but are configured independent
 
 ---
 
+## Known limitations
+
+- **Windows command-line payload ceiling.** The delegation payload travels as
+  the `agy -p <payload>` argument, and Windows caps a single command line at
+  ~32,767 characters. Rendered skill instructions count toward that ceiling
+  (each active skill contributes its full text plus the registry manifest), so
+  combining multiple large skills with a long prompt can hit the limit. The
+  bridge fails fast before spawning, with an actionable error; keep prompts
+  tight and prefer one primary skill plus `recommended_skills` only when
+  needed. A file- or stdin-based payload channel is the longer-term fix.
+- **WebView2 asset caching.** ...
+
 ## Skill registry
 
 `Skills/` holds the adversarial skill definitions — Markdown with YAML front matter, or YAML. Every definition must carry `name`, `version`, `description`, `activation_triggers`, `input_contract`, `output_contract`, and `instructions_payload`.
@@ -148,7 +160,7 @@ Twelve skills ship with the repository, covering plan hardening, AST/wiring audi
 
 The server speaks MCP v1 over stdio; stdout carries protocol frames only, all diagnostics go to stderr. Register it once per harness — harnesses spawn and terminate it automatically.
 
-- **opencode** — already configured in this repository's `opencode.json` (`python tools/antigravity_mcp_server.py`, long tool timeout).
+- **opencode** — already configured in this repository's `opencode.json` (`cmd.exe /c tools\antigravity_mcp.cmd`, long tool timeout).
 - **Universal launcher** — `tools\antigravity_mcp.cmd` resolves the repository root, pins the model chain, and starts the server.
 - **Claude Code** — `claude mcp add antigravity -- cmd.exe /c "<repo-root>\tools\antigravity_mcp.cmd"` (adjust the path to your clone).
 - **Codex** (`~/.codex/config.toml`):
@@ -241,7 +253,7 @@ tools/
   wisp_shell/                  Electron shell (npm install once; optional)
   capture/                     PowerShell capture helpers
 Skills/                        adversarial skill registry (12 skills)
-tests/                         deterministic suite (300+ tests)
+tests/                         deterministic suite (310 tests)
 docs/                          skills repair provenance log
 images/                        creature art source masters
 AGENTS.md                      delegation gates and reconciliation rules

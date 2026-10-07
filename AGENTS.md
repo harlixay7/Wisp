@@ -280,7 +280,7 @@ python tools/antigravity_bridge.py --list-skills     # list skills
 python tools/antigravity_bridge.py --prompt "..." --skills all --dry-run   # inspect dispatch
 python tools/antigravity_bridge.py --prompt "..." --skills all            # delegate
 python tools/antigravity_bridge.py --envelope envelope.json --json        # machine-readable
-python -m pytest tests/ -q                           # deterministic suite (~3s)
+python -m pytest tests/ -q                           # deterministic suite (~90 s)
 ```
 
 Reconciliation checklist before completion:

@@ -228,6 +228,9 @@ function createWindow() {
 
 ipcMain.handle("wisp:set-view", (event, width, height) => {
   if (!win) return false;
+  if (!Number.isFinite(Number(width)) || !Number.isFinite(Number(height))) {
+    return false; // NaN from a misbehaving renderer must not reach setBounds
+  }
   const w = Math.max(200, Math.round(width));
   const h = Math.max(160, Math.round(height));
   if (!OPAQUE) {
@@ -269,8 +272,24 @@ ipcMain.handle("wisp:set-view", (event, width, height) => {
 
 ipcMain.handle("wisp:move", (event, dx, dy) => {
   if (!win) return [0, 0];
-  const [x, y] = win.getPosition();
-  win.setPosition(x + Math.round(dx), y + Math.round(dy));
+  // Renderer-supplied deltas are coerced and the result is clamped to the
+  // work area, so a misbehaving page cannot fling the always-on-top window
+  // off-screen (CAN-006).
+  const stepX = Number(dx);
+  const stepY = Number(dy);
+  if (!Number.isFinite(stepX) || !Number.isFinite(stepY)) return win.getPosition();
+  const area = screen.getPrimaryDisplay().workArea;
+  const [currentX, currentY] = win.getPosition();
+  const [width, height] = win.getSize();
+  const targetX = Math.max(
+    area.x,
+    Math.min(currentX + Math.round(stepX), area.x + area.width - width)
+  );
+  const targetY = Math.max(
+    area.y,
+    Math.min(currentY + Math.round(stepY), area.y + area.height - height)
+  );
+  win.setPosition(targetX, targetY);
   userPositioned = true;
   return win.getPosition();
 });

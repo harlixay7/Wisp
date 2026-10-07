@@ -193,8 +193,15 @@ class InvalidParams(Exception):
     """Raised for structurally invalid tool-call parameters (JSON-RPC -32602)."""
 
 
-def _bounded(value: Any, *, kind: str, limit: int, name: str) -> Any:
-    """Runtime mirror of the tool-schema bounds; raises InvalidParams on breach."""
+def _bounded(value: Any, *, kind: str, limit: int, name: str, split_commas: bool = False) -> Any:
+    """Runtime mirror of the tool-schema bounds; raises InvalidParams on breach.
+
+    ``kind="array"`` accepts a bare string for callers that pass scalars
+    (AGENTS.md documents claims/artifacts as string-or-list): with
+    ``split_commas=True`` the string is comma-split (skill selectors), without
+    it the string becomes a single-element list (free-text claims). This also
+    makes the former dead comma-split branches reachable (CAN-012/MISSED-002).
+    """
     if value is None:
         return () if kind == "array" else value
     if kind == "string":
@@ -204,14 +211,20 @@ def _bounded(value: Any, *, kind: str, limit: int, name: str) -> Any:
                 f"'{name}' exceeds its {limit}-character limit (received {len(text)})"
             )
         return text
-    items = list(value) if isinstance(value, (list, tuple)) else None
-    if items is None:
+    if isinstance(value, str):
+        if not value.strip():
+            return ()
+        parts = [part.strip() for part in value.split(",")] if split_commas else [value.strip()]
+        items = [part for part in parts if part]
+    elif isinstance(value, (list, tuple)):
+        items = list(value)
+    else:
         raise InvalidParams(f"'{name}' must be an array")
     if len(items) > limit:
         raise InvalidParams(
             f"'{name}' exceeds its {limit}-item limit (received {len(items)})"
         )
-    return value
+    return items
 
 
 def _workspace(override: str | None = None) -> Path:
@@ -400,20 +413,36 @@ def _tool_review(arguments: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         arguments.get("artifacts"), kind="array", limit=MAX_ARTIFACTS, name="artifacts"
     )
 
-    workspace = _workspace(workspace_arg)
-    if isinstance(raw_skills, str):
-        skills = tuple(part.strip() for part in raw_skills.split(",") if part.strip())
-    else:
-        skills = tuple(str(item).strip() for item in raw_skills if str(item).strip())
+    raw_skills = _bounded(
+        arguments.get("skills"),
+        kind="array",
+        limit=MAX_SKILLS,
+        name="skills",
+        split_commas=True,
+    )
+    raw_recommended = _bounded(
+        arguments.get("recommended_skills"),
+        kind="array",
+        limit=3,
+        name="recommended_skills",
+        split_commas=True,
+    )
+    raw_claims = _bounded(
+        arguments.get("claims_to_falsify"),
+        kind="array",
+        limit=MAX_CLAIMS,
+        name="claims_to_falsify",
+    )
+    raw_artifacts = _bounded(
+        arguments.get("artifacts"), kind="array", limit=MAX_ARTIFACTS, name="artifacts"
+    )
 
-    if isinstance(raw_recommended, str):
-        recommended = tuple(
-            part.strip() for part in raw_recommended.split(",") if part.strip()
-        )
-    else:
-        recommended = tuple(
-            str(item).strip() for item in raw_recommended if str(item).strip()
-        )
+    workspace = _workspace(workspace_arg)
+    skills = tuple(str(item).strip() for item in raw_skills if str(item).strip())
+
+    recommended = tuple(
+        str(item).strip() for item in raw_recommended if str(item).strip()
+    )
     if len(recommended) > 3:
         return (
             {

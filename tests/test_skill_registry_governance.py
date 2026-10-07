@@ -254,3 +254,30 @@ class TestDocCanonicalization:
             assert brand not in blob
         assert payload.get("skills"), "example must demonstrate explicit skill selection"
         assert not (ROOT / "EXAMPLE_delegation_payload.json").exists()
+
+    def test_readme_badge_matches_collected_test_count(self) -> None:
+        """Doc ground truth (CAN-009): the README tests badge must state the
+        exact number of collected tests, not a drifting approximation."""
+        import subprocess
+        import sys
+
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        match = re.search(
+            r"badge/tests-(\d+)%20passing", readme
+        )
+        assert match, "README tests badge not found"
+        claimed = int(match.group(1))
+        result = subprocess.run(
+            [sys.executable, "-m", "pytest", "tests/", "--collect-only", "-q"],
+            capture_output=True,
+            text=True,
+            cwd=str(ROOT),
+            timeout=180,
+        )
+        match_collected = re.search(r"(\d+) tests collected", result.stdout)
+        assert match_collected, result.stdout[-400:]
+        actual = int(match_collected.group(1))
+        assert claimed == actual, (
+            f"README badge claims {claimed} tests but {actual} are collected - "
+            "update the badge to the real count"
+        )

@@ -59,7 +59,7 @@ Full JSON report → <workspace>/.antigravity-reports/antigravity-report-<timest
 | `.opencode/skills/antigravity-delegation/SKILL.md` | The deployable Agent 1 skill (§2). |
 | `opencode.json` | Registers the MCP server for opencode (1-hour tool timeout). |
 | `AGENTS.md` | Harness-agnostic delegation charter (gates + reconciliation). |
-| `tests/` | ~300 deterministic tests across bridge, hardening, faults, live, MCP protocol, viewer, governance; no test invokes real `agy`. |
+| `tests/` | the deterministic suite (live count on the README badge) across bridge, hardening, faults, live, MCP protocol, viewer, governance; no test invokes real `agy`. |
 
 **Three distinct skill planes — do not confuse them:**
 
