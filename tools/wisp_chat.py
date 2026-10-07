@@ -20,10 +20,12 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Sequence
+from collections.abc import Callable, Sequence
+from typing import Any
 
 CHAT_DIR_NAME = "chat"
 MAX_TITLE_CHARS = 72
@@ -36,6 +38,11 @@ FAKE_MESSAGE_MARKERS = (
     "Risk: the retry path has no backoff bound",
 )
 _THREAD_ID_PATTERN = re.compile(r"^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$")
+# Serializes every load/mutate/save cycle. The viewer builds a ChatStore per
+# request, so a per-instance lock would not stop the ask worker and an HTTP
+# thread (e.g. a pin) from overwriting each other's changes. Reentrant so a
+# mutator can call save() while holding it.
+_STORE_LOCK = threading.RLock()
 
 
 def new_thread_id() -> str:
@@ -55,7 +62,8 @@ class ChatStore:
             raise ValueError(f"invalid thread id: {thread_id!r}")
         return self.directory / f"thread-{thread_id}.json"
 
-    def create(self, first_prompt: str) -> dict[str, Any]:
+    def create(self, first_prompt: str) -> dict[str, Any] | None:
+        """Creates and persists a new thread; ``None`` when it cannot be saved."""
         thread = {
             "id": new_thread_id(),
             "title": self._title_from(first_prompt),
@@ -65,8 +73,7 @@ class ChatStore:
             "run": None,
             "messages": [],
         }
-        self.save(thread)
-        return thread
+        return thread if self.save(thread) else None
 
     @staticmethod
     def _sanitize_messages(messages: Any) -> list[dict[str, Any]]:
@@ -113,6 +120,10 @@ class ChatStore:
         Failures are also written to stderr so a silent-loss scenario becomes
         visible in any process that launched the viewer or chat CLI (audit #25).
         """
+        with _STORE_LOCK:
+            return self._write(thread)
+
+    def _write(self, thread: dict[str, Any]) -> bool:
         temporary: Path | None = None
         try:
             self.directory.mkdir(parents=True, exist_ok=True)
@@ -143,7 +154,8 @@ class ChatStore:
         except ValueError:
             return False
         try:
-            path.unlink()
+            with _STORE_LOCK:
+                path.unlink()
             return True
         except OSError:
             return False
@@ -211,45 +223,46 @@ class ChatStore:
             raise ValueError(
                 f"message exceeds MAX_MESSAGE_CHARS ({MAX_MESSAGE_CHARS})"
             )
-        thread = self.load(thread_id)
-        if thread is None:
-            return None
-        messages: list[dict[str, Any]] = thread["messages"]
-        messages.append(
-            {
-                "role": role,
-                "content": text,
-                "ts": time.time(),
-                "meta": dict(meta or {}),
-            }
-        )
-        if len(messages) > MAX_MESSAGES_PER_THREAD:
-            # Oldest-first pruning keeps the document bounded; the cap is a
-            # storage bound, not a conversational statement.
-            del messages[: len(messages) - MAX_MESSAGES_PER_THREAD]
-        thread["updated"] = time.time()
-        self.save(thread)
-        return thread
+        message = {
+            "role": role,
+            "content": text,
+            "ts": time.time(),
+            "meta": dict(meta or {}),
+        }
+
+        def add(thread: dict[str, Any]) -> None:
+            messages: list[dict[str, Any]] = thread["messages"]
+            messages.append(message)
+            if len(messages) > MAX_MESSAGES_PER_THREAD:
+                # Oldest-first pruning keeps the document bounded; the cap is a
+                # storage bound, not a conversational statement.
+                del messages[: len(messages) - MAX_MESSAGES_PER_THREAD]
+
+        return self._mutate(thread_id, add)
 
     def update_run(
         self, thread_id: str, run: dict[str, Any] | None
     ) -> dict[str, Any] | None:
-        thread = self.load(thread_id)
-        if thread is None:
-            return None
-        thread["run"] = run
-        thread["updated"] = time.time()
-        self.save(thread)
-        return thread
+        return self._mutate(thread_id, lambda thread: thread.update(run=run))
 
     def set_pinned(self, thread_id: str, pinned: bool) -> dict[str, Any] | None:
-        thread = self.load(thread_id)
-        if thread is None:
-            return None
-        thread["pinned"] = bool(pinned)
-        thread["updated"] = time.time()
-        self.save(thread)
-        return thread
+        return self._mutate(thread_id, lambda thread: thread.update(pinned=bool(pinned)))
+
+    def _mutate(
+        self, thread_id: str, change: Callable[[dict[str, Any]], None]
+    ) -> dict[str, Any] | None:
+        """Applies ``change`` under the store lock and persists the result.
+
+        Returns the updated thread, or ``None`` when the thread does not exist
+        or could not be saved.
+        """
+        with _STORE_LOCK:
+            thread = self.load(thread_id)
+            if thread is None:
+                return None
+            change(thread)
+            thread["updated"] = time.time()
+            return thread if self.save(thread) else None
 
     def list_threads(self, limit: int = MAX_THREADS_LISTED) -> list[dict[str, Any]]:
         try:

@@ -1550,8 +1550,10 @@ class ViewerHandler(BaseHTTPRequestHandler):
                 thread = store.load(thread_id) or thread
             else:
                 thread = store.create(prompt)
+            if thread is None:
+                raise OSError("the chat thread could not be saved")
             context.active_ask = {"thread_id": thread["id"], "started": time.time()}
-            store.append_message(
+            recorded = store.append_message(
                 thread["id"],
                 "user",
                 prompt,
@@ -1561,6 +1563,8 @@ class ViewerHandler(BaseHTTPRequestHandler):
                     "image_paths": image_paths,
                 },
             )
+            if recorded is None:
+                raise OSError("the chat thread could not be saved")
             store.update_run(
                 thread["id"], {"status": "running", "started": time.time()}
             )
