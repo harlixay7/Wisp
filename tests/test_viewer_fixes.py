@@ -127,6 +127,28 @@ class TestIpv6Loopback:
 PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
 
 
+class TestRejectedPostConnection:
+    def test_unread_body_is_not_parsed_as_a_second_request(self, tmp_path: Path) -> None:
+        body = b'{"model": "x"}'
+        raw = (
+            b"POST /api/model HTTP/1.1\r\n"
+            b"Host: 127.0.0.1\r\n"
+            b"X-Wisp-Request: 1\r\n"
+            b"Origin: http://evil.example\r\n"
+            b"Content-Type: application/json\r\n"
+            b"Content-Length: " + str(len(body)).encode("ascii") + b"\r\n\r\n" + body
+        )
+        with serving("127.0.0.1", tmp_path) as (host, port, _live):
+            with socket.create_connection((host, port), timeout=10) as conn:
+                conn.sendall(raw)
+                received = b""
+                while chunk := conn.recv(65536):
+                    received += chunk
+        assert received.startswith(b"HTTP/1.1 403")
+        assert b"Connection: close" in received
+        assert received.count(b"HTTP/1.") == 1, received
+
+
 class TestRunEndDetection:
     def test_only_a_run_end_event_ends_the_run(self) -> None:
         assert viewer.is_run_end_line(json.dumps({"kind": "run_end", "seq": 9}))

@@ -1060,6 +1060,8 @@ class ViewerHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", cache)
+        if self.close_connection:
+            self.send_header("Connection", "close")
         self._security_headers()
         self.end_headers()
         try:
@@ -1175,6 +1177,11 @@ class ViewerHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         route = urlparse(self.path).path
+        # Until _guard_post consumes the body, any response must close the
+        # connection: unread body bytes would otherwise be parsed as the next
+        # request on a keep-alive connection.
+        client_wants_close = self.close_connection
+        self.close_connection = True
         if not self._check_host():
             self._send_json(403, {"error": "host header not allowed"})
             return
@@ -1187,6 +1194,7 @@ class ViewerHandler(BaseHTTPRequestHandler):
             return
         if not self._guard_post():
             return
+        self.close_connection = client_wants_close
         handler = self._POST_ROUTES.get(route)
         if handler is not None:
             handler(self)
