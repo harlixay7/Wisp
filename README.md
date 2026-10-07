@@ -1,16 +1,111 @@
 # Wisp
 
-Wisp turns the Google Antigravity CLI (`agy`) into a delegated adversarial verification sub-agent for any coding harness — opencode, Claude Code, Codex, Cline, or a plain script. It packages the delegation as an MCP server and a CLI, normalizes Antigravity's machine-readable stream into an organized critique, keeps the complete forensic record on disk, and mirrors every run in a floating desktop widget with a chat channel for quick operator questions.
+![Wisp hero](docs/assets/wisp-hero.png)
 
-The dilemma it resolves is structural: an agent that wrote the code cannot neutrally grade it, and Antigravity's raw output is hostile to consumers — a single 180-step review produced **426 KB** of `stream-json`, most of it lifecycle traffic, with the actual verdict buried at the end. Wisp holds the adversarial contract (envelope, skill selection, claims to falsify), extracts and organizes the real critique — compacting the wire representation without imposing a hard output ceiling — while retaining every raw byte in the on-disk forensic record.
+An AI agent writes your code. **Wisp is the reviewer standing behind it.**
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
+It watches your coding agent work in real time, stress-tests its plans before
+a line is written, and hands you a plain-language verdict when it's done —
+pass, fail, or "here's what to fix first." All of it runs on your machine,
+against your repository, with your keys.
+
 ![tests](https://img.shields.io/badge/tests-315%20passing-brightgreen.svg)
+![python](https://img.shields.io/badge/python-3.10%2B-blue.svg)
+![platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey.svg)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ---
 
-## How it works
+## Why Wisp exists
+
+Here's the uncomfortable part of AI-assisted coding: the agent that wrote the
+code is the least qualified to judge it. It is optimistic by nature, it grades
+its own homework, and it moves fast enough that you can't check every step.
+
+Wisp fixes that with a second opinion that has no stake in the answer. It
+takes your agent's plans and finished work, hands them to an independent
+adversarial reviewer, and makes the reviewer *prove* its claims — with file
+paths, line numbers, and executed commands, not vibes.
+
+You get one of three answers: **this is sound**, **this breaks under these
+conditions, here's the fix**, or **stop — this needs a different approach**.
+Every finding comes with evidence you can check yourself.
+
+## See it work
+
+The reviewer lives in a small desktop creature that reacts to what the agent
+is doing — thinking while it reasons, celebrating when the work holds up:
+
+![Wisp creature reacting to a live delegation](docs/assets/wisp-creature.gif)
+
+While the agent works, the reasoning streams past live — thoughts, tool
+calls, results — nothing summarized away:
+
+![Live reasoning stream](docs/assets/wisp-stream.gif)
+
+And when it finishes, you get the verdict card with the numbers that matter,
+next to the live stream and your chat history:
+
+![Stream, chat, and verdict views](docs/assets/wisp-modes.png)
+
+## Highlights
+
+### Press a key, get an answer
+
+Select any text anywhere — an error message, a stack trace, a paragraph you
+don't understand — press **Ctrl+Alt+Q**, and Wisp captures it, asks the
+reviewer, and posts the answer straight into your chat. No window switching,
+no copy-paste. **Ctrl+Alt+E** does the same but lets you add your own
+question first.
+
+### The chat remembers the thread
+
+Every question and answer is kept in a persistent conversation, so follow-ups
+have context. Paste screenshots next to your question — Wisp attaches them to
+the delegation so the reviewer can look at what you're looking at.
+
+### A reviewer with standards
+
+Delegations aren't vague "review my code" requests. Wisp ships twelve
+adversarial skills — plan hardening, wiring audits, claim falsification,
+security review, and more — that are injected into every review, along with
+*your* claims to falsify and the exact files to inspect. The reviewer must
+cite evidence; unverifiable praise is rejected, not passed along.
+
+### Works with your existing setup
+
+Wisp speaks [Model Context Protocol](https://modelcontextprotocol.io), so any
+MCP-capable coding agent — Claude Code, opencode, Codex, Cline, Cursor,
+Aider — can call it as a tool. Register it once and your agent can delegate
+reviews whenever it needs a second opinion.
+
+### Local first, honest about limits
+
+Everything runs on your machine: the viewer binds to loopback, chat history
+and reports stay under your workspace, and the agent runs inside a
+process-containment boundary with a sanitized environment. It is *containment,
+not a sandbox* — the full trust model is in [SECURITY.md](SECURITY.md).
+
+## How a delegation works
+
+```
+You (or your agent) write a delegation envelope
+        │  prompt · context · claims to falsify · files to inspect · skills
+        ▼
+Wisp bridge ── builds the payload, picks the skills, sanitizes the environment
+        │
+        ▼
+Antigravity CLI ── an independent senior reviewer, spawned as a contained
+        │           subprocess with read access to your workspace
+        ▼
+Complete critique ── every raw byte captured, streamed live to the widget,
+        │            and persisted as a JSON forensic report
+        ▼
+You reconcile ── every objection gets a verdict: accepted (with a fix) or
+                 rejected (with counter-evidence). No silent dismissals.
+```
+
+Under the hood, the same flow looks like this:
 
 ```mermaid
 flowchart LR
@@ -25,29 +120,31 @@ flowchart LR
     G -.->|"cross-workspace watch"| E
 ```
 
-The bridge spawns `agy` inside an OS containment boundary (Windows Job Object with kill-on-close; POSIX process group), streams and captures stdout/stderr in full, retries transient failures, fails over to the fallback model on quota exhaustion, and persists one complete JSON report per delegation. The MCP server is a thin stdio wrapper over the same engine; the viewer is optional and read-only with respect to the engine.
-
----
+The bridge retries transient failures, fails over to a fallback model on
+quota exhaustion, and persists one complete JSON report per delegation. The
+MCP server is a thin stdio wrapper over the same engine; the viewer is
+optional and read-only with respect to the engine.
 
 ## Quickstart
 
-Windows (from a clone; `setup.bat` handles Python, the venv, dependencies, the `agy` check, registry validation, and the test suite):
+**Windows**
 
-```powershell
-git clone <your-fork-url> wisp
-cd wisp
+```bat
+git clone https://github.com/harlixay7/Wisp.git
+cd Wisp
 setup.bat
-.venv\Scripts\python tools\antigravity_bridge.py --status
-.venv\Scripts\python tools\antigravity_bridge.py --prompt "Harden this migration plan" ^
-    --context "SQLite WAL, single writer" ^
-    --claim "No migration exceeds 5 seconds" ^
-    --artifact "migrations/0042_add_index.sql" ^
-    --skills adversarial-plan-hardening-engine
+tools\antigravity_viewer.cmd
 ```
 
-macOS / Linux:
+`setup.bat` creates the virtual environment, installs dependencies, checks
+the Antigravity CLI, validates the skill registry, and runs the test suite.
+The viewer opens the desktop widget.
+
+**macOS / Linux**
 
 ```bash
+git clone https://github.com/harlixay7/Wisp.git
+cd Wisp
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt
 python -m tools.skill_loader --validate
@@ -55,212 +152,115 @@ python -m pytest tests/ -q
 python tools/antigravity_bridge.py --status
 ```
 
-Prerequisites: Python 3.10+, a signed-in Google Antigravity CLI (`agy`), and Node.js only if you want the desktop widget (one-time `npm install` in `tools/wisp_shell`, performed by `setup.bat` when npm is present). The bridge resolves `agy` from `PATH`, then `~/.gemini/bin`; `--executable <path>` overrides.
+The desktop widget needs Windows (transparent overlay + global hotkeys); on
+macOS and Linux the viewer, bridge, and MCP server work headless.
 
-A dry run prints the exact command and payload without invoking `agy`:
+**Prerequisite:** the [Google Antigravity CLI](https://antigravity.google)
+(`agy`), installed and signed in. Wisp delegates to it and never handles your
+credentials itself.
+
+### Your first delegation
 
 ```bash
-python tools/antigravity_bridge.py --dry-run --prompt "..." --skills all
+python tools/antigravity_bridge.py \
+  --prompt "Stress-test this plan: migrate the config loader to pydantic v2" \
+  --context "Python 3.11, 467 tests green, config lives in src/config/" \
+  --claim "The migration requires zero changes outside src/config/" \
+  --artifact "src/config/loader.py:40-110" \
+  --skills adversarial-plan-hardening-engine
 ```
 
----
+You'll get the full critique on stdout and a complete JSON report on disk.
+If you'd rather look before running: add `--dry-run` to print the exact
+command, or `--list-skills` to see the registry.
 
-## The delegation contract
+## Register it with your coding agent
 
-An envelope describes the review; every field is optional except `prompt`.
+```bash
+claude mcp add antigravity -- python tools/antigravity_mcp_server.py
+```
 
-| Field | Meaning |
-| --- | --- |
-| `prompt` | The plan, diff summary, question, or claim set under review. Required. |
-| `context` | Prior art, constraints, failed attempts, environment facts. |
-| `claims_to_falsify` | Itemized assertions Antigravity must disprove or confirm with evidence. |
-| `artifacts` | Workspace-relative paths (`src/scheduler.py:45-120`). Paths only — Antigravity reads the mounted workspace itself. |
-| `skills` | The necessary/primary skills to activate (names or `"all"`); rendered as mandatory instructions. |
-| `recommended_skills` | Up to three task-dependent skills; rendered as apply-when-relevant. More than three is a validation error. |
-| `notes` | Operator steering that must not be ignored. |
-
-The payload always carries the **full registry manifest** (name, version, description, triggers, source path) so Antigravity can read any additional skill in full from the mounted registry. When a workspace has no `Skills/` directory, the shipped registry is used, mounted via an extra `--add-dir`, and the fallback is recorded as a warning in the report.
-
-Via MCP, the same contract is exposed as `antigravity_review` (plus `antigravity_status` and `antigravity_skills`):
+Other harnesses (opencode, Codex, Cline, Cursor) are one config entry each —
+the exact snippets are in [AgentSkill.md](AgentSkill.md). Once registered,
+your agent can call `antigravity_review` with a prompt, the files to inspect,
+and the claims to falsify:
 
 ```json
 {
   "prompt": "Harden this plan before execution: ...",
-  "context": "SQLite WAL, single writer",
-  "claims_to_falsify": ["No migration exceeds 5 seconds"],
-  "artifacts": ["migrations/0042_add_index.sql"],
-  "skills": ["adversarial-plan-hardening-engine"],
-  "recommended_skills": ["data-contract-state-integrity-engine"]
+  "claims_to_falsify": [
+    "Terminating the parent kills all descendants within 500ms"
+  ],
+  "artifacts": ["src/supervisor.py:45-120"],
+  "skills": ["adversarial-plan-hardening-engine"]
 }
 ```
 
----
+A worked, end-to-end example — including what the reviewer found — is in
+[examples/delegation-case-study.json](examples/delegation-case-study.json),
+and [docs/delegation-playbook.md](docs/delegation-playbook.md) explains how
+to write delegations that get sharp answers instead of polite nods.
 
-## What comes back
+## The skill registry
 
-For every delegation, the bridge persists a complete report under `<workspace>/.antigravity-reports/antigravity-report-<timestamp>-<id>.json`:
+Twelve adversarial skills ship with the repository. Each one is a full
+operating procedure the reviewer must follow — evidence requirements,
+verdict formats, and hard prohibitions:
 
-- **The organized critique** — the final `result.response` leads as `Findings & Response`; streamed per-step text is coalesced; tool names are tallied; lifecycle beacons collapse into a compact digest (step counts, session init, notable steps, result status).
-- **Complete raw streams** — the untouched `stdout` and `stderr` of every attempt live in `attempts[]`; nothing is discarded on disk.
-- **The MCP tool response** — the organized critique plus `stream_stats` (character counts per stream) and the report path, so callers get a compacted, readable payload and the raw record stays retrievable.
-
-Observed on a real 180-step run: `426,063` characters of raw stdout became a `45,409`-character organized critique with the verdict intact; the pre-fix aggregator emitted `432,855` characters that were mostly raw-stream duplicate.
-
-The bridge CLI `--json` prints the full result including both raw streams; the report file is the authoritative forensic record.
-
----
-
-## The live viewer and widget
-
-`tools\antigravity_viewer.cmd` starts a local server and a frameless Electron widget (browser fallback when the shell is not installed). The widget follows the newest run across **every registered workspace** — each live-enabled delegation records its live directory in `~/.antigravity-reports/live-registry.json`, so runs triggered from other repositories appear in the stream, History, and replay.
-
-Six views, sized to a fixed transparent canvas and switchable by click, keyboard (`1`–`6`), or the cradle navigation in the Wisp tab:
-
-| View | Content |
+| Skill | Use it when |
 | --- | --- |
-| Wisp | The companion; hover reveals the mode cradle |
-| Focus | Live digest of the latest thoughts |
-| Stream | The full reasoning trail, markdown-rendered, path badges, entry counts |
-| Chat | Operator chat: quick asks, attachments (paste images), thread history, run details |
-| Verdict | Run telemetry (thoughts/tools/retries/elapsed), pass/fail banner, run info, replay |
-| History | Conversations (pin/unpin) and archived runs, labelled by workspace |
-
-Operator hotkeys: `Ctrl+Alt+Q` sends the current selection (or opens a snip) as a quick ask; `Ctrl+Alt+E` pre-fills the chat composer with the capture instead of sending. The same two flows are available as buttons in the widget header. Three themes (Ember, Aurora, Moss) are selectable in Settings and persisted per user.
-
-The chat asks and the MCP server share one engine but are configured independently: the Settings "Wisp Asks" toggle applies only to chat/hotkey asks; MCP delegations use the skills their calling agent passes.
-
----
-
-## Known limitations
-
-- **Windows command-line payload ceiling.** The delegation payload travels as
-  the `agy -p <payload>` argument, and Windows caps a single command line at
-  ~32,767 characters. Rendered skill instructions count toward that ceiling
-  (each active skill contributes its full text plus the registry manifest), so
-  combining multiple large skills with a long prompt can hit the limit. The
-  bridge fails fast before spawning, with an actionable error; keep prompts
-  tight and prefer one primary skill plus `recommended_skills` only when
-  needed. A file- or stdin-based payload channel is the longer-term fix.
-- **WebView2 asset caching.** ...
-
-## Skill registry
-
-`Skills/` holds the adversarial skill definitions — Markdown with YAML front matter, or YAML. Every definition must carry `name`, `version`, `description`, `activation_triggers`, `input_contract`, `output_contract`, and `instructions_payload`.
-
-```bash
-python -m tools.skill_loader --validate      # fail loudly on contract violations
-python tools/antigravity_bridge.py --list-skills
-```
-
-Twelve skills ship with the repository, covering plan hardening, AST/wiring audits, empirical falsification, surgical patching, data contracts, AI evals, runtime security, telemetry, portability, documentation accuracy, retrieval grounding, and agentic tool orchestration. `--skills all` activates the full non-template registry; `kind: template` files are never auto-selected.
-
----
-
-## Register the MCP server
-
-The server speaks MCP v1 over stdio; stdout carries protocol frames only, all diagnostics go to stderr. Register it once per harness — harnesses spawn and terminate it automatically.
-
-- **opencode** — already configured in this repository's `opencode.json` (`cmd.exe /c tools\antigravity_mcp.cmd`, long tool timeout).
-- **Universal launcher** — `tools\antigravity_mcp.cmd` resolves the repository root, pins the model chain, and starts the server.
-- **Claude Code** — `claude mcp add antigravity -- cmd.exe /c "<repo-root>\tools\antigravity_mcp.cmd"` (adjust the path to your clone).
-- **Codex** (`~/.codex/config.toml`):
-  ```toml
-  [mcp_servers.antigravity]
-  command = "cmd.exe"
-  args = ["/c", "<repo-root>\\tools\\antigravity_mcp.cmd"]
-  ```
-- **Cline / Roo / Cursor** — their MCP settings JSON:
-  ```json
-  { "mcpServers": { "antigravity": { "command": "cmd.exe", "args": ["/c", "<repo-root>\\tools\\antigravity_mcp.cmd"] } } }
-  ```
-
-`AGENTS.md` defines the mandatory delegation gates (plan generation, high-risk seams, pre-commit audit, repeated failure) and the reconciliation rules the calling agent must follow; `AgentSkill.md` and `.opencode/skills/antigravity-delegation/SKILL.md` carry the agent-facing operating protocol.
-
----
-
-## Configuration
-
-Environment variables are read by the MCP server, the viewer, and the launchers. All are optional.
-
-| Variable | Effect | Default |
-| --- | --- | --- |
-| `ANTIGRAVITY_WORKSPACE` | Workspace root mounted for reviews | current working directory |
-| `ANTIGRAVITY_SKILL_DIR` | Explicit skill registry directory | `<workspace>/Skills`, falling back to the shipped `Skills/` |
-| `ANTIGRAVITY_LIVE` | Live event emission (`0` disables) | `1` |
-| `ANTIGRAVITY_LIVE_DIR` | Live NDJSON directory | `<workspace>/.antigravity-reports/live` |
-| `ANTIGRAVITY_LIVE_KEEP` | Live run files retained | `20` |
-| `ANTIGRAVITY_LIVE_REGISTRY` | Cross-workspace live registry path | `~/.antigravity-reports/live-registry.json` |
-| `ANTIGRAVITY_MODEL` | Primary model | `gemini-3.8-flash-high` |
-| `ANTIGRAVITY_FALLBACK_MODEL` | Quota failover model | `claude-opus-4-6-thinking` |
-| `ANTIGRAVITY_HARNESS` | Harness tag recorded in the envelope | per launcher |
-| `ANTIGRAVITY_PRINT_TIMEOUT` | `agy --print-timeout`, seconds | `1200` |
-| `ANTIGRAVITY_RETRIES` | Transient-failure retries per model | `2` |
-| `ANTIGRAVITY_RETRY_BACKOFF` | Base seconds for retry backoff | `5` |
-| `ANTIGRAVITY_QUOTA_WAIT` | Max seconds to wait for a quota reset | `0` (never wait) |
-| `ANTIGRAVITY_QUOTA_HOOK` | Command run on quota exhaustion (account rotation) | unset |
-
-Additional CLI flags: `--model`, `--fallback-model`, `--print-timeout`, `--grace-seconds`, `--retries`, `--retry-backoff`, `--quota-wait`, `--quota-hook`, `--live/--no-live`, `--executable`, `--json`, `--dry-run`, `--status`, `--list-skills`.
-
----
+| `adversarial-plan-hardening-engine` | Before implementing a plan or architecture |
+| `zero-trust-ast-wiring-verifier` | Auditing code wiring, stubs, and call graphs |
+| `empirical-claim-falsification-engine` | Recomputing performance and hardware claims |
+| `zero-regression-surgical-implementation` | Fixing bugs without breaking contracts |
+| `data-contract-state-integrity-engine` | Reviewing schemas, migrations, transactions |
+| `ai-eval-regression-engine` | Building eval suites for prompts and agents |
+| `runtime-security-vault-engine` | Auditing tool surfaces, secrets, injection |
+| `telemetry-hardware-profiling-gate` | Profiling stalls, memory, and contention |
+| `git-hygiene-portability-gate` | Checking packaging and clone portability |
+| `documentation-retraction-ledger-engine` | Keeping docs truthful to the code |
+| `hybrid-rag-retrieval-grounding-engine` | Reviewing RAG chunking and retrieval |
+| `agentic-tool-dag-orchestration-engine` | Auditing MCP tools and agent loops |
 
 ## Verification
 
-Deterministic suite — offline by design; no test invokes `agy`, no network, no credentials:
+The suite is deterministic and offline — no real API calls, no quota:
 
-| Check | Command | Observed |
-| --- | --- | --- |
-| Test suite | `python -m pytest tests/ -q` | all green in `~90 s` |
-| Skill registry | `python -m tools.skill_loader --validate` | `12 skills`, `0 warnings` |
-| Bridge status | `python tools/antigravity_bridge.py --status` | resolves executable, workspace, registry, models |
-
-Testbed: Windows 11, CPython 3.13, single workstation. The suite is deterministic by construction — scripted launchers replace `agy`, and the live registry is isolated per test.
-
-Real delegations, recorded as **single observations** (N=1) on the same workstation — not controlled benchmarks:
-
-| Run | Model chain | Steps | Wall time | Raw stdout | Organized critique |
-| --- | --- | --- | --- | --- | --- |
-| Plan hardening | `gemini-3.8-flash-high` | 85 | `213.4 s` | `229,093` chars | `35,069` chars (report) |
-| Deployment audit | `gemini-3.8-flash-high` | 180 | `374.8 s` | `426,063` chars | `45,409` chars |
-
-Long runs reflect the underlying agent loop (dozens of tool steps per review), not bridge overhead; the bridge itself adds aggregation and report writing measured in milliseconds. Multi-seed sweeps have not been run.
-
----
-
-## Boundaries and non-goals
-
-- **Windows-first.** Selection/snip capture and the Electron widget are Windows implementations (Win32 clipboard, native window drag regions). The bridge, MCP server, skill loader, aggregation, and live feed are OS-agnostic; the viewer falls back to a browser where the shell is unavailable.
-- **Antigravity required.** `agy` must be installed and signed in; quota exhaustion fails over to the fallback model or fails loudly with the reset window preserved in the report. Wisp does not manage Google credentials.
-- **Aggregation is heuristic.** The final `result.response` is authoritative and leads the critique; streamed text is coalesced per step; lifecycle beacons are summarized, not reproduced. The complete raw streams are always retained in `attempts[]` — if the organized view ever misleads, the forensic record is one field away.
-- **CI included.** `.github/workflows/ci.yml` runs the deterministic suite (ruff, `compileall`, skill-registry validation, Node syntax check, pytest) on Windows + Ubuntu across Python 3.10/3.13; no run touches real `agy` or quota.
-- **The viewer is optional.** The delegation engine and MCP server work identically whether or not the viewer process is running.
-- **Not a sandbox for untrusted code.** The containment boundary governs the `agy` process tree (Windows: suspended start, Job Object assignment, and taskkill tree termination; POSIX: session process group), not the model's outputs or its granted authority; treat reviews as advice, not execution. Full trust model: `SECURITY.md`.
-
----
-
-## Repository layout
-
+```bash
+python -m pytest tests/ -q          # full suite
+ruff check tools tests              # lint
+python -m tools.skill_loader --validate
 ```
-tools/
-  antigravity_bridge.py        delegation engine: containment, retries, quota failover,
-                               stream aggregation, reports
-  antigravity_mcp_server.py    MCP v1 stdio server (antigravity_review/status/skills)
-  antigravity_live.py          live event feed, stream parser, cross-workspace registry
-  antigravity_viewer.py        local viewer server (SSE, chat, captures)
-  antigravity_viewer.html      widget UI (six views, cradle navigation, themes)
-  skill_loader.py              registry discovery, validation, prompt/manifest rendering
-  wisp_capture.py              selection/snip capture (Win32 + PowerShell fallback)
-  wisp_chat.py                 persistent chat threads for operator asks
-  wisp_shell/                  Electron shell (npm install once; optional)
-  capture/                     PowerShell capture helpers
-Skills/                        adversarial skill registry (12 skills)
-tests/                         deterministic suite (315 tests)
-docs/                          skills repair provenance log
-Creature artwork: the runtime assets live in `tools/viewer_assets/`; high-resolution source masters are maintained outside the repository.
-AGENTS.md                      delegation gates and reconciliation rules
-AgentSkill.md                  agent-facing delegation protocol
-setup.bat                      Windows bootstrap: venv, deps, agy check, validation, tests
-```
+
+Continuous integration runs the same stack on Windows and Ubuntu across
+Python 3.10 and 3.13.
+
+## Documentation
+
+| Document | What's inside |
+| --- | --- |
+| [AgentSkill.md](AgentSkill.md) | Master deployment guide: every harness, every flag |
+| [docs/delegation-playbook.md](docs/delegation-playbook.md) | How to write delegations that get sharp answers |
+| [AGENTS.md](AGENTS.md) | The delegation contract for coding agents |
+| [SECURITY.md](SECURITY.md) | Trust model: what's contained, what isn't |
+| [CHANGELOG.md](CHANGELOG.md) | Release history |
+| [examples/delegation-case-study.json](examples/delegation-case-study.json) | A real delegation envelope, end to end |
+
+## Known limitations
+
+- The desktop widget (transparent overlay, global hotkeys) is Windows-only.
+  On macOS and Linux the viewer runs in a normal browser tab and the bridge,
+  MCP server, and viewer work as usual.
+- The delegation payload travels on the `agy` command line, and Windows caps
+  command lines at ~32,767 characters. Rendered skill instructions count
+  toward that, so very long prompts combined with multiple active skills can
+  hit it — the bridge fails fast with an actionable message instead of a
+  cryptic OS error.
+- Wisp contains the reviewer's *process tree*, not its *authority*. The
+  reviewer can read your workspace and run commands within its grants. If
+  that worries you for a given repo, don't point Wisp at repos whose build
+  you wouldn't run yourself.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+[MIT](LICENSE)
