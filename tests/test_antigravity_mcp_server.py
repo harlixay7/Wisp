@@ -16,6 +16,7 @@ import pytest
 from tools.antigravity_bridge import BridgeResult
 from tools.antigravity_mcp_server import (
     TOOL_DEFINITIONS,
+    InvalidParams,
     MethodNotFound,
     handle_request,
 )
@@ -292,21 +293,56 @@ class TestRecommendedSkillsValidation:
             "tools.antigravity_mcp_server.run_bridge", exploding_run_bridge
         )
 
-        response = handle_request(
-            "tools/call",
-            {
-                "name": "antigravity_review",
-                "arguments": {
-                    "prompt": "Audit",
-                    "workspace": str(workspace),
-                    "recommended_skills": ["a", "b", "c", "d"],
+        with pytest.raises(InvalidParams) as excinfo:
+            handle_request(
+                "tools/call",
+                {
+                    "name": "antigravity_review",
+                    "arguments": {
+                        "prompt": "Audit",
+                        "workspace": str(workspace),
+                        "recommended_skills": ["a", "b", "c", "d"],
+                    },
                 },
-            },
-        )
+            )
+        assert "recommended_skills" in str(excinfo.value)
 
-        assert response["isError"] is True
-        payload = _text_of(response)
-        assert "cannot exceed 3" in payload["error"]
+    def test_recommended_skills_cap_is_protocol_error_over_stdio(
+        self, tmp_path: Path
+    ) -> None:
+        """End-to-end: the serve loop translates the typed error into -32602."""
+        workspace = _make_workspace(tmp_path)
+        frame = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 7,
+                "method": "tools/call",
+                "params": {
+                    "name": "antigravity_review",
+                    "arguments": {
+                        "prompt": "Audit",
+                        "workspace": str(workspace),
+                        "recommended_skills": ["a", "b", "c", "d"],
+                    },
+                },
+            }
+        )
+        proc = subprocess.run(
+            [sys.executable, str(ROOT / "tools" / "antigravity_mcp_server.py")],
+            input=frame + "\n",
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=60,
+            cwd=str(ROOT),
+        )
+        lines = [json.loads(line) for line in proc.stdout.splitlines() if line.strip()]
+        assert lines, proc.stdout + proc.stderr
+        error = lines[0].get("error")
+        assert error is not None
+        assert error["code"] == -32602
+        assert "recommended_skills" in error["message"]
 
     def test_schema_declares_max_items(self) -> None:
         review = next(

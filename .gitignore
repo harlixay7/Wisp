@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.ruff_cache/
 .venv/
 venv/
 
@@ -13,7 +14,8 @@ tools/wisp_shell/npm-debug.log*
 # captures, and viewer settings are local state, never source.
 .antigravity-reports/
 
-# OS / editor
+# Source-art masters ship separately; runtime assets are tools/viewer_assets/
+images/
 .DS_Store
 Thumbs.db
 *.swp

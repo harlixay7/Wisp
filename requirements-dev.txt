@@ -1,2 +1,5 @@
 -r requirements.txt
-pytest>=8.0
+# Dev/test toolchain, pinned exactly (audit #66). Upgrade deliberately:
+# bump the pin, run the full suite, then commit the bump as its own change.
+pytest==9.1.1
+ruff==0.14.4

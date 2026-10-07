@@ -2,8 +2,12 @@
 
 Two capture modes:
 
-* **selection** — simulate Ctrl+C, read the newly copied text, restore the
-  previous text clipboard (never touches image clipboards).
+* **selection** — simulate Ctrl+C, read the newly copied text, then restore
+  the previous *text* clipboard content. Honesty note (audit #30): if the
+  clipboard held non-text content (an image, files), the target app's copy
+  replaces it and only text can be restored — non-text clipboard state is NOT
+  preserved. The docstring previously claimed image clipboards were never
+  touched, which was wrong.
 * **snip** — launch the native Windows snip overlay (``ms-screenclip:``) and
   wait for the resulting image to appear on the clipboard, saving it as PNG.
 
@@ -94,6 +98,7 @@ def _clipboard_text() -> str | None:
 
 
 def _set_clipboard_text(text: str) -> None:
+    """Public wrapper binding the real Win32 modules (see the internal form)."""
     import ctypes
     from ctypes import wintypes
 
@@ -104,23 +109,57 @@ def _set_clipboard_text(text: str) -> None:
     kernel32.GlobalLock.restype = ctypes.c_void_p
     kernel32.GlobalLock.argtypes = [wintypes.HGLOBAL]
     kernel32.GlobalUnlock.argtypes = [wintypes.HGLOBAL]
+    kernel32.GlobalFree.argtypes = [wintypes.HGLOBAL]
+    user32.SetClipboardData.restype = wintypes.HANDLE
     user32.SetClipboardData.argtypes = [wintypes.UINT, wintypes.HANDLE]
+    _set_clipboard_text_with(user32, kernel32, text)
+
+
+def _set_clipboard_text_with(user32: Any, kernel32: Any, text: str) -> None:
+    """Places ``text`` on the clipboard without leaking the allocated HGLOBAL.
+
+    Ownership rules (audit #31, GATE-4 FL-008): memory allocated with
+    ``GlobalAlloc`` is either (a) transferred to the system by a *successful*
+    ``SetClipboardData`` — never freed afterwards — or (b) released with
+    ``GlobalFree`` by the single ownership check in the ``finally``, which
+    fires on every failure or exception path (allocation, lock, clipboard
+    open, unexpected error between open and set).
+    """
+    import ctypes
+
     buffer = ctypes.create_unicode_buffer(str(text) + "\x00")
     size = ctypes.sizeof(buffer)
     handle = kernel32.GlobalAlloc(0x0002, size)
     if not handle:
         return
-    pointer = kernel32.GlobalLock(handle)
-    if pointer:
-        ctypes.memmove(pointer, buffer, size)
-        kernel32.GlobalUnlock(handle)
-    if not user32.OpenClipboard(None):
-        return
+    transferred = False
+    clipboard_open = False
     try:
-        user32.EmptyClipboard()
-        user32.SetClipboardData(13, handle)
+        pointer = kernel32.GlobalLock(handle)
+        if pointer:
+            try:
+                ctypes.memmove(pointer, buffer, size)
+            finally:
+                kernel32.GlobalUnlock(handle)
+            if user32.OpenClipboard(None):
+                clipboard_open = True
+                try:
+                    user32.EmptyClipboard()
+                    transferred = bool(user32.SetClipboardData(13, handle))
+                finally:
+                    user32.CloseClipboard()
+                    clipboard_open = False
     finally:
-        user32.CloseClipboard()
+        if clipboard_open:
+            try:
+                user32.CloseClipboard()
+            except Exception:
+                pass
+        if not transferred and handle:
+            try:
+                kernel32.GlobalFree(handle)
+            except Exception:
+                pass
 
 
 _MODIFIER_VKS = (0x11, 0x12, 0x10, 0x5B, 0x5C)  # Ctrl, Alt, Shift, LWin, RWin
@@ -246,13 +285,23 @@ def wait_for_clipboard_image(
 
 
 def new_capture_path(live_dir: Path) -> Path:
+    """Returns a collision-proof capture path (audit #32: random suffix, like
+    the paste path, so two snips finishing in the same second never clobber
+    each other)."""
     capture_dir = Path(live_dir).parent / "captures"
     capture_dir.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    return capture_dir / f"capture-{stamp}.png"
+    return capture_dir / f"capture-{stamp}-{os.urandom(3).hex()}.png"
 
 
 def relative_to_workspace(path: Path, workspace: Path) -> str:
+    """Returns ``path`` relative to ``workspace`` for display and artifacts.
+
+    Outside-workspace paths fall back to their absolute form; ingestion paths
+    (``/api/ask``) reject such paths upstream, and the capture/upload pipelines
+    only ever produce workspace-internal paths, so the fallback is a display
+    concern rather than a containment boundary.
+    """
     try:
         return str(Path(path).resolve().relative_to(Path(workspace).resolve())).replace("\\", "/")
     except ValueError:

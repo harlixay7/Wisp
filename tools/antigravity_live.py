@@ -8,12 +8,26 @@ the newest run file over SSE.
 Guarantees:
 
 * nothing in this module writes to stdout (MCP JSON-RPC purity),
-* sink failures are swallowed and can never break or slow a delegation,
-* event text is never truncated; retention prunes whole runs, one at a time.
+* sink failures are swallowed and can never break a delegation; events are
+  emitted synchronously under a lock, so sequence numbers match file write
+  order. A pathologically slow sink therefore adds backpressure to the
+  delegating process rather than dropping or reordering data — durability is
+  chosen over throughput for this forensic feed,
+* event text is never truncated; retention prunes whole runs one at a time and
+  never deletes a run whose file was modified within
+  ``ACTIVE_RUN_GRACE_SECONDS`` (active runs keep their mtime fresh),
+* content that falls beyond the parser's traversal depth is preserved as a
+  verbatim ``raw`` event, so nothing carrying content is ever dropped from the
+  organized feed either.
+
+Event schema: consumers should treat the ``run_start`` event's
+``meta.schema_version`` and registry entries' ``schema_version`` as the wire
+format version (``LIVE_SCHEMA_VERSION``).
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import threading
@@ -26,9 +40,77 @@ from typing import Any, Protocol
 
 LIVE_DIR_NAME = Path(".antigravity-reports") / "live"
 DEFAULT_KEEP_RUNS = 20
+LIVE_SCHEMA_VERSION = 1
+ACTIVE_RUN_GRACE_SECONDS = 3600
 REGISTRY_ENV = "ANTIGRAVITY_LIVE_REGISTRY"
 REGISTRY_MAX_ENTRIES = 50
 _REGISTRY_LOCK = threading.Lock()
+
+
+@contextlib.contextmanager
+def _registry_file_lock() -> Any:
+    """Cross-process exclusive lock over the live-directory registry.
+
+    The in-process ``_REGISTRY_LOCK`` cannot stop two Wisp processes from read-
+    modify-write racing on the same registry file, so writes are additionally
+    serialized with an OS-level lock on a sidecar ``.lock`` file (``msvcrt`` on
+    Windows, ``fcntl`` on POSIX). Degrades to the thread lock alone when the
+    platform primitives are unavailable.
+    """
+    path = registry_path().with_name(registry_path().name + ".lock")
+    handle: Any = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handle = open(path, "a+b")
+    except OSError:
+        handle = None
+    except Exception:
+        handle = None
+    if handle is None:
+        yield
+        return
+    locked = False
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            # Lock byte 0 explicitly: an "a+b" handle sits at EOF, and locking
+            # at the current offset while unlocking at a different one would
+            # silently defeat mutual exclusion (GATE-4 FL-002).
+            handle.seek(0)
+            for _ in range(100):
+                try:
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                    locked = True
+                    break
+                except OSError:
+                    time.sleep(0.02)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            locked = True
+        yield
+    except ImportError:
+        yield
+    finally:
+        if locked:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            except (OSError, ImportError):
+                pass
+        try:
+            handle.close()
+        except OSError:
+            pass
 
 
 def registry_path() -> Path:
@@ -54,15 +136,17 @@ def _read_registry() -> list[dict[str, Any]]:
         if not isinstance(raw_path, str) or not raw_path.strip():
             continue
         last_seen = item.get("last_seen")
-        entries.append(
-            {
-                "path": raw_path,
-                "workspace": str(item.get("workspace") or ""),
-                "last_seen": (
-                    float(last_seen) if isinstance(last_seen, (int, float)) else 0.0
-                ),
-            }
-        )
+        schema_version = item.get("schema_version")
+        entry: dict[str, Any] = {
+            "path": raw_path,
+            "workspace": str(item.get("workspace") or ""),
+            "last_seen": (
+                float(last_seen) if isinstance(last_seen, (int, float)) else 0.0
+            ),
+        }
+        if isinstance(schema_version, (int, float)):
+            entry["schema_version"] = int(schema_version)
+        entries.append(entry)
     return entries
 
 
@@ -82,7 +166,7 @@ def register_live_dir(
     workspace_text = ""
     if workspace is not None and str(workspace).strip():
         workspace_text = str(Path(workspace).expanduser())
-    with _REGISTRY_LOCK:
+    with _REGISTRY_LOCK, _registry_file_lock():
         by_path: dict[str, dict[str, Any]] = {}
         for entry in _read_registry():
             by_path[entry["path"]] = entry
@@ -91,6 +175,7 @@ def register_live_dir(
             "path": str(resolved),
             "workspace": workspace_text or str(existing.get("workspace") or ""),
             "last_seen": time.time(),
+            "schema_version": LIVE_SCHEMA_VERSION,
         }
         alive = [entry for entry in by_path.values() if Path(entry["path"]).is_dir()]
         alive.sort(key=lambda entry: entry["last_seen"], reverse=True)
@@ -234,7 +319,23 @@ def _format_results(value: Any) -> list[tuple[str, str, dict[str, Any]]]:
 
 
 def _walk(data: Any, depth: int = 0) -> list[tuple[str, str, dict[str, Any]]]:
-    if depth > 8 or data is None or isinstance(data, str):
+    if data is None or isinstance(data, str):
+        return []
+    if depth > 8:
+        # Preserve over-depth content verbatim instead of dropping it, so the
+        # "nothing that carries content is ever dropped" promise holds even in
+        # the mixed case where shallow fields already matched.
+        if isinstance(data, (Mapping, list, tuple)):
+            try:
+                return [
+                    (
+                        "raw",
+                        json.dumps(data, ensure_ascii=False, default=str),
+                        {"depth_truncated": True},
+                    )
+                ]
+            except (TypeError, ValueError):
+                return []
         return []
     events: list[tuple[str, str, dict[str, Any]]] = []
     if isinstance(data, Mapping):
@@ -370,6 +471,7 @@ class JsonlSink:
                 self._handle = None
 
     def _prune(self) -> None:
+        cutoff = time.time() - ACTIVE_RUN_GRACE_SECONDS
         try:
             runs = sorted(
                 self.live_dir.glob("run-*.jsonl"),
@@ -382,6 +484,11 @@ class JsonlSink:
             if stale == self.path:
                 continue
             try:
+                # Retention only claims runs that have been idle past the
+                # grace window; a still-active run keeps its mtime fresh, so
+                # one process can no longer delete another's in-flight run.
+                if stale.stat().st_mtime >= cutoff:
+                    continue
                 stale.unlink()
             except OSError:
                 pass
@@ -403,6 +510,10 @@ class LiveEmitter:
     def emit(self, kind: str, text: str = "", model: str = "", **meta: Any) -> None:
         if not self._sinks:
             return
+        # Emission happens under the same lock that stamps the sequence number,
+        # so events reach every sink in sequence order (audit finding #15: the
+        # pre-fix code released the lock before writing, letting a seq=2 event
+        # physically land before seq=1 under thread concurrency).
         with self._lock:
             self._seq += 1
             event = LiveEvent(
@@ -414,11 +525,11 @@ class LiveEmitter:
                 text=str(text or ""),
                 meta=dict(meta),
             )
-        for sink in self._sinks:
-            try:
-                sink.emit(event)
-            except Exception:
-                pass
+            for sink in self._sinks:
+                try:
+                    sink.emit(event)
+                except Exception:
+                    pass
 
     def close(self) -> None:
         for sink in self._sinks:

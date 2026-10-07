@@ -1,4 +1,7 @@
 param([int]$TimeoutMs = 750)
+# Selection capture: simulate Ctrl+C, read the copied text, restore the
+# previous TEXT clipboard content. Non-text clipboard content (images, files)
+# is replaced by the target app's copy and cannot be restored here.
 $ErrorActionPreference = "Stop"
 try {
   Add-Type -AssemblyName System.Windows.Forms

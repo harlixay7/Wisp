@@ -2,8 +2,26 @@
 
 Serves a single-page animated UI on ``127.0.0.1`` and streams live events from
 the newest run file under ``<workspace>/.antigravity-reports/live/`` via
-Server-Sent Events. Read-only by default; the two POST actions (account switch,
-status refresh) are guarded by a custom header plus an origin allow-list.
+Server-Sent Events. Read-only by default; the POST actions (account switch,
+status refresh, asks, settings) are guarded by a custom header plus an origin
+allow-list.
+
+Security posture:
+
+* **Loopback by default.** Binding a non-loopback host is an explicit opt-in
+  that requires ``--auth-token`` (or ``--generate-token``); every route then
+  demands a bearer token, and ``/health`` deliberately stays minimal.
+* **Artifact containment.** Image paths supplied to ``/api/ask`` must resolve
+  inside the workspace or the capture directory with an image extension;
+  anything else is rejected rather than normalized.
+* **Bounded bodies.** ``Content-Length`` is validated against a global ceiling
+  before any body byte is read.
+* **Instance identity.** The viewer writes a per-instance token into its
+  manifest; ``--replace`` uses an authenticated shutdown handshake instead of
+  trusting a stale PID.
+
+This is a local operator tool, not a hardened multi-user web service; see
+``SECURITY.md`` for the full trust model.
 
 The viewer is strictly optional: the delegation engine and the MCP server work
 identically whether or not this process is running.
@@ -18,6 +36,7 @@ import json
 import mimetypes
 import os
 import re
+import secrets
 import shutil
 import signal
 import subprocess
@@ -37,6 +56,7 @@ try:
     from tools.antigravity_bridge import (
         DEFAULT_FALLBACK_MODEL,
         DEFAULT_PRIMARY_MODEL,
+        WISP_VERSION,
         AttemptResult,
         BridgeConfig,
         DelegationEnvelope,
@@ -56,12 +76,13 @@ try:
         relative_to_workspace,
         save_pasted_image,
     )
-    from tools.wisp_chat import ChatStore, valid_thread_id
+    from tools.wisp_chat import ChatStore, MAX_MESSAGE_CHARS, valid_thread_id
 except ImportError:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from tools.antigravity_bridge import (  # type: ignore[no-redef]
         DEFAULT_FALLBACK_MODEL,
         DEFAULT_PRIMARY_MODEL,
+        WISP_VERSION,
         AttemptResult,
         BridgeConfig,
         DelegationEnvelope,
@@ -85,12 +106,13 @@ except ImportError:
         save_pasted_image,
     )
     from tools.wisp_chat import (  # type: ignore[no-redef]
+        MAX_MESSAGE_CHARS,
         ChatStore,
         valid_thread_id,
     )
 
 SERVER_NAME = "wisp-viewer"
-SERVER_VERSION = "1.0.0"
+SERVER_VERSION = WISP_VERSION
 DEFAULT_PORT = 48477
 PORT_SCAN_RANGE = 50
 SESSION_HEADER = "X-Wisp-Request"
@@ -125,6 +147,10 @@ _RATE_LIMIT_MARKERS = ("RESOURCE_EXHAUSTED", "code 429", "Individual quota reach
 _RESET_PATTERN = re.compile(r"Resets in ([0-9]+\s*[smhdw][0-9]*\s*[smhdw]*)", re.IGNORECASE)
 _EMAIL_PATTERN = re.compile(
     r"authenticated successfully as ([A-Za-z0-9_.+-]+@[A-Za-z0-9-]+\.[A-Za-z0-9-.]+)"
+)
+_AUTH_LOG_DIRS = (
+    Path.home() / ".gemini" / "antigravity-cli" / "log",
+    Path.home() / ".gemini" / "antigravity" / "log",
 )
 
 
@@ -183,6 +209,12 @@ def list_models() -> dict[str, Any]:
     return {"models": list(FALLBACK_MODELS), "source": "fallback"}
 
 
+def _model_known(model: str) -> tuple[bool, list[str]]:
+    """Checks a model id against the current inventory (cached by list_models)."""
+    known = list_models().get("models") or []
+    return (model in known), list(known)
+
+
 def settings_path(live_dir: Path) -> Path:
     return Path(live_dir) / "viewer_settings.json"
 
@@ -233,7 +265,9 @@ def write_viewer_settings(live_dir: Path, patch: dict[str, Any]) -> dict[str, An
     try:
         path = settings_path(live_dir)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(settings, indent=2), encoding="utf-8")
+        temporary = path.with_name(path.name + ".tmp." + os.urandom(4).hex())
+        temporary.write_text(json.dumps(settings, indent=2), encoding="utf-8")
+        os.replace(temporary, path)
     except OSError:
         pass
     return settings
@@ -269,6 +303,29 @@ def load_assets() -> dict[str, str]:
     return found
 
 
+def _safe_mtime(path: Path) -> float:
+    """stat() with a 0.0 fallback (audit CAN-004/MISSED-003: files can vanish
+    between glob and sort when retention pruning runs concurrently)."""
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def _host_from_header(host_header: str) -> str:
+    """Extracts the hostname from a Host header, RFC 3986 brackets included.
+
+    ``"[::1]:48477".split(":")[0]`` yields ``"["`` — which silently 403'd
+    every request on IPv6 loopback bindings (audit CAN-005).
+    """
+    raw = (host_header or "").strip().lower()
+    if not raw:
+        return ""
+    if raw.startswith("[") and "]" in raw:
+        return raw[1 : raw.index("]")]
+    return raw.split(":")[0]
+
+
 def newest_run(live_dir: Path) -> Path | None:
     try:
         runs = [
@@ -280,7 +337,7 @@ def newest_run(live_dir: Path) -> Path | None:
         return None
     if not runs:
         return None
-    runs.sort(key=lambda path: (path.stat().st_mtime, path.name))
+    runs.sort(key=lambda path: (_safe_mtime(path), path.name))
     return runs[-1]
 
 
@@ -366,7 +423,7 @@ def list_runs(live_dir: Path, limit: int = 60) -> list[dict[str, Any]]:
         runs = [path for path in live_dir.glob("run-*.jsonl") if path.is_file()]
     except OSError:
         return []
-    runs.sort(key=lambda path: (path.stat().st_mtime, path.name), reverse=True)
+    runs.sort(key=lambda path: (_safe_mtime(path), path.name), reverse=True)
     entries: list[dict[str, Any]] = []
     for path in runs[:limit]:
         record = describe_run(path)
@@ -392,18 +449,14 @@ def collect_auth_state() -> dict[str, Any]:
     rate_limited = False
     resets_in: str | None = None
     newest_log_age: float | None = None
-    log_dirs = (
-        Path.home() / ".gemini" / "antigravity-cli" / "log",
-        Path.home() / ".gemini" / "antigravity" / "log",
-    )
     logs: list[Path] = []
-    for directory in log_dirs:
+    for directory in _AUTH_LOG_DIRS:
         if directory.is_dir():
             try:
                 logs.extend(path for path in directory.glob("*.log") if path.is_file())
             except OSError:
                 continue
-    logs.sort(key=lambda path: path.stat().st_mtime if path.exists() else 0, reverse=True)
+    logs.sort(key=_safe_mtime, reverse=True)
     now = time.time()
     for path in logs[:20]:
         content = _read_log_tail(path)
@@ -429,7 +482,9 @@ def collect_auth_state() -> dict[str, Any]:
                 if matches:
                     resets_in = " ".join(matches[-1].split())
     return {
-        "account": account,
+        "account": mask_email(account),
+        "account_source": "log-heuristic" if account else None,
+        "account_masked": True,
         "rate_limited": rate_limited,
         "resets_in": resets_in,
         "newest_log_age_seconds": newest_log_age,
@@ -471,7 +526,7 @@ def collect_status(context: "ViewerContext") -> dict[str, Any]:
         "skills": skills,
         "skill_warnings": skill_warnings,
         "skill_error": skill_error,
-        "runs": len(list_runs(context.live_dir, limit=1000)),
+        "runs": len([path for path in context.live_dir.glob("run-*.jsonl") if path.is_file()]),
         "uptime_seconds": round(time.time() - context.started, 1),
     }
 
@@ -511,7 +566,22 @@ ASK_DEFAULT_PROMPT = (
 )
 
 MAX_UPLOAD_BYTES = 12 * 1024 * 1024
+MAX_BODY_BYTES = 32 * 1024 * 1024
 CAPTURE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
+HANDSHAKE_TIMEOUT_SECONDS = 6.0
+
+
+def mask_email(address: str | None) -> str | None:
+    """Masks a detected account address for API exposure (keeps the domain)."""
+    if not address or "@" not in address:
+        return address
+    local, _, domain = address.partition("@")
+    if len(local) <= 2:
+        masked = local[0] + "*"
+    else:
+        masked = local[:2] + "***"
+    return f"{masked}@{domain}"
 
 
 def build_ask_prompt(
@@ -592,6 +662,10 @@ def _fake_ask_launcher(
         "- Fix: cap retries at 3 with exponential delay.\n\n"
         "```python\nfor attempt in range(3):\n    time.sleep(2 ** attempt)\n```\n"
     )
+    if os.environ.get("WISP_ASK_FAKE_BIG") == "1":
+        # CAN-002 regression fixture: a successful delegation whose answer
+        # exceeds ChatStore.MAX_MESSAGE_CHARS.
+        answer += "\n" + ("detail " * 20_000)
     lines = [
         json.dumps(
             {"step_update": {"thinking": "Considering the operator's capture."}}
@@ -632,7 +706,9 @@ def _ask_worker(
         artifacts: list[str] = []
         for raw in image_paths:
             candidate = Path(raw)
-            if raw and candidate.is_file():
+            if not candidate.is_absolute():
+                candidate = Path(context.workspace) / raw
+            if raw and context.contain_artifact(str(candidate)) and candidate.is_file():
                 artifacts.append(
                     relative_to_workspace(candidate, context.workspace)
                 )
@@ -670,6 +746,9 @@ def _ask_worker(
         answer = extract_chat_answer(
             result.critique_markdown or result.error or "No answer was produced."
         )
+        # Clamp before persisting: a >100k-char critique from a SUCCESSFUL
+        # delegation must not be misreported as a failure (CAN-002).
+        answer = answer[:MAX_MESSAGE_CHARS]
         store.append_message(
             thread_id,
             "assistant",
@@ -718,9 +797,64 @@ class ViewerContext:
     ask_lock: threading.Lock = field(default_factory=threading.Lock)
     active_ask: dict[str, Any] = field(default_factory=dict)
     capture_lock: threading.Lock = field(default_factory=threading.Lock)
+    auth_token: str = ""
+    instance_token: str = ""
     _watch_cache: tuple[float, tuple[Path, ...]] = field(
         default_factory=lambda: (0.0, ()), repr=False
     )
+
+    def artifact_roots(self) -> list[Path]:
+        """Directories from which /api/ask may attach files.
+
+        Only roots **inside the workspace** qualify: delegation artifacts are
+        emitted workspace-relative so the mounted reviewer can resolve them,
+        and `_ask_worker` re-joins them against the workspace (GATE-4 FL-007).
+        """
+        roots = [self.workspace]
+        captures = Path(self.live_dir).parent / "captures"
+        try:
+            captures.relative_to(self.workspace.resolve())
+        except ValueError:
+            pass
+        else:
+            roots.append(captures)
+        unique: list[Path] = []
+        for root in roots:
+            resolved = root.resolve()
+            if resolved not in unique:
+                unique.append(resolved)
+        return unique
+
+    def contain_artifact(self, raw: str) -> str | None:
+        """Returns a workspace-relative path when ``raw`` is an approved image.
+
+        Approved means: resolves to an existing file, carries an image
+        extension, and lives inside one of :meth:`artifact_roots` — all of
+        which are inside the workspace, so the returned relative path always
+        rejoins against the workspace. Everything else is rejected (audit
+        finding: arbitrary local paths previously flowed straight into
+        delegation artifacts).
+        """
+        candidate = str(raw or "").strip()
+        if not candidate:
+            return None
+        try:
+            path = Path(candidate).expanduser().resolve()
+        except (OSError, ValueError):
+            return None
+        if not path.is_file() or path.suffix.lower() not in CAPTURE_EXTENSIONS:
+            return None
+        workspace = self.workspace.resolve()
+        for root in self.artifact_roots():
+            try:
+                path.relative_to(root)
+            except ValueError:
+                continue
+            try:
+                return str(path.relative_to(workspace)).replace("\\", "/")
+            except ValueError:
+                return None
+        return None
 
     def watched_dirs(self) -> list[Path]:
         """Own live dir plus every registered live dir (cached briefly)."""
@@ -741,7 +875,11 @@ class ViewerContext:
 
 
 def existing_viewer(live_dir: Path) -> dict[str, Any] | None:
-    """Returns {port, pid} when a live viewer already owns this workspace."""
+    """Returns {port, pid, token?} when a live viewer already owns this workspace.
+
+    Liveness is established by an HTTP probe; ``token`` is the per-instance
+    secret from the manifest used for the authenticated shutdown handshake.
+    """
     try:
         data = json.loads(settings_path(live_dir).parent.joinpath("viewer.json").read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -756,10 +894,110 @@ def existing_viewer(live_dir: Path) -> dict[str, Any] | None:
     try:
         with _urlopen(f"http://127.0.0.1:{port}/health", timeout=2) as response:
             if response.status == 200:
-                return {"port": port, "pid": pid}
+                info: dict[str, Any] = {"port": port, "pid": pid}
+                token = str(data.get("token") or "")
+                if token:
+                    info["token"] = token
+                auth = str(data.get("auth_token") or "")
+                if auth:
+                    info["auth_token"] = auth
+                return info
     except Exception:
         return None
     return None
+
+
+def request_shutdown(port: int, instance_token: str, auth_token: str = "") -> bool:
+    """Asks the viewer on ``port`` to shut down gracefully.
+
+    Sends the instance secret in the dedicated ``X-Instance-Token`` header,
+    plus the operator bearer first when the target bound with ``--auth-token``
+    (MISSED-001: a single Authorization header cannot satisfy both secrets).
+    """
+    if not port or not instance_token:
+        return False
+    headers = {SESSION_HEADER: "1", "X-Instance-Token": instance_token}
+    if auth_token:
+        headers["Authorization"] = f"Bearer {auth_token}"
+    else:
+        headers["Authorization"] = f"Bearer {instance_token}"
+    try:
+        request = _urlopen(
+            _build_request_with_headers(
+                f"http://127.0.0.1:{port}/api/shutdown", headers
+            ),
+            timeout=HANDSHAKE_TIMEOUT_SECONDS,
+        )
+        with request:
+            return 200 <= request.status < 300
+    except Exception:
+        return False
+
+
+def _build_request_with_headers(url: str, headers: dict[str, str]) -> Any:
+    from urllib.request import Request
+
+    return Request(url, data=b"{}", headers=headers, method="POST")
+
+
+def pid_image_name(pid: int) -> str | None:
+    """Best-effort image name of a live PID (None when the PID does not exist)."""
+    try:
+        result = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {int(pid)}", "/FO", "CSV", "/NH"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=15,
+        )
+        line = (result.stdout or "").strip().splitlines()
+        if not line or line[0].upper().startswith(("INFO", '"ERROR"')):
+            return None
+        return line[0].split(",")[0].strip('"').lower() or None
+    except Exception:
+        return None
+
+
+def pid_command_line(pid: int) -> str | None:
+    """Best-effort command line of a live PID (None when absent or unknown)."""
+    try:
+        result = subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-Command",
+                "(Get-CimInstance Win32_Process -Filter 'ProcessId = "
+                + str(int(pid))
+                + "').CommandLine",
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=20,
+        )
+        line = (result.stdout or "").strip()
+        return line or None
+    except Exception:
+        return None
+
+
+def looks_like_viewer_process(image_name: str | None, pid: int | None = None) -> bool:
+    """Conservative PID-reuse guard before any forced kill (GATE-4 FL-005).
+
+    A bare "this is some python process" match once allowed a recycled PID to
+    route an innocent interpreter into ``taskkill /F /T``; a forced kill now
+    additionally requires the process command line to name this viewer.
+    """
+    if not image_name:
+        return False
+    if not any(marker in image_name for marker in ("python", "electron", "wisp")):
+        return False
+    if pid is None:
+        return False
+    command_line = pid_command_line(pid) or ""
+    return "antigravity_viewer" in command_line
 
 
 class ViewerServer(ThreadingHTTPServer):
@@ -774,6 +1012,7 @@ class ViewerServer(ThreadingHTTPServer):
 class ViewerHandler(BaseHTTPRequestHandler):
     server_version = f"{SERVER_NAME}/{SERVER_VERSION}"
     protocol_version = "HTTP/1.1"
+    timeout = 60
 
     @property
     def context(self) -> ViewerContext:
@@ -785,6 +1024,38 @@ class ViewerHandler(BaseHTTPRequestHandler):
     def _security_headers(self) -> None:
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
+
+    def _authorized(self, query: Mapping[str, list[str]] | None = None) -> bool:
+        """Bearer-token gate; enforced only when the server bound non-loopback.
+
+        Query-string tokens are accepted ONLY on ``/events`` (EventSource
+        cannot set headers) and never on other routes, where a token in the
+        URL would leak into proxy logs and history (GATE-4 FL-006).
+        Comparisons are constant-time (CAN-003).
+        """
+        token = self.context.auth_token
+        if not token:
+            return True
+        header = self.headers.get("Authorization") or ""
+        if secrets.compare_digest(header, f"Bearer {token}"):
+            return True
+        if query:
+            supplied = query.get("token") or []
+            parsed = urlparse(self.path)
+            if parsed.path == "/events" and any(
+                secrets.compare_digest(str(candidate), token) for candidate in supplied
+            ):
+                return True
+        return False
+
+    def _check_host(self) -> bool:
+        """DNS-rebinding guard for loopback bindings: Host must be loopback."""
+        if self.context.auth_token:
+            return True
+        host = _host_from_header(self.headers.get("Host") or "")
+        if not host:
+            return True
+        return host in {"127.0.0.1", "localhost", "::1"}
 
     def _send_bytes(
         self, status: int, body: bytes, content_type: str, cache: str = "no-store"
@@ -811,10 +1082,21 @@ class ViewerHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         route = parsed.path
         query = parse_qs(parsed.query)
+        if not self._check_host():
+            self._send_json(403, {"error": "host header not allowed"})
+            return
+        if route == "/health":
+            # Deliberately minimal: this endpoint is unauthenticated by design
+            # (liveness probe), so it exposes no paths, workspace, or state.
+            self._send_json(200, {"status": "ok", "port": self.context.port})
+            return
+        if not self._authorized(query):
+            self._send_json(401, {"error": "unauthorized"})
+            return
         if route == "/":
             self._serve_html()
             return
-        if route == "/health":
+        if route == "/health/details":
             watched = self.context.watched_dirs()
             run = newest_run_across(watched)
             self._send_json(
@@ -906,6 +1188,15 @@ class ViewerHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
+        if not self._check_host():
+            self._send_json(403, {"error": "host header not allowed"})
+            return
+        if parsed.path == "/api/shutdown":
+            self._handle_shutdown()
+            return
+        if not self._authorized():
+            self._send_json(401, {"error": "unauthorized"})
+            return
         if not self._guard_post():
             return
         if parsed.path == "/api/account/switch":
@@ -923,7 +1214,37 @@ class ViewerHandler(BaseHTTPRequestHandler):
             if not isinstance(payload, dict):
                 self._send_json(400, {"error": "body must be an object"})
                 return
-            self._send_json(200, write_viewer_settings(self.context.live_dir, payload))
+            unknown = [
+                key
+                for key in ("model", "fallback_model", "chat_model")
+                if isinstance(payload.get(key), str)
+                and payload[key].strip()
+                and not _MODEL_NAME_PATTERN.match(payload[key].strip())
+            ]
+            if not unknown and not bool(payload.get("allow_custom")):
+                unknown = [
+                    key
+                    for key in ("model", "fallback_model", "chat_model")
+                    if isinstance(payload.get(key), str)
+                    and payload[key].strip()
+                    and not _model_known(payload[key].strip())[0]
+                ]
+            if unknown:
+                self._send_json(
+                    400,
+                    {
+                        "error": f"unknown model for: {', '.join(unknown)}",
+                        "known_models": list_models().get("models") or [],
+                        "hint": "resubmit with allow_custom=true to force a custom id",
+                    },
+                )
+                return
+            settings = write_viewer_settings(self.context.live_dir, payload)
+            inventory = list_models().get("models") or []
+            for key in ("model", "fallback_model", "chat_model"):
+                value = settings.get(key)
+                settings[f"{key}_known"] = bool(value) and value in inventory
+            self._send_json(200, settings)
             return
         if parsed.path == "/api/capture":
             payload = self._json_body()
@@ -1027,6 +1348,15 @@ class ViewerHandler(BaseHTTPRequestHandler):
     def _handle_ask(self, payload: dict[str, Any]) -> None:
         context = self.context
         prompt = str(payload.get("prompt") or "").strip() or ASK_DEFAULT_PROMPT
+        if len(prompt) > MAX_MESSAGE_CHARS:
+            # Reject BEFORE acquiring the ask lock: an unclamped oversized
+            # prompt used to raise inside append_message and permanently leak
+            # the acquired lock, bricking /api/ask with 409s (CAN-001).
+            self._send_json(
+                400,
+                {"error": f"prompt exceeds MAX_MESSAGE_CHARS ({MAX_MESSAGE_CHARS})"},
+            )
+            return
         context_text = str(payload.get("context_text") or "").strip()
         image_path = str(payload.get("image_path") or "").strip()
         image_paths: list[str] = []
@@ -1040,7 +1370,36 @@ class ViewerHandler(BaseHTTPRequestHandler):
             image_paths.insert(0, image_path)
         seen: set[str] = set()
         image_paths = [p for p in image_paths if not (p in seen or seen.add(p))]
+        rejected: list[str] = []
+        contained: list[str] = []
+        for raw_path in image_paths:
+            contained_rel = context.contain_artifact(raw_path)
+            if contained_rel is None:
+                rejected.append(raw_path)
+            else:
+                contained.append(contained_rel)
+        if rejected:
+            self._send_json(
+                400,
+                {
+                    "error": (
+                        "image paths must be existing files inside the workspace or "
+                        f"capture directory with one of: {', '.join(sorted(CAPTURE_EXTENSIONS))}"
+                    ),
+                    "rejected": rejected,
+                },
+            )
+            return
+        image_paths = contained
         model = str(payload.get("model") or "").strip()
+        if model:
+            known, known_models = _model_known(model)
+            if not known and not bool(payload.get("allow_custom")):
+                self._send_json(
+                    400,
+                    {"error": f"unknown model: {model}", "known_models": known_models},
+                )
+                return
         thread_id = str(payload.get("thread_id") or "").strip()
         skills_raw = payload.get("skills")
         settings = read_viewer_settings(context.live_dir)
@@ -1055,8 +1414,6 @@ class ViewerHandler(BaseHTTPRequestHandler):
             if thread is None:
                 self._send_json(404, {"error": "thread not found"})
                 return
-        else:
-            thread = store.create(prompt)
 
         if not context.ask_lock.acquire(blocking=False):
             self._send_json(
@@ -1069,20 +1426,37 @@ class ViewerHandler(BaseHTTPRequestHandler):
             )
             return
 
-        context.active_ask = {"thread_id": thread["id"], "started": time.time()}
-        store.append_message(
-            thread["id"],
-            "user",
-            prompt,
-            {
-                "context_text": context_text[:4000],
-                "image_path": image_path or (image_paths[0] if image_paths else ""),
-                "image_paths": image_paths,
-            },
-        )
-        store.update_run(
-            thread["id"], {"status": "running", "started": time.time()}
-        )
+        try:
+            # The thread is created only after the lock is held, so a 409 can
+            # never litter the chat directory with orphaned empty threads
+            # (MISSED-004), and any failure below releases the lock instead of
+            # bricking the ask feature (CAN-001).
+            if thread_id:
+                thread = store.load(thread_id) or thread
+            else:
+                thread = store.create(prompt)
+            context.active_ask = {"thread_id": thread["id"], "started": time.time()}
+            store.append_message(
+                thread["id"],
+                "user",
+                prompt,
+                {
+                    "context_text": context_text[:4000],
+                    "image_path": image_path or (image_paths[0] if image_paths else ""),
+                    "image_paths": image_paths,
+                },
+            )
+            store.update_run(
+                thread["id"], {"status": "running", "started": time.time()}
+            )
+        except Exception as exc:
+            context.active_ask = {}
+            try:
+                context.ask_lock.release()
+            except RuntimeError:
+                pass
+            self._send_json(500, {"error": f"failed to record the ask: {exc}"})
+            return
         worker = threading.Thread(
             target=_ask_worker,
             args=(
@@ -1108,6 +1482,36 @@ class ViewerHandler(BaseHTTPRequestHandler):
             },
         )
 
+    def _handle_shutdown(self) -> None:
+        """Authenticated shutdown handshake (audit finding #5).
+
+        Token scheme (GATE-4 reconciliation MISSED-001): when the server binds
+        with an operator bearer token, the request must carry ``Authorization:
+        Bearer <auth_token>`` AND the instance secret in the dedicated
+        ``X-Instance-Token`` header - a single Authorization header cannot
+        match two distinct secrets. Without an operator token, the bearer is
+        the instance token. A stale port shared by an unrelated process can
+        never produce the instance secret.
+        """
+        expected = self.context.instance_token
+        if not expected:
+            self._send_json(404, {"error": "not found"})
+            return
+        auth_header = self.headers.get("Authorization") or ""
+        instance_header = self.headers.get("X-Instance-Token") or ""
+        if self.context.auth_token:
+            if not secrets.compare_digest(auth_header, f"Bearer {self.context.auth_token}"):
+                self._send_json(401, {"error": "unauthorized"})
+                return
+            supplied = instance_header
+        else:
+            supplied = auth_header[len("Bearer "):] if auth_header.startswith("Bearer ") else ""
+        if not supplied or not secrets.compare_digest(supplied, expected):
+            self._send_json(403, {"error": "invalid instance token"})
+            return
+        self._send_json(200, {"status": "shutting-down"})
+        threading.Thread(target=self.server.shutdown, daemon=True).start()
+
     def _guard_post(self) -> bool:
         if self.headers.get(SESSION_HEADER) != "1":
             self._send_json(403, {"error": "missing local session header"})
@@ -1121,7 +1525,21 @@ class ViewerHandler(BaseHTTPRequestHandler):
             if origin not in allowed:
                 self._send_json(403, {"error": "origin not allowed"})
                 return False
-        length = int(self.headers.get("Content-Length") or 0)
+        raw_length = (self.headers.get("Content-Length") or "").strip()
+        if not raw_length:
+            self._send_json(411, {"error": "Content-Length required"})
+            return False
+        try:
+            length = int(raw_length)
+        except ValueError:
+            self._send_json(400, {"error": "invalid Content-Length"})
+            return False
+        if length < 0:
+            self._send_json(400, {"error": "invalid Content-Length"})
+            return False
+        if length > MAX_BODY_BYTES:
+            self._send_json(413, {"error": f"body exceeds {MAX_BODY_BYTES} byte limit"})
+            return False
         self._body = self.rfile.read(length) if length else b""
         return True
 
@@ -1188,20 +1606,20 @@ class ViewerHandler(BaseHTTPRequestHandler):
         if path is None:
             send("replay_end", json.dumps({"error": "run file not found"}))
             return
-        try:
-            content = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            send("replay_end", json.dumps({"error": "run file not found"}))
-            return
         if not send("reset", json.dumps({"file": safe, "replay": True})):
             return
-        for line in content.splitlines():
-            stripped = line.strip()
-            if not stripped:
-                continue
-            if not send("live", stripped):
-                return
-            time.sleep(REPLAY_LINE_DELAY_SECONDS)
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as handle:
+                for line in handle:
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    if not send("live", stripped):
+                        return
+                    time.sleep(REPLAY_LINE_DELAY_SECONDS)
+        except OSError:
+            send("replay_end", json.dumps({"error": "run file unreadable"}))
+            return
         send("replay_end", json.dumps({"file": safe}))
 
     def _stream_live(self, send: Any) -> None:
@@ -1589,9 +2007,10 @@ def open_electron_window(url: str) -> subprocess.Popen | None:
 def _write_viewer_manifest(live_dir: Path, payload: dict[str, Any]) -> None:
     try:
         live_dir.mkdir(parents=True, exist_ok=True)
-        (live_dir / "viewer.json").write_text(
-            json.dumps(payload, indent=2), encoding="utf-8"
-        )
+        path = live_dir / "viewer.json"
+        temporary = path.with_name(path.name + ".tmp." + os.urandom(4).hex())
+        temporary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        os.replace(temporary, path)
     except OSError:
         pass
 
@@ -1602,7 +2021,21 @@ def main(argv: list[str] | None = None) -> int:
         description="Local live viewer for Antigravity delegation telemetry.",
     )
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
-    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Bind address. Non-loopback binding requires --auth-token or --generate-token.",
+    )
+    parser.add_argument(
+        "--auth-token",
+        default="",
+        help="Bearer token required on every route when bound non-loopback.",
+    )
+    parser.add_argument(
+        "--generate-token",
+        action="store_true",
+        help="Generate and print a random bearer token, then require it on every route.",
+    )
     parser.add_argument("--workspace", default=None)
     parser.add_argument("--live-dir", default=None)
     parser.add_argument(
@@ -1635,6 +2068,18 @@ def main(argv: list[str] | None = None) -> int:
     workspace = resolve_workspace(args.workspace)
     live_dir = resolve_live_dir(workspace, args.live_dir)
 
+    auth_token = str(args.auth_token or "").strip()
+    if args.generate_token:
+        auth_token = secrets.token_urlsafe(32)
+    non_loopback = args.host not in LOOPBACK_HOSTS
+    if non_loopback and not auth_token:
+        print(
+            "[wisp-viewer] refusing to bind a non-loopback host without an auth "
+            "token: pass --auth-token <secret> or --generate-token.",
+            file=sys.stderr,
+        )
+        return 2
+
     existing = existing_viewer(live_dir)
     if existing and not args.replace:
         print(
@@ -1643,16 +2088,48 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
     if existing and args.replace:
-        print(f"[wisp-viewer] replacing existing viewer (pid {existing['pid']})")
-        try:
-            subprocess.run(
-                ["taskkill", "/PID", str(existing["pid"]), "/T", "/F"],
-                capture_output=True,
-                timeout=15,
+        instance = str(existing.get("token") or "")
+        # The target viewer's own auth token (from its manifest) outranks the
+        # new invocation's: they must match the running process, not the args.
+        target_auth = str(existing.get("auth_token") or "") or auth_token
+        replaced = False
+        if instance and request_shutdown(
+            existing["port"], instance, auth_token=target_auth
+        ):
+            replaced = True
+            print(
+                f"[wisp-viewer] sent authenticated shutdown to the viewer on "
+                f"port {existing['port']}"
             )
-        except Exception:
-            pass
-        time.sleep(1.5)
+        else:
+            image = pid_image_name(existing["pid"])
+            if looks_like_viewer_process(image, pid=existing["pid"]):
+                print(
+                    f"[wisp-viewer] legacy manifest without instance token; "
+                    f"pid {existing['pid']} verified as a viewer process "
+                    f"({image}); forcing."
+                )
+                try:
+                    subprocess.run(
+                        ["taskkill", "/PID", str(existing["pid"]), "/T", "/F"],
+                        capture_output=True,
+                        timeout=15,
+                    )
+                    replaced = True
+                except Exception:
+                    replaced = False
+            else:
+                print(
+                    f"[wisp-viewer] refusing to replace: the manifest PID "
+                    f"{existing['pid']} does not look like a viewer process "
+                    f"({image or 'gone'}) and no instance token is available; "
+                    f"the port is likely owned by another program. Remove "
+                    f"{live_dir / 'viewer.json'} if this is stale.",
+                    file=sys.stderr,
+                )
+                return 2
+        if replaced:
+            time.sleep(1.5)
 
     def context_factory(port: int) -> ViewerContext:
         return ViewerContext(workspace=workspace, live_dir=live_dir, port=port)
@@ -1663,18 +2140,29 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[wisp-viewer] failed to bind: {exc}", file=sys.stderr)
         return 1
 
+    instance_token = secrets.token_urlsafe(24)
+    server.context.auth_token = auth_token
+    server.context.instance_token = instance_token
+
     url = f"http://{args.host}:{port}/"
-    _write_viewer_manifest(
-        live_dir,
-        {
-            "port": port,
-            "url": url,
-            "pid": os.getpid(),
-            "workspace": str(workspace),
-            "started": time.time(),
-        },
-    )
+    manifest_payload: dict[str, Any] = {
+        "port": port,
+        "url": url,
+        "pid": os.getpid(),
+        "token": instance_token,
+        "workspace": str(workspace),
+        "started": time.time(),
+    }
+    if auth_token:
+        # Same local trust boundary as the instance token: without it, the
+        # --replace authenticated shutdown cannot authenticate (MISSED-001).
+        manifest_payload["auth_token"] = auth_token
+    _write_viewer_manifest(live_dir, manifest_payload)
     print(f"[wisp-viewer] serving on {url} (live dir: {live_dir})")
+    if non_loopback:
+        print("[wisp-viewer] NON-LOOPBACK BINDING: bearer token required on every route.")
+        if args.generate_token:
+            print(f"[wisp-viewer] generated auth token: {auth_token}")
     print("[wisp-viewer] watching for delegations; Ctrl+C to stop.")
 
     def _shutdown(signum: int, frame: Any) -> None:

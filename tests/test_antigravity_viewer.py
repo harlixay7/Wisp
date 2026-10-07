@@ -88,9 +88,15 @@ class TestRunDiscovery:
 
 
 class ViewerProcess:
-    def __init__(self, tmp_path: Path, extra_env: dict[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        tmp_path: Path,
+        extra_env: dict[str, str] | None = None,
+        extra_args: list[str] | None = None,
+    ) -> None:
         self.tmp_path = tmp_path
         self.extra_env = extra_env or {}
+        self.extra_args = extra_args or []
         self.proc: subprocess.Popen | None = None
         self.base = ""
 
@@ -112,6 +118,7 @@ class ViewerProcess:
                 "--workspace",
                 str(self.tmp_path),
                 "--no-open",
+                *self.extra_args,
             ],
             cwd=str(ROOT),
             stdout=subprocess.PIPE,
@@ -325,9 +332,26 @@ class TestImageAttachments:
                 break
             time.sleep(0.3)
 
+        # Contained artifacts are recorded workspace-relative (audit #2/#33).
+        expected_rel = [
+            str(first.relative_to(fake_viewer[1].parent.parent)).replace("\\", "/"),
+            str(second.relative_to(fake_viewer[1].parent.parent)).replace("\\", "/"),
+        ]
         user_meta = thread["messages"][0]["meta"]
-        assert user_meta["image_paths"] == [str(first), str(second)]
-        assert user_meta["image_path"] == str(first)
+        assert user_meta["image_paths"] == expected_rel
+        assert user_meta["image_path"] == expected_rel[0]
+
+    def test_ask_rejects_outside_artifact_paths(self, fake_viewer) -> None:
+        base, _ = fake_viewer
+        outside = Path(fake_viewer[1].parent.parent) / "outside-secret.txt"
+        outside.write_text("secret", encoding="utf-8")
+        status, data = _post_json(
+            base,
+            "/api/ask",
+            {"prompt": "peek", "images": [str(outside)]},
+        )
+        assert status == 400
+        assert data["rejected"] == [str(outside)]
 
 
 class TestImagePasteUnit:
@@ -595,9 +619,15 @@ class TestHttpEndpoints:
         base, _ = viewer
 
         health = json.loads(urllib.request.urlopen(base + "/health", timeout=10).read())
+        details = json.loads(
+            urllib.request.urlopen(base + "/health/details", timeout=10).read()
+        )
 
+        # /health is deliberately minimal (unauthenticated liveness probe).
         assert health["status"] == "ok"
-        assert health["watching"].startswith("run-")
+        assert "watching" not in health
+        assert "live_dir" not in health
+        assert details["watching"].startswith("run-")
 
     def test_assets_and_runs_endpoints(self, viewer) -> None:
         base, _ = viewer
@@ -639,19 +669,55 @@ class TestHttpEndpoints:
         )
         saved = json.loads(urllib.request.urlopen(request, timeout=10).read())
         assert saved["model"] == "claude-sonnet-4-6"
+        assert saved["model_known"] is True
 
         again = json.loads(urllib.request.urlopen(base + "/api/model", timeout=10).read())
         assert again["model"] == "claude-sonnet-4-6"
         assert (live / "viewer_settings.json").exists()
 
-        invalid = urllib.request.Request(
+        # Malformed names are rejected outright (audit #34).
+        malformed = urllib.request.Request(
             base + "/api/model",
             method="POST",
             data=json.dumps({"model": "not a valid name!"}).encode("utf-8"),
             headers={"X-Wisp-Request": "1", "Content-Type": "application/json"},
         )
-        kept = json.loads(urllib.request.urlopen(invalid, timeout=10).read())
-        assert kept["model"] == "claude-sonnet-4-6"
+        with pytest.raises(urllib.error.HTTPError) as excinfo:
+            urllib.request.urlopen(malformed, timeout=10)
+        assert excinfo.value.code == 400
+
+        # Well-formed but unknown ids are rejected unless allow_custom is set.
+        unknown = urllib.request.Request(
+            base + "/api/model",
+            method="POST",
+            data=json.dumps({"model": "zzz-not-a-real-model"}).encode("utf-8"),
+            headers={"X-Wisp-Request": "1", "Content-Type": "application/json"},
+        )
+        with pytest.raises(urllib.error.HTTPError) as excinfo:
+            urllib.request.urlopen(unknown, timeout=10)
+        assert excinfo.value.code == 400
+        body = json.loads(excinfo.value.read().decode("utf-8"))
+        assert "known_models" in body
+
+        forced = urllib.request.Request(
+            base + "/api/model",
+            method="POST",
+            data=json.dumps({"model": "zzz-not-a-real-model", "allow_custom": True}).encode("utf-8"),
+            headers={"X-Wisp-Request": "1", "Content-Type": "application/json"},
+        )
+        saved_custom = json.loads(urllib.request.urlopen(forced, timeout=10).read())
+        assert saved_custom["model"] == "zzz-not-a-real-model"
+        assert saved_custom["model_known"] is False
+
+    def test_ask_rejects_unknown_model(self, fake_viewer) -> None:
+        base, _ = fake_viewer
+        status, data = _post_json(
+            base,
+            "/api/ask",
+            {"prompt": "hi", "model": "zzz-not-a-real-model"},
+        )
+        assert status == 400
+        assert "unknown model" in data["error"]
 
     def test_model_post_requires_session_header(self, viewer) -> None:
         base, _ = viewer
@@ -1007,10 +1073,25 @@ class TestChatStoreIntegrity:
         store.append_message(
             genuine["id"], "assistant", "A genuine critique with findings"
         )
+        quoted = store.create("quoted")
+        store.append_message(
+            quoted["id"],
+            "assistant",
+            "Assessing the claim: 'Risk: the retry path has no backoff bound'",
+        )
 
+        # Default cleanup is authoritative on meta.fake only (audit #29):
+        # genuine text that merely quotes a canned test phrase must survive.
         removed = store.clean_fake_threads()
+        assert set(removed) == {flagged["id"]}
+        for survivor in (legacy, modern, genuine, quoted):
+            assert store.load(survivor["id"]) is not None
 
-        assert set(removed) == {legacy["id"], modern["id"], flagged["id"]}
+        # Legacy content matching is an explicit migration mode: it matches
+        # every canned-marker thread (including quoted text) by design — that
+        # is exactly why it is no longer the default.
+        removed_legacy = store.clean_fake_threads(include_legacy_markers=True)
+        assert set(removed_legacy) == {legacy["id"], modern["id"], quoted["id"]}
         assert store.load(genuine["id"]) is not None
 
     def test_save_leaves_no_temp_files(self, tmp_path: Path) -> None:

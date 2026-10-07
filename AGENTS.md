@@ -26,7 +26,7 @@ critique has been ingested, reconciled, and resolved.
 | `tools/antigravity_bridge.py` | Binary resolution, env sanitization, containment, streaming capture, aggregation, retries, quota failover, CLI. |
 | `tools/antigravity_mcp_server.py` | MCP stdio server exposing `antigravity_review`, `antigravity_status`, `antigravity_skills`. |
 | `tools/antigravity_live.py` | Live event feed (stream parser, NDJSON sinks, retention) powering the viewer. |
-| `tools/antigravity_viewer.py` + `.html` + `.cmd` | Local animated live viewer (SSE, 4 modes, settings, replay); optional and read-only. |
+| `tools/antigravity_viewer.py` + `.html` + `.cmd` | Local animated live viewer (SSE, 6 modes, settings, replay); optional and read-only. |
 | `tools/viewer_assets/*.png` | Creature state art (black-background, screen-blended). |
 | `tools/skill_loader.py` | Registry discovery, metadata-contract validation, identifier resolution, prompt rendering. |
 | `Skills/*.{yaml,yml,md}` | Operator-authored adversarial skill definitions (YAML or Markdown with YAML front matter). |
@@ -219,9 +219,16 @@ python tools/antigravity_bridge.py --list-skills
 - **Containment** — Windows: Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`;
   POSIX: new session + process-group kill. Killing the bridge kills the whole tree
   (including servers or test harnesses `agy` spawned).
-- **Credential hygiene** — variables matching `AWS_*`, `AZURE_*`, `GITHUB_*`, `GH_*`,
-  `SSH_*`, `OPENAI_*`, `ANTHROPIC_*`, and `GEMINI_API_KEY` are stripped from the child
-  environment. `~/.gemini/bin` is prepended to `PATH`. OAuth state stays in the OS
+- **Credential hygiene (blocklist)** — credential-bearing variables matching
+  `AWS_*`, `AZURE_*`, `GITHUB_*`, `GH_*`, `SSH_*`, `OPENAI_*`, `ANTHROPIC_*`,
+  `GEMINI_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_API_KEY`,
+  `HF_*`/`HUGGINGFACE*`, `GIT_ASKPASS`, `SSH_ASKPASS`, plus the
+  interpreter/package-manager injection vectors `NODE_OPTIONS`, `PYTHONPATH`,
+  `PYTHONHOME`, `PYTHONSTARTUP`, and `NPM_CONFIG_USERCONFIG`, are stripped
+  from the child environment. The authoritative enumeration is
+  `tools/antigravity_bridge.py::BLOCKED_ENV_PREFIXES` / `BLOCKED_ENV_EXACT`;
+  this is hygiene hardening, not a sandbox (see `SECURITY.md`).
+  `~/.gemini/bin` is prepended to `PATH`. OAuth state stays in the OS
   credential store / `~/.gemini` cache; the bridge never reads or transmits it.
 - **Transient recovery** — connection resets, 5xx, and empty responses are retried
   with exponential backoff. An exit-0 run with no output is treated as a failure,
@@ -280,7 +287,7 @@ python tools/antigravity_bridge.py --list-skills     # list skills
 python tools/antigravity_bridge.py --prompt "..." --skills all --dry-run   # inspect dispatch
 python tools/antigravity_bridge.py --prompt "..." --skills all            # delegate
 python tools/antigravity_bridge.py --envelope envelope.json --json        # machine-readable
-python -m pytest tests/ -q                           # deterministic suite (~3s)
+python -m pytest tests/ -q                           # deterministic suite (~90 s)
 ```
 
 Reconciliation checklist before completion:
@@ -290,3 +297,5 @@ Reconciliation checklist before completion:
 - [ ] Every objection adjudicated with verdict + evidence.
 - [ ] Accepted fixes landed; deterministic suite re-run and green.
 - [ ] Bridge verdict is `SUCCESS`; any `FAILED` was escalated, not ignored.
+
+- **Child environment hygiene is a blocklist policy** — the exact stripped set is `tools/antigravity_bridge.py::BLOCKED_ENV_PREFIXES` / `BLOCKED_ENV_EXACT` (credential families plus NODE_OPTIONS/PYTHONPATH-class injection vectors); treat it as hygiene, not a sandbox.

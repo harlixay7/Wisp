@@ -59,7 +59,7 @@ Full JSON report → <workspace>/.antigravity-reports/antigravity-report-<timest
 | `.opencode/skills/antigravity-delegation/SKILL.md` | The deployable Agent 1 skill (§2). |
 | `opencode.json` | Registers the MCP server for opencode (1-hour tool timeout). |
 | `AGENTS.md` | Harness-agnostic delegation charter (gates + reconciliation). |
-| `tests/test_antigravity_bridge.py`, `tests/test_antigravity_mcp_server.py` | 75 deterministic tests; no test invokes real `agy`. |
+| `tests/` | the deterministic suite (live count on the README badge) across bridge, hardening, faults, live, MCP protocol, viewer, governance; no test invokes real `agy`. |
 
 **Three distinct skill planes — do not confuse them:**
 
@@ -71,8 +71,10 @@ Full JSON report → <workspace>/.antigravity-reports/antigravity-report-<timest
 
 ## 2. The deployable skill (verbatim)
 
-Copy this block into your harness's skill location (see §3.1). It is identical to
-`.opencode/skills/antigravity-delegation/SKILL.md`.
+Copy this block into your harness's skill location (see §3.1). It is **generated**
+from the canonical file — do not edit this block by hand; edit
+`.opencode/skills/antigravity-delegation/SKILL.md` and re-embed (a regression
+test in `tests/test_skill_registry_governance.py` fails when the two drift).
 
 ````markdown
 ---
@@ -167,8 +169,8 @@ Auxiliary tools: `antigravity_status` (binary/config/registry health) and
 
 The reviewer is an independent senior agent that reads the repo itself. Spending
 it only on "attack this plan" wastes a third of its value. Full guide:
-`DELEGATION_PLAYBOOK.md` in the bridge repo; worked example:
-`EXAMPLE_delegation_payload.json`. Core pattern:
+`docs/delegation-playbook.md` in the bridge repo; worked example:
+`examples/delegation-case-study.json`. Core pattern:
 
 - **Tier the scope, never lock it wholesale.** `<immutable_constraints>` holds
   only what is genuinely fixed (explicit user demands, test-pinned strings,
@@ -521,4 +523,4 @@ python tools/antigravity_bridge.py \
 | Version | Change |
 | --- | --- |
 | 2.6.0 | Corrected harness configs; added `--status`; retries + empty-output guard + quota wait/hook; report persistence from CLI; model chain pinned to Opus failover; MCP server + skill deployed. |
-| 2.7.0 | Registry health rules (`.md` front-matter requirement; one malformed file empties the registry); Mode A/B engagement design (design second opinions, alternatives, user-question queue); skill routing via `do_not_use_when` with `["all"]` reserved for cross-domain audits; constraints regrouped positive-first; machine-specific paths and the hardcoded account email removed; references `DELEGATION_PLAYBOOK.md` + `EXAMPLE_delegation_payload.json`. |
+| 2.7.0 | Registry health rules (`.md` front-matter requirement; one malformed file empties the registry); Mode A/B engagement design (design second opinions, alternatives, user-question queue); skill routing via `do_not_use_when` with `["all"]` reserved for cross-domain audits; constraints regrouped positive-first; machine-specific paths and the hardcoded account email removed; references `docs/delegation-playbook.md` + `examples/delegation-case-study.json`. |

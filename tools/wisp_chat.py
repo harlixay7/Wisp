@@ -3,7 +3,14 @@
 Each thread is one JSON document under ``<live_dir>/chat/thread-<id>.json``:
 ``{id, title, pinned, created, updated, run, messages[]}`` where every message
 is ``{role: "user"|"assistant", content, ts, meta}``. Reads are defensive: a
-corrupt file is treated as missing rather than crashing the viewer.
+corrupt file, or one with schema-level garbage (non-dict message entries),
+is treated as missing/malformed rather than crashing the viewer.
+
+Storage bounds (audit #28): message content is capped at
+``MAX_MESSAGE_CHARS``, a thread holds at most ``MAX_MESSAGES_PER_THREAD``
+messages (oldest pruned), and persistence failures surface as a ``False``
+return from :meth:`ChatStore.save` so callers can tell the operator instead
+of silently reporting success.
 """
 
 from __future__ import annotations
@@ -12,6 +19,7 @@ import argparse
 import json
 import os
 import re
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -20,6 +28,9 @@ from typing import Any, Sequence
 CHAT_DIR_NAME = "chat"
 MAX_TITLE_CHARS = 72
 MAX_THREADS_LISTED = 60
+MAX_MESSAGE_CHARS = 100_000
+MAX_MESSAGES_PER_THREAD = 500
+VALID_ROLES = ("user", "assistant")
 FAKE_MESSAGE_MARKERS = (
     "[TEST MODE]",
     "Risk: the retry path has no backoff bound",
@@ -57,6 +68,26 @@ class ChatStore:
         self.save(thread)
         return thread
 
+    @staticmethod
+    def _sanitize_messages(messages: Any) -> list[dict[str, Any]]:
+        """Keeps only well-formed message dicts (audit #26: schema-level defense)."""
+        if not isinstance(messages, list):
+            return []
+        clean: list[dict[str, Any]] = []
+        for entry in messages:
+            if not isinstance(entry, dict):
+                continue
+            role = entry.get("role")
+            clean.append(
+                {
+                    "role": role if role in VALID_ROLES else "assistant",
+                    "content": str(entry.get("content") or ""),
+                    "ts": entry.get("ts") if isinstance(entry.get("ts"), (int, float)) else 0.0,
+                    "meta": entry.get("meta") if isinstance(entry.get("meta"), dict) else {},
+                }
+            )
+        return clean
+
     def load(self, thread_id: str) -> dict[str, Any] | None:
         try:
             path = self._path(thread_id)
@@ -68,6 +99,7 @@ class ChatStore:
             return None
         if not isinstance(data, dict) or not isinstance(data.get("messages"), list):
             return None
+        data["messages"] = self._sanitize_messages(data.get("messages"))
         data.setdefault("id", thread_id)
         data.setdefault("title", "Untitled")
         data.setdefault("pinned", False)
@@ -75,7 +107,12 @@ class ChatStore:
         data.setdefault("run", None)
         return data
 
-    def save(self, thread: dict[str, Any]) -> None:
+    def save(self, thread: dict[str, Any]) -> bool:
+        """Persists a thread atomically; returns ``False`` when persistence fails.
+
+        Failures are also written to stderr so a silent-loss scenario becomes
+        visible in any process that launched the viewer or chat CLI (audit #25).
+        """
         temporary: Path | None = None
         try:
             self.directory.mkdir(parents=True, exist_ok=True)
@@ -85,7 +122,15 @@ class ChatStore:
             temporary.write_text(payload, encoding="utf-8")
             os.replace(temporary, path)
             temporary = None
-        except (OSError, ValueError):
+            return True
+        except (OSError, ValueError) as exc:
+            try:
+                sys.stderr.write(f"[wisp-chat] failed to persist thread: {exc}\n")
+                sys.stderr.flush()
+            except OSError:
+                pass
+            return False
+        finally:
             if temporary is not None:
                 try:
                     temporary.unlink()
@@ -104,20 +149,31 @@ class ChatStore:
             return False
 
     @staticmethod
-    def is_fake_thread(thread: dict[str, Any]) -> bool:
+    def is_fake_thread(thread: dict[str, Any], include_legacy_markers: bool = False) -> bool:
+        """A thread is fake only when ``meta.fake`` says so (audit #29).
+
+        Content-marker matching once ran unconditionally and could delete a
+        genuine thread whose text merely quoted a canned test phrase; it now
+        runs only in explicit legacy-migration mode.
+        """
         for message in thread.get("messages") or []:
-            if message.get("role") != "assistant":
+            if not isinstance(message, dict) or message.get("role") != "assistant":
                 continue
             meta = message.get("meta") or {}
-            if meta.get("fake") is True:
+            if isinstance(meta, dict) and meta.get("fake") is True:
                 return True
-            content = str(message.get("content") or "")
-            if any(marker in content for marker in FAKE_MESSAGE_MARKERS):
-                return True
+            if include_legacy_markers:
+                content = str(message.get("content") or "")
+                if any(marker in content for marker in FAKE_MESSAGE_MARKERS):
+                    return True
         return False
 
-    def clean_fake_threads(self) -> list[str]:
-        """Deletes threads containing canned test-mode answers; returns their ids."""
+    def clean_fake_threads(self, include_legacy_markers: bool = False) -> list[str]:
+        """Deletes fake threads; returns their ids.
+
+        ``include_legacy_markers=True`` also matches the canned pre-#29 test
+        phrases — a legacy migration path, not the default.
+        """
         removed: list[str] = []
         try:
             files = [
@@ -132,7 +188,10 @@ class ChatStore:
             thread = self.load(thread_id)
             if thread is None:
                 continue
-            if self.is_fake_thread(thread) and self.delete_thread(thread_id):
+            if (
+                self.is_fake_thread(thread, include_legacy_markers=include_legacy_markers)
+                and self.delete_thread(thread_id)
+            ):
                 removed.append(thread_id)
         return removed
 
@@ -143,17 +202,31 @@ class ChatStore:
         content: str,
         meta: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
+        if role not in VALID_ROLES:
+            raise ValueError(
+                f"invalid message role {role!r}; expected one of {VALID_ROLES}"
+            )
+        text = str(content or "")
+        if len(text) > MAX_MESSAGE_CHARS:
+            raise ValueError(
+                f"message exceeds MAX_MESSAGE_CHARS ({MAX_MESSAGE_CHARS})"
+            )
         thread = self.load(thread_id)
         if thread is None:
             return None
-        thread["messages"].append(
+        messages: list[dict[str, Any]] = thread["messages"]
+        messages.append(
             {
                 "role": role,
-                "content": str(content or ""),
+                "content": text,
                 "ts": time.time(),
                 "meta": dict(meta or {}),
             }
         )
+        if len(messages) > MAX_MESSAGES_PER_THREAD:
+            # Oldest-first pruning keeps the document bounded; the cap is a
+            # storage bound, not a conversational statement.
+            del messages[: len(messages) - MAX_MESSAGES_PER_THREAD]
         thread["updated"] = time.time()
         self.save(thread)
         return thread
@@ -234,12 +307,19 @@ def _main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--clean-fake",
         action="store_true",
-        help="Delete threads containing canned test-mode answers.",
+        help="Delete threads flagged meta.fake=true (plus legacy marker migration).",
+    )
+    parser.add_argument(
+        "--clean-fake-strict",
+        action="store_true",
+        help="Delete only threads flagged meta.fake=true (no legacy content matching).",
     )
     args = parser.parse_args(argv)
     store = ChatStore(args.live_dir)
-    if args.clean_fake:
-        removed = store.clean_fake_threads()
+    if args.clean_fake or args.clean_fake_strict:
+        removed = store.clean_fake_threads(
+            include_legacy_markers=bool(args.clean_fake and not args.clean_fake_strict)
+        )
         for thread_id in removed:
             print(f"removed {thread_id}")
         print(f"{len(removed)} fake thread(s) removed.")

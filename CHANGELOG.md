@@ -1,0 +1,161 @@
+# Changelog
+
+All notable changes to Wisp are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
+semantic per component with the bridge/server version as the product version
+(`tools/antigravity_bridge.py::WISP_VERSION`).
+
+Component versions are tracked together: bridge + MCP server + viewer move as
+one product version; the adversarial skill registry (`Skills/`) and the
+delegation skill (`.opencode/skills/antigravity-delegation/SKILL.md`) version
+independently; the Electron shell versions with the viewer.
+
+## [1.1.0] — 2026-10-07
+
+Hardening release driven by an external audit (67 findings) plus follow-up
+verification. Priority order was failure semantics, trust boundaries, evidence
+quality, and release engineering — no new features.
+
+### Security
+- **Containment**: `AssignProcessToJobObject` return value is now checked; the
+  achieved containment mode is recorded per attempt and surfaced in results,
+  reports, and warnings. Children are created `CREATE_SUSPENDED` and resumed
+  after job assignment, closing the assign-window race. Tree termination is
+  belt-and-braces: `taskkill /F /T` (live parent→child snapshot) plus
+  `TerminateJobObject` — this closed a *verified* escape where grandchildren
+  did not inherit job membership in some interpreter environments.
+- **Viewer artifact containment**: `/api/ask` image paths must resolve inside
+  the workspace or capture directory with an image extension; arbitrary local
+  paths are rejected instead of being normalized into delegation artifacts.
+- **Viewer network posture**: non-loopback `--host` binding requires an
+  explicit bearer token (`--auth-token` / `--generate-token`); every route is
+  then token-gated, `/health` is deliberately minimal, and a `Host`-header
+  check defends against DNS rebinding on loopback.
+- **Viewer body limits**: `Content-Length` is validated (missing/invalid/
+  negative/oversized) before any body byte is read; global 32 MB ceiling.
+- **Viewer replacement safety**: the manifest carries a per-instance token;
+  `--replace` uses an authenticated shutdown handshake and only falls back to
+  `taskkill` after a PID-image sanity check — a stale PID can no longer kill
+  an unrelated process.
+- **Environment hygiene**: blocklist extended (`GOOGLE_APPLICATION_CREDENTIALS`,
+  `GOOGLE_API_KEY`, `HF_`/`HUGGINGFACE`, `GIT_ASKPASS`, `SSH_ASKPASS`) plus
+  interpreter/PM injection vectors (`NODE_OPTIONS`, `PYTHONPATH`,
+  `PYTHONHOME`, `PYTHONSTARTUP`, `NPM_CONFIG_USERCONFIG`); docs now describe
+  the policy honestly as blocklist hygiene, not a sandbox.
+- **Workspace instruction trust**: the delegation payload now classifies the
+  entire mounted workspace (including `AGENTS.md`) as untrusted evidence and
+  removes the instruction to adopt workspace docs as protocol.
+- **Electron shell**: explicit `sandbox: true`, navigation policy restricted
+  to the local Wisp origin, popup/window-open denied, log rotation, and
+  documented danger of `WISP_DEBUG_PORT`.
+- **Viewer account exposure**: detected account email is masked and labeled
+  `log-heuristic` in `/api/status`.
+
+### Fixed
+- **Success semantics**: an exit-0 run whose only output is a stderr
+  diagnostic no longer counts as `SUCCESS`; stdout must carry content, and
+  stderr-only runs are retried as transient failures.
+- **Envelope contract**: `recommended_skills` survives the CLI JSON-envelope
+  path and gained a `--recommended-skills` flag (it was silently dropped
+  before, contradicting the documented contract).
+- **Registry resolution parity**: `--status`, `--list-skills`, and
+  `--dry-run` now resolve the skill registry exactly like the runtime
+  (shipped-registry fallback included); `--status` exits non-zero when the
+  registry is broken, making it usable as a health gate.
+- **Report persistence**: reports are written atomically (temp file, fsync,
+  `os.replace`) and pruned by count (`--report-keep`, default 50).
+- **Aggregation**: `tool_result` payloads now surface in the organized
+  critique; inferred final responses (no authoritative `result` envelope) are
+  explicitly flagged; duplicate action fragments are counted, not silently
+  dropped; delta coalescing is linear (incremental accumulation instead of
+  per-delta re-join); the dead in-memory queue is gone; `combined_output` is
+  cached.
+- **MCP protocol**: strict JSON-RPC 2.0 handling (`-32600` for malformed
+  frames and foreign versions, `-32602` for invalid params), explicit
+  protocol-version negotiation against a supported list, runtime bounds
+  mirroring the new schema `maxLength`/`maxItems`, and env parsing that
+  degrades with `config_warnings` instead of failing the tool call.
+- **Live feed**: emission happens under the sequence lock (seq order equals
+  write order under thread concurrency); the registry is protected by an
+  OS-level file lock across processes; retention never deletes runs modified
+  within the active-run grace window; over-depth content is preserved as
+  `raw` events instead of being dropped.
+- **Chat**: persistence failures return `False` and log to stderr (no more
+  silent loss); thread files are schema-sanitized on load; roles are
+  constrained to `user|assistant`; message size and per-thread history are
+  bounded; fake-thread cleanup is authoritative on `meta.fake` with content
+  markers demoted to an explicit legacy mode.
+- **Capture**: clipboard HGLOBAL ownership is released on every failure path
+  (`GlobalFree`); capture filenames carry a random suffix (no same-second
+  collisions); docs no longer claim image clipboard state is preserved.
+- **Viewer replay** streams the run file line-by-line instead of loading it
+  whole; selected models are validated against the inventory (custom ids
+  require explicit `allow_custom`).
+
+### Added
+- `schema_version` on reports, live run-start events, and registry entries;
+  full provenance block per report (Wisp version, git commit, agy version,
+  platform, Python, registry hash, skill versions, timestamp).
+- Real subprocess-fault integration suite (pipe flooding, grandchild-tree
+  kill, interleaved streams, partial output on kill).
+- Skill-registry governance tests (frontmatter, unique names, semver,
+  keyword-routing collisions, banned patterns, loader round-trip) and a
+  documentation-canonicalization test that fails when `AgentSkill.md` §2
+  drifts from the canonical delegation skill.
+- CI (Windows + Ubuntu, Python 3.10/3.13): ruff, `compileall`, skill
+  validation, Node syntax check, full pytest suite.
+- JSON-RPC negative-protocol test suite; cross-process registry test.
+- `SECURITY.md` with the explicit trust model; `docs/benchmark-protocol.md`
+  defining the efficacy measurement this release makes possible.
+
+### Changed
+- Pin runtime/dev dependencies exactly; `ruff.toml` gate (Pyflakes + E9).
+- README wording corrected: Wisp *compacts* the wire representation and
+  retains the complete raw record on disk (it does not impose a hard output
+  ceiling); containment is described as process-tree termination, not a
+  sandbox. Full threat model in `SECURITY.md`.
+- Example delegation moved to `examples/delegation-case-study.json`
+  (brand-neutral); `REPAIR_REPORT.md` is a pointer to the canonical
+  `docs/skills-repair-report.md`; all documentation uses `<bridge-repo>`
+  placeholders instead of machine paths.
+
+### Reconciliation round 2 (fresh-audit findings, same release)
+
+A stateless fresh-spawn audit of the fixes above returned 4 findings; all
+fixed with red/green pairs where applicable: tool_result dedupe seen-set add
+was missing in the step loop (duplicate results repeated unbounded);
+AGENTS.md viewer mode count 4 -> 6; a redundant double bounds pass removed
+from the MCP review tool; Electron shell package version parity 1.1.0.
+README tests badge is now governance-enforced against pytest collection.
+
+### Reconciliation (pre-completion gate, same release)
+
+An Antigravity adversarial review of the fixes above returned
+`CONDITIONAL_PASS` with 8 accepted findings; all were fixed and pinned:
+
+- Suspended-child leak: resume failures of any exception class terminate the
+  tree before propagating (`BaseException`, not just `OSError`).
+- Registry file lock: `seek(0)` before `msvcrt.locking` so lock and unlock
+  target the same byte.
+- Report retention: `_prune_reports` excludes the report just written.
+- Orphaned grandchildren: termination now walks live descendant PIDs via the
+  process snapshot (belt), plus taskkill /T (braces), plus
+  `TerminateJobObject` — with an honestly documented residual limitation for
+  re-exec interpreter chains (see `SECURITY.md`).
+- Forced-kill fallback requires viewer command-line confirmation, not just a
+  "python-ish" image name.
+- Query-string bearer tokens restricted to `/events` (EventSource); all other
+  routes require the header; `/api/shutdown` requires both the operator
+  bearer (when configured) and the instance token.
+- Capture artifacts: approved roots are workspace-internal only, so contained
+  relative paths always rejoin against the workspace.
+- Clipboard HGLOBAL ownership closed on unexpected-exception paths, with
+  functional fake-Win32 tests replacing source-string inspection.
+
+## [1.0.0] — 2026-10-05
+
+Initial release: delegation bridge (containment, capture, retries, quota
+failover, live feed), MCP stdio server (`antigravity_review`,
+`antigravity_status`, `antigravity_skills`), local viewer with SSE + replay +
+chat, Electron widget shell, 12-skill adversarial registry, deterministic
+test suite.
