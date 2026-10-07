@@ -1,0 +1,4 @@
+# Wisp runtime dependencies.
+# Everything else in the engine, MCP server, viewer, and live feed is
+# CPython standard library.
+PyYAML>=6.0

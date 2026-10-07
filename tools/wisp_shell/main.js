@@ -1,0 +1,295 @@
+const { app, BrowserWindow, globalShortcut, ipcMain, screen } = require("electron");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+
+const URL = process.env.WISP_URL || "http://127.0.0.1:48477/";
+const MARGIN = 18;
+const LOG = path.join(os.tmpdir(), "wisp-shell.log");
+const CANVAS_W = parseInt(process.env.WISP_CANVAS_W || "470", 10);
+const CANVAS_H = parseInt(process.env.WISP_CANVAS_H || "452", 10);
+const HOTKEY_ASK = process.env.WISP_HOTKEY_ASK || "Control+Alt+Q";
+const HOTKEY_ASK_PROMPT = process.env.WISP_HOTKEY_ASK_PROMPT || "Control+Alt+E";
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+}
+app.on("second-instance", () => {
+  if (win) win.showInactive();
+});
+if (process.env.WISP_DEBUG_PORT) {
+  app.commandLine.appendSwitch(
+    "remote-debugging-port",
+    String(process.env.WISP_DEBUG_PORT)
+  );
+}
+const hotkeyStatus = { quick: HOTKEY_ASK, prompt: HOTKEY_ASK_PROMPT, quick_ok: false, prompt_ok: false };
+
+function registerHotkeys() {
+  try {
+    hotkeyStatus.quick_ok = globalShortcut.register(HOTKEY_ASK, () => {
+      if (win) win.webContents.send("wisp:hotkey", { mode: "quick" });
+    });
+    hotkeyStatus.prompt_ok = globalShortcut.register(HOTKEY_ASK_PROMPT, () => {
+      if (!win) return;
+      win.showInactive();
+      win.webContents.send("wisp:hotkey", { mode: "prompt" });
+    });
+  } catch (err) {
+    log("hotkey registration failed: " + err);
+  }
+  log("hotkeys " + JSON.stringify(hotkeyStatus));
+}
+
+app.on("will-quit", () => {
+  try {
+    globalShortcut.unregisterAll();
+  } catch (err) {
+    /* best effort */
+  }
+});
+
+const OPAQUE = process.env.WISP_OPAQUE === "1";
+const NUDGE = process.env.WISP_NUDGE === "1";
+
+function log(message) {
+  try {
+    fs.appendFileSync(LOG, new Date().toISOString() + " " + message + "\n");
+  } catch (err) {
+    /* logging is best effort */
+  }
+}
+
+let win = null;
+let userPositioned = false;
+let cursorTimer = null;
+
+function startCursorFeed() {
+  if (cursorTimer) return;
+  let last = { x: -9999, y: -9999 };
+  cursorTimer = setInterval(() => {
+    if (!win || win.isDestroyed() || !win.isVisible()) return;
+    try {
+      const point = screen.getCursorScreenPoint();
+      const [wx, wy] = win.getPosition();
+      const rel = { x: point.x - wx, y: point.y - wy };
+      if (rel.x !== last.x || rel.y !== last.y) {
+        last = rel;
+        win.webContents.send("wisp:cursor", rel);
+      }
+    } catch (err) {
+      /* cursor feed is best effort */
+    }
+  }, 20);
+}
+
+function bottomRight(width, height) {
+  const area = screen.getPrimaryDisplay().workArea;
+  return {
+    x: Math.max(area.x, area.x + area.width - width - MARGIN),
+    y: Math.max(area.y, area.y + area.height - height - MARGIN),
+  };
+}
+
+function atAutoPosition() {
+  if (!win) return true;
+  const [width, height] = win.getSize();
+  const expected = bottomRight(width, height);
+  const [x, y] = win.getPosition();
+  return Math.abs(x - expected.x) <= 2 && Math.abs(y - expected.y) <= 2;
+}
+
+function createWindow() {
+  const [width, height] = [CANVAS_W, CANVAS_H];
+  const position = bottomRight(width, height);
+  win = new BrowserWindow({
+    width,
+    height,
+    x: position.x,
+    y: position.y,
+    frame: false,
+    transparent: !OPAQUE,
+    resizable: false,
+    hasShadow: false,
+    skipTaskbar: false,
+    alwaysOnTop: true,
+    backgroundColor: OPAQUE
+      ? process.env.WISP_DEBUG_BG || "#0b0f1a"
+      : "#00000000",
+    show: true,
+    paintWhenInitiallyHidden: true,
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  log("window created " + URL);
+  if (!OPAQUE) {
+    try {
+      win.setIgnoreMouseEvents(true, { forward: true });
+      log("click-through armed");
+    } catch (err) {
+      log("setIgnoreMouseEvents failed: " + err);
+    }
+  }
+  const nudge = () => {
+    try {
+      const [w, h] = win.getSize();
+      win.setBounds({ width: w + 2, height: h + 2 });
+      setTimeout(() => win.setBounds({ width: w, height: h }), 60);
+      log("nudged repaint");
+    } catch (err) {
+      log("nudge failed " + err);
+    }
+  };
+  win.webContents.on("did-finish-load", () => {
+    log("did-finish-load");
+    if (NUDGE) {
+      setTimeout(nudge, 900);
+      setTimeout(nudge, 2200);
+    }
+    if (process.env.WISP_DIAG === "1") {
+      setTimeout(() => {
+        win.webContents
+          .executeJavaScript(
+            "JSON.stringify({ errors: window.__wispErrors || [], imgs: document.querySelectorAll('.creature img').length, on: document.querySelectorAll('.creature img.on').length, mode: document.getElementById('app') ? document.getElementById('app').dataset.mode : 'no-app', bodyClass: document.body.className })"
+          )
+          .then((result) => log("diag " + result))
+          .catch((err) => log("diag failed " + err));
+      }, 3000);
+    }
+    if (process.env.WISP_CAPTURE === "1") {
+      const shoot = (tag) =>
+        win.webContents
+          .capturePage()
+          .then((image) =>
+            fs.writeFileSync(
+              path.join(os.tmpdir(), "wisp-shell-capture-" + tag + ".png"),
+              image.toPNG()
+            )
+          )
+          .then(() => log("captured " + tag))
+          .catch((err) => log("capture failed " + err));
+      setTimeout(() => shoot("4s"), 4000);
+      setTimeout(() => shoot("9s"), 9000);
+    }
+  });
+  win.webContents.on("did-fail-load", (event, code, description, url) =>
+    log("did-fail-load " + code + " " + description + " " + url)
+  );
+  win.webContents.on("render-process-gone", (event, details) =>
+    log("render-process-gone " + JSON.stringify(details))
+  );
+  win.webContents.on("console-message", (event, ...rest) => {
+    const details =
+      event && event.message !== undefined
+        ? event
+        : { level: rest[0], message: rest[1], line: rest[2], sourceId: rest[3] };
+    log("console[" + details.level + "] " + details.message + " (" + (details.sourceId || "") + ":" + (details.line || 0) + ")");
+  });
+  win.loadURL(URL).catch((err) => log("loadURL failed " + err));
+  win.on("closed", () => {
+    log("window closed");
+    win = null;
+  });
+  startCursorFeed();
+}
+
+ipcMain.handle("wisp:set-view", (event, width, height) => {
+  if (!win) return false;
+  const w = Math.max(200, Math.round(width));
+  const h = Math.max(160, Math.round(height));
+  if (!OPAQUE) {
+    return true;
+  }
+  if (!userPositioned && !atAutoPosition()) userPositioned = true;
+  const [currentWidth, currentHeight] = win.getSize();
+  const area = screen.getPrimaryDisplay().workArea;
+  let { x, y } = win.getPosition();
+  if (!userPositioned) {
+    x = Math.max(area.x, area.x + area.width - w - MARGIN);
+    y = Math.max(area.y, area.y + area.height - h - MARGIN);
+  } else {
+    x = Math.max(area.x, Math.min(x, area.x + area.width - w));
+    y = Math.max(area.y, Math.min(y, area.y + area.height - h));
+  }
+  const [currentX, currentY] = win.getPosition();
+  if (w !== currentWidth || h !== currentHeight) {
+    if (OPAQUE) {
+      win.setBounds({ x, y, width: w, height: h });
+    } else {
+      win.hide();
+      win.setBounds({ x, y, width: w, height: h });
+      win.setBackgroundColor("#00000000");
+      setTimeout(() => {
+        if (!win) return;
+        win.showInactive();
+        win.webContents.invalidate();
+        setTimeout(() => {
+          if (win) win.webContents.invalidate();
+        }, 160);
+      }, 40);
+    }
+  } else if (x !== currentX || y !== currentY) {
+    win.setPosition(x, y);
+  }
+  return true;
+});
+
+ipcMain.handle("wisp:move", (event, dx, dy) => {
+  if (!win) return [0, 0];
+  const [x, y] = win.getPosition();
+  win.setPosition(x + Math.round(dx), y + Math.round(dy));
+  userPositioned = true;
+  return win.getPosition();
+});
+
+ipcMain.handle("wisp:toggle-pin", () => {
+  if (!win) return false;
+  win.setAlwaysOnTop(!win.isAlwaysOnTop());
+  return win.isAlwaysOnTop();
+});
+
+ipcMain.handle("wisp:set-interactive", (event, interactive) => {
+  if (!win) return false;
+  try {
+    win.setIgnoreMouseEvents(!interactive, { forward: true });
+    return true;
+  } catch (err) {
+    log("set-interactive failed: " + err);
+    return false;
+  }
+});
+
+ipcMain.handle("wisp:minimize", () => {
+  if (win) win.minimize();
+});
+
+ipcMain.handle("wisp:hotkeys", () => hotkeyStatus);
+
+ipcMain.handle("wisp:refresh", () => {
+  if (win) {
+    try {
+      win.webContents.invalidate();
+    } catch (err) {
+      /* best effort */
+    }
+  }
+  return true;
+});
+
+ipcMain.handle("wisp:close", () => {
+  if (win) win.close();
+});
+
+if (gotSingleInstanceLock) {
+  app.whenReady().then(() => {
+    createWindow();
+    registerHotkeys();
+  });
+}
+app.on("window-all-closed", () => {
+  if (cursorTimer) clearInterval(cursorTimer);
+  app.quit();
+});
