@@ -72,6 +72,14 @@ class TestNegativeProtocol:
         responses = _serve(_request(8, "no/such/method", {}))
         assert responses[0]["error"]["code"] == -32601
 
+    def test_client_response_frame_is_ignored(self) -> None:
+        result_frame = json.dumps({"jsonrpc": "2.0", "id": 9, "result": {}})
+        error_frame = json.dumps(
+            {"jsonrpc": "2.0", "id": 10, "error": {"code": -1, "message": "no"}}
+        )
+        responses = _serve(result_frame, error_frame, _request(11, "ping", {}))
+        assert responses == [{"jsonrpc": "2.0", "id": 11, "result": {}}]
+
     def test_notification_is_silently_ignored(self) -> None:
         frame = json.dumps(
             {"jsonrpc": "2.0", "method": "tools/call", "params": {"name": "antigravity_status"}}
@@ -86,10 +94,12 @@ class TestNegativeProtocol:
         assert responses[0]["result"]["protocolVersion"] == "2025-06-18"
 
     def test_unsupported_protocol_version_falls_back(self) -> None:
+        from tools.antigravity_mcp_server import SUPPORTED_PROTOCOL_VERSIONS
+
         responses = _serve(
             _request(2, "initialize", {"protocolVersion": "1999-01-01"})
         )
-        assert responses[0]["result"]["protocolVersion"] == "2024-11-05"
+        assert responses[0]["result"]["protocolVersion"] == SUPPORTED_PROTOCOL_VERSIONS[-1]
 
     def test_supported_versions_constant(self) -> None:
         from tools.antigravity_mcp_server import (
@@ -108,7 +118,7 @@ class TestNegativeProtocol:
         try:
             payload = server._tool_status()
         finally:
-            warnings = list(server._CONFIG_WARNINGS)
+            warnings = list(server._CONFIG_WARNINGS.values())
             server._CONFIG_WARNINGS.clear()
         assert payload["retries"] == 2
         assert any("ANTIGRAVITY_RETRIES" in warning for warning in warnings)

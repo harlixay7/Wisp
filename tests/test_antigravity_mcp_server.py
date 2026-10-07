@@ -279,6 +279,46 @@ class TestChatModelIsolation:
         assert selected["model"] == "gemini-3.8-flash-high"
         assert selected["fallback_model"] == "claude-opus-4-6-thinking"
 
+    def test_selected_models_follow_live_dir_override(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        from tools.antigravity_mcp_server import _selected_models
+
+        live = tmp_path / "custom-live"
+        live.mkdir()
+        (live / "viewer_settings.json").write_text(
+            json.dumps({"model": "claude-sonnet-4-6"}), encoding="utf-8"
+        )
+        monkeypatch.setenv("ANTIGRAVITY_LIVE_DIR", str(live))
+
+        assert _selected_models(tmp_path / "elsewhere")["model"] == "claude-sonnet-4-6"
+
+    def test_status_reports_viewer_selected_models(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        workspace = _make_workspace(tmp_path)
+        live = workspace / ".antigravity-reports" / "live"
+        live.mkdir(parents=True)
+        (live / "viewer_settings.json").write_text(
+            json.dumps({"model": "claude-sonnet-4-6"}), encoding="utf-8"
+        )
+        monkeypatch.setenv("ANTIGRAVITY_WORKSPACE", str(workspace))
+        monkeypatch.delenv("ANTIGRAVITY_LIVE_DIR", raising=False)
+
+        response = handle_request("tools/call", {"name": "antigravity_status", "arguments": {}})
+
+        assert _text_of(response)["primary_model"] == "claude-sonnet-4-6"
+
+    def test_repeated_config_warnings_do_not_accumulate(self, monkeypatch) -> None:
+        from tools import antigravity_mcp_server as server
+
+        monkeypatch.setenv("ANTIGRAVITY_RETRIES", "many")
+        monkeypatch.setattr(server, "_CONFIG_WARNINGS", {})
+        for _ in range(3):
+            payload = server._tool_status()
+
+        assert len(payload["config_warnings"]) == 1
+
 
 class TestRecommendedSkillsValidation:
     def test_recommended_skills_capped_at_three(

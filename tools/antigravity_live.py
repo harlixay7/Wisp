@@ -30,85 +30,139 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import sys
 import threading
 import time
 import uuid
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, BinaryIO, Protocol, TextIO
 
 LIVE_DIR_NAME = Path(".antigravity-reports") / "live"
+# Viewer-owned settings (model selection, etc.), stored inside the live dir so
+# every reader resolves it through the same ANTIGRAVITY_LIVE_DIR override.
+VIEWER_SETTINGS_FILE = "viewer_settings.json"
 DEFAULT_KEEP_RUNS = 20
 LIVE_SCHEMA_VERSION = 1
 ACTIVE_RUN_GRACE_SECONDS = 3600
 REGISTRY_ENV = "ANTIGRAVITY_LIVE_REGISTRY"
 REGISTRY_MAX_ENTRIES = 50
 _REGISTRY_LOCK = threading.Lock()
+_REGISTRY_LOCK_ATTEMPTS = 100
+_REGISTRY_LOCK_RETRY_SECONDS = 0.02
+_REGISTRY_TEMP_MAX_AGE_SECONDS = 3600
+
+
+if sys.platform == "win32":
+    import msvcrt
+
+    def _try_lock(handle: BinaryIO) -> bool:
+        """Makes one non-blocking attempt at the sidecar lock."""
+        # msvcrt.locking acts at the current file offset, and an "a+b" handle
+        # starts at EOF, which moves as the file grows. Pin lock and unlock to
+        # byte 0 so they always cover the same region; otherwise the lock
+        # silently stops excluding other processes.
+        handle.seek(0)
+        try:
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        except OSError:
+            return False
+        return True
+
+    def _unlock(handle: BinaryIO) -> None:
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+
+else:
+    import fcntl
+
+    def _try_lock(handle: BinaryIO) -> bool:
+        """Makes one non-blocking attempt at the sidecar lock."""
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return False
+        return True
+
+    def _unlock(handle: BinaryIO) -> None:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _registry_lock_notice(reason: str) -> None:
+    sys.stderr.write(
+        f"[antigravity-live] {reason}; updating the live registry without the "
+        "cross-process lock\n"
+    )
+    sys.stderr.flush()
 
 
 @contextlib.contextmanager
-def _registry_file_lock() -> Any:
-    """Cross-process exclusive lock over the live-directory registry.
+def _registry_file_lock() -> Iterator[None]:
+    """Best-effort cross-process exclusive lock over the live-directory registry.
 
-    The in-process ``_REGISTRY_LOCK`` cannot stop two Wisp processes from read-
-    modify-write racing on the same registry file, so writes are additionally
-    serialized with an OS-level lock on a sidecar ``.lock`` file (``msvcrt`` on
-    Windows, ``fcntl`` on POSIX). Degrades to the thread lock alone when the
-    platform primitives are unavailable.
+    The in-process ``_REGISTRY_LOCK`` cannot stop two Wisp processes from
+    read-modify-write racing on the same registry file, so updates are also
+    serialized with an OS-level lock on a sidecar ``.lock`` file (``msvcrt``
+    on Windows, ``fcntl`` on POSIX). Acquisition is non-blocking with a
+    bounded retry (``_REGISTRY_LOCK_ATTEMPTS`` x
+    ``_REGISTRY_LOCK_RETRY_SECONDS``), so registry bookkeeping can never stall
+    a delegation. If the sidecar cannot be opened or the lock is not acquired
+    in time, a one-line notice goes to stderr and the body runs under the
+    thread lock alone.
     """
-    path = registry_path().with_name(registry_path().name + ".lock")
-    handle: Any = None
+    lock_path = registry_path().with_name(registry_path().name + ".lock")
+    handle: BinaryIO | None
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        handle = open(path, "a+b")
-    except OSError:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        handle = open(lock_path, "a+b")
+    except OSError as exc:
+        _registry_lock_notice(f"cannot open {lock_path} ({exc})")
         handle = None
-    except Exception:
-        handle = None
-    if handle is None:
-        yield
-        return
     locked = False
     try:
-        if os.name == "nt":
-            import msvcrt
-
-            # Lock byte 0 explicitly: an "a+b" handle sits at EOF, and locking
-            # at the current offset while unlocking at a different one would
-            # silently defeat mutual exclusion (GATE-4 FL-002).
-            handle.seek(0)
-            for _ in range(100):
-                try:
-                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        if handle is not None:
+            for attempt in range(_REGISTRY_LOCK_ATTEMPTS):
+                if attempt:
+                    time.sleep(_REGISTRY_LOCK_RETRY_SECONDS)
+                if _try_lock(handle):
                     locked = True
                     break
-                except OSError:
-                    time.sleep(0.02)
-        else:
-            import fcntl
-
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-            locked = True
-        yield
-    except ImportError:
+            else:
+                _registry_lock_notice(f"timed out waiting for {lock_path}")
         yield
     finally:
-        if locked:
+        if handle is not None:
+            if locked:
+                try:
+                    _unlock(handle)
+                except OSError:
+                    pass
             try:
-                if os.name == "nt":
-                    import msvcrt
-
-                    handle.seek(0)
-                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-                else:
-                    import fcntl
-
-                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-            except (OSError, ImportError):
+                handle.close()
+            except OSError:
                 pass
+
+
+def _sweep_stale_registry_temps(path: Path) -> None:
+    """Deletes registry temp files orphaned by a writer that died mid-update.
+
+    A temp file normally lives for milliseconds before ``os.replace`` consumes
+    it, so anything older than ``_REGISTRY_TEMP_MAX_AGE_SECONDS`` is debris.
+    The caller holds the registry lock, so no live writer can own such a file.
+    """
+    prefix = path.name + ".tmp."
+    cutoff = time.time() - _REGISTRY_TEMP_MAX_AGE_SECONDS
+    try:
+        candidates = [
+            entry for entry in path.parent.iterdir() if entry.name.startswith(prefix)
+        ]
+    except OSError:
+        return
+    for candidate in candidates:
         try:
-            handle.close()
+            if candidate.stat().st_mtime < cutoff:
+                candidate.unlink()
         except OSError:
             pass
 
@@ -182,6 +236,7 @@ def register_live_dir(
         alive = alive[:REGISTRY_MAX_ENTRIES]
         payload = json.dumps(alive, indent=2, ensure_ascii=False)
         path = registry_path()
+        _sweep_stale_registry_temps(path)
         for attempt in range(5):
             temporary: Path | None = None
             try:
@@ -215,6 +270,7 @@ def known_live_dirs() -> list[dict[str, Any]]:
     alive.sort(key=lambda entry: entry["last_seen"], reverse=True)
     return alive
 
+
 _REASONING_KEYS = frozenset(
     {
         "thinking",
@@ -243,8 +299,11 @@ _TOOL_RESULT_KEYS = frozenset(
     {"tool_result", "tool_results", "tool_output", "tool_outputs", "function_result"}
 )
 _NESTED_KEYS = frozenset(
-    {"step_update", "events", "steps", "items", "messages", "updates", "data", "result"}
+    {"step_update", "events", "steps", "items", "messages", "updates", "data"}
 )
+# Nesting deeper than this is emitted as one verbatim ``raw`` event rather than
+# walked further, which bounds recursion on adversarial or runaway payloads.
+_MAX_WALK_DEPTH = 8
 
 
 def new_run_id() -> str:
@@ -321,7 +380,7 @@ def _format_results(value: Any) -> list[tuple[str, str, dict[str, Any]]]:
 def _walk(data: Any, depth: int = 0) -> list[tuple[str, str, dict[str, Any]]]:
     if data is None or isinstance(data, str):
         return []
-    if depth > 8:
+    if depth > _MAX_WALK_DEPTH:
         # Preserve over-depth content verbatim instead of dropping it, so the
         # "nothing that carries content is ever dropped" promise holds even in
         # the mixed case where shallow fields already matched.
@@ -367,18 +426,18 @@ def _beacon_label(data: Mapping[str, Any]) -> str:
     """Human label for content-less lifecycle envelopes (init/state/usage)."""
     event = str(data.get("event") or "").lower()
     if event == "init":
-        init = data.get("init") if isinstance(data.get("init"), Mapping) else {}
+        init = data.get("init")
         model = init.get("model") if isinstance(init, Mapping) else None
-        return f"session init{(' · ' + str(model)) if model else ''}"
+        return f"session init · {model}" if model else "session init"
     if data.get("usage") is not None or data.get("duration_seconds") is not None:
         return "result envelope"
-    step = data.get("step_update") if isinstance(data.get("step_update"), Mapping) else {}
-    state = step.get("state") if isinstance(step, Mapping) else None
-    step_type = step.get("step_type") if isinstance(step, Mapping) else None
-    index = step.get("step_index") if isinstance(step, Mapping) else None
-    if state:
+    step = data.get("step_update")
+    if isinstance(step, Mapping) and step.get("state"):
+        state = step["state"]
+        index = step.get("step_index")
+        step_type = step.get("step_type")
         label = f"step {index} · {state}" if index is not None else f"step · {state}"
-        if step_type and step_type not in ("agent_response",):
+        if step_type and step_type != "agent_response":
             label += f" · {step_type}"
         return label
     return event or "event"
@@ -415,12 +474,19 @@ class EventSink(Protocol):
 
 
 class NullSink:
+    """Discards every event; stands in when the live feed is disabled."""
+
     def emit(self, event: LiveEvent) -> None:
         return None
 
 
 class CallbackSink:
-    """Forwards events to a callback; callback failures are swallowed."""
+    """Forwards events to a callback; callback failures are swallowed.
+
+    The callback runs while :class:`LiveEmitter` holds its (non-reentrant)
+    lock, so it must not call ``emit()`` on the same emitter; doing so would
+    deadlock.
+    """
 
     def __init__(self, callback: Callable[[LiveEvent], None]) -> None:
         self._callback = callback
@@ -447,7 +513,7 @@ class JsonlSink:
         self.path = self.live_dir / f"run-{run_id}.jsonl"
         self._lock = threading.Lock()
         self.live_dir.mkdir(parents=True, exist_ok=True)
-        self._handle: Any = open(self.path, "a", encoding="utf-8")
+        self._handle: TextIO | None = open(self.path, "a", encoding="utf-8")
         self._prune()
 
     def emit(self, event: LiveEvent) -> None:
@@ -484,9 +550,9 @@ class JsonlSink:
             if stale == self.path:
                 continue
             try:
-                # Retention only claims runs that have been idle past the
-                # grace window; a still-active run keeps its mtime fresh, so
-                # one process can no longer delete another's in-flight run.
+                # Never prune a run touched within the grace window: in-flight
+                # runs (possibly owned by another process) keep their mtime
+                # fresh.
                 if stale.stat().st_mtime >= cutoff:
                     continue
                 stale.unlink()
@@ -495,7 +561,11 @@ class JsonlSink:
 
 
 class LiveEmitter:
-    """Fan-out emitter that stamps run id, sequence, and timestamp on events."""
+    """Fan-out emitter that stamps run id, sequence, and timestamp on events.
+
+    Sinks are invoked while the emitter's lock is held, so a sink (including a
+    :class:`CallbackSink` callback) must not call :meth:`emit` re-entrantly.
+    """
 
     def __init__(self, run_id: str, sinks: Iterable[EventSink]) -> None:
         self.run_id = run_id
@@ -510,10 +580,9 @@ class LiveEmitter:
     def emit(self, kind: str, text: str = "", model: str = "", **meta: Any) -> None:
         if not self._sinks:
             return
-        # Emission happens under the same lock that stamps the sequence number,
-        # so events reach every sink in sequence order (audit finding #15: the
-        # pre-fix code released the lock before writing, letting a seq=2 event
-        # physically land before seq=1 under thread concurrency).
+        # Stamp seq and write to every sink under one lock so on-disk order
+        # always matches seq order; writing outside the lock lets concurrent
+        # emitters interleave.
         with self._lock:
             self._seq += 1
             event = LiveEvent(
