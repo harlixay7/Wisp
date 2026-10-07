@@ -15,6 +15,7 @@ It also pins the documentation-canonicalization contract (audit #46):
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 
@@ -36,19 +37,44 @@ REQUIRED_FRONTMATTER = (
 )
 SEMVER = re.compile(r"^\d+\.\d+\.\d+$")
 
+# Structural user-profile path patterns: the actual leak vector, and
+# machine-independent by construction (a dynamic "local username must not
+# appear" check is NOT machine-independent — on GitHub runners
+# Path.home().name is literally "runner", which false-positives on ordinary
+# words like "workflow runner").
+USER_PROFILE_PATH_PATTERNS = (
+    r"(?i)\b[C-Z]:\\+Users\\[A-Za-z0-9._~-]+",
+    r"(?i)/(?:home|Users)/[A-Za-z0-9._~-]{2,}",
+)
+
 
 def _banned_patterns() -> tuple[str, ...]:
-    """Hygiene patterns for skill files; the local username is resolved at
-    runtime so this file itself stays free of machine-specific data."""
+    """Hygiene patterns for the skill-file scan (machine-independent)."""
     return (
-        r"C:\\\\?[Uu]sers",
+        r"(?i)\b[C-Z]:\\+Users\\[A-Za-z0-9._~-]+",
         r"[A-Za-z]:\\\\?AgentReview",
-        re.escape(Path.home().name),
         r"gmail\.com",
         r"OneDrive",
         r"\[cite:",
         r"&#x20;",
     )
+
+
+def _local_username_leaks(text: str) -> bool:
+    """True when the LOCAL username appears in ``text``.
+
+    Runs only outside CI: personal usernames exist on developer machines, not
+    on CI runners (where ``Path.home().name`` is a generic account such as
+    "runner" — treating that as a leak would false-positive on ordinary
+    English like "workflow runner"). Short usernames are skipped as too
+    generic to match reliably.
+    """
+    if os.environ.get("CI"):
+        return False
+    username = Path.home().name
+    if len(username) < 5:
+        return False
+    return username.lower() in text.lower()
 REQUIRED_MACHINERY = (
     ("scratchpad", "every skill mandates a reasoning scratchpad block"),
     ("EARS", "every skill expresses remediations in EARS syntax"),
@@ -158,7 +184,11 @@ class TestRegistryHygiene:
             if path.suffix not in (".md", ".yaml", ".yml"):
                 continue
             text = path.read_text(encoding="utf-8")
-            for pattern in _banned_patterns():
+            patterns = list(_banned_patterns()) + list(USER_PROFILE_PATH_PATTERNS)
+            if not os.environ.get("CI"):
+                # Personal usernames exist on developer machines only.
+                patterns.append(re.escape(Path.home().name))
+            for pattern in patterns:
                 assert not re.search(pattern, text), f"{path.name}: matches banned pattern {pattern}"
 
     def test_skill_files_reasonable_size(self) -> None:
@@ -187,9 +217,9 @@ class TestDocCanonicalization:
         assert ".opencode/skills/antigravity-delegation/SKILL.md" in master
 
     def test_no_machine_paths_in_repo_docs(self) -> None:
-        # The local username is resolved at runtime, never embedded here, so
-        # this file itself stays free of machine-specific data.
-        username = Path.home().name
+        # Structural user-profile patterns are the machine-independent guard;
+        # the local-username check runs on developer machines only (on CI
+        # runners Path.home().name is a generic account like "runner").
         checked = [
             "REPAIR_REPORT.md",
             "DELEGATION_PLAYBOOK.md",
@@ -206,10 +236,13 @@ class TestDocCanonicalization:
             if not path.is_file():
                 continue
             text = path.read_text(encoding="utf-8")
-            assert username not in text, f"{name}: local username leaked"
+            for pattern in USER_PROFILE_PATH_PATTERNS:
+                assert not re.search(pattern, text), f"{name}: user-profile path ({pattern})"
             assert "gmail.com" not in text, name
             assert not re.search(r"[A-Za-z]:\\+AgentReview", text), f"{name}: hardcoded bridge path"
             assert "OneDrive" not in text, name
+            if not os.environ.get("CI"):
+                assert not _local_username_leaks(text), f"{name}: local username leaked"
             assert not re.search(r"[A-Za-z]:\\\\?Users\\\\", text), f"{name}: user-profile path"
 
     def test_example_payload_is_brand_neutral_and_bounded(self) -> None:
