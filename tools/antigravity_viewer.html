@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Wisp</title>
+<link rel="icon" href="data:,">
 <style>
 /* ================================================================
    Tokens
@@ -825,21 +826,21 @@ body.electron .drawer.on,body.electron .drawer-backdrop.on,body.electron .replay
 <body>
 <div id="app" class="anim-full" data-mode="emotion">
   <div class="widget">
-    <nav class="tabs" id="tabs">
-      <button class="tab active" data-mode="emotion" title="Wisp (1)">WISP</button>
-      <button class="tab" data-mode="focus" title="Focus (2)">FOCUS</button>
-      <button class="tab" data-mode="stream" title="Stream (3)">STREAM</button>
-      <button class="tab" data-mode="chat" title="Chat (4)">CHAT</button>
-      <button class="tab" data-mode="verdict" title="Verdict (5)">VERDICT</button>
-      <button class="tab" data-mode="history" title="History (6)">HISTORY</button>
+    <nav class="tabs" id="tabs" aria-label="Modes">
+      <button class="tab active" data-mode="emotion" title="Wisp (1)" aria-pressed="true">WISP</button>
+      <button class="tab" data-mode="focus" title="Focus (2)" aria-pressed="false">FOCUS</button>
+      <button class="tab" data-mode="stream" title="Stream (3)" aria-pressed="false">STREAM</button>
+      <button class="tab" data-mode="chat" title="Chat (4)" aria-pressed="false">CHAT</button>
+      <button class="tab" data-mode="verdict" title="Verdict (5)" aria-pressed="false">VERDICT</button>
+      <button class="tab" data-mode="history" title="History (6)" aria-pressed="false">HISTORY</button>
     </nav>
     <div class="controls" id="controls" data-drag>
       <span class="breaker"></span>
       <span class="sep"></span>
       <div class="modelwrap" id="modelWrap">
-        <button class="modelbtn" id="modelBtn" title="Model for the next delegation">
-          <span class="m" id="modelLabel">gemini-3.8-flash-high</span>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+        <button class="modelbtn" id="modelBtn" title="Model for the next delegation" aria-haspopup="true" aria-expanded="false">
+          <span class="m" id="modelLabel">model</span>
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
         </button>
         <div class="modelmenu" id="modelMenu"></div>
       </div>
@@ -848,23 +849,23 @@ body.electron .drawer.on,body.electron .drawer-backdrop.on,body.electron .replay
       <span class="testbadge" id="testBadgeBar" hidden>TEST MODE</span>
       <span class="timer" id="timer">00:00</span>
       <span class="sep"></span>
-      <button class="wbtn hkbtn" id="quickAskBtn" title="Quick ask &#8212; selection or snip (Ctrl+Alt+Q)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/></svg>
+      <button class="wbtn hkbtn" id="quickAskBtn" title="Quick ask &#8212; selection or snip (Ctrl+Alt+Q)" aria-label="Quick ask">
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/></svg>
       </button>
-      <button class="wbtn hkbtn" id="promptAskBtn" title="Ask with prompt &#8212; pre-fill chat (Ctrl+Alt+E)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 8v4M10 10h4"/></svg>
+      <button class="wbtn hkbtn" id="promptAskBtn" title="Ask with prompt &#8212; pre-fill chat (Ctrl+Alt+E)" aria-label="Ask with prompt">
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 8v4M10 10h4"/></svg>
       </button>
-      <button class="wbtn" id="pinBtn" title="Keep on top" hidden>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.8V6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v4.8l2 2.2H7z"/></svg>
+      <button class="wbtn" id="pinBtn" title="Keep on top" aria-label="Keep on top" aria-pressed="false" hidden>
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.8V6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v4.8l2 2.2H7z"/></svg>
       </button>
-      <button class="wbtn" id="minBtn" title="Minimize" hidden>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 12h12"/></svg>
+      <button class="wbtn" id="minBtn" title="Minimize" aria-label="Minimize" hidden>
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 12h12"/></svg>
       </button>
-      <button class="wbtn" id="closeBtn" title="Close" hidden>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      <button class="wbtn" id="closeBtn" title="Close" aria-label="Close" hidden>
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
-      <button class="wbtn" id="settingsBtn" title="Settings (S)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1z"/></svg>
+      <button class="wbtn" id="settingsBtn" title="Settings (S)" aria-label="Settings">
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1z"/></svg>
       </button>
     </div>
 
@@ -896,9 +897,9 @@ body.electron .drawer.on,body.electron .drawer-backdrop.on,body.electron .replay
             <div class="chat-head">
               <button class="linkbtn" id="chatNew">NEW</button>
               <div class="modelwrap" id="threadWrap">
-                <button class="modelbtn" id="threadBtn" title="Conversations">
+                <button class="modelbtn" id="threadBtn" title="Conversations" aria-haspopup="true" aria-expanded="false">
                   <span class="m" id="threadLabel">no conversation</span>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
                 </button>
                 <div class="modelmenu" id="threadMenu"></div>
               </div>
@@ -914,11 +915,11 @@ body.electron .drawer.on,body.electron .drawer-backdrop.on,body.electron .replay
               <div class="ctxchip" id="ctxChip" hidden>
                 <span class="ctx-kind" id="ctxKind">TEXT</span>
                 <span class="ctx-label" id="ctxLabel"></span>
-                <button class="ctx-x" id="ctxClear" title="Remove context">&#215;</button>
+                <button class="ctx-x" id="ctxClear" title="Remove context" aria-label="Remove context">&#215;</button>
               </div>
               <div class="attach-row" id="attachRow" hidden></div>
               <div class="chat-row">
-                <textarea id="chatText" rows="1" placeholder="Ask Wisp&#8230;  (Enter to send &#183; paste images)"></textarea>
+                <textarea id="chatText" rows="1" aria-label="Message Wisp" placeholder="Ask Wisp&#8230;  (Enter to send &#183; paste images)"></textarea>
                 <button class="linkbtn" id="chatSend">SEND</button>
               </div>
             </div>
@@ -968,7 +969,7 @@ body.electron .drawer.on,body.electron .drawer-backdrop.on,body.electron .replay
         <div class="creature" id="creature">
           <div class="halo"></div>
           <div class="ripple" id="ripple"></div>
-          <svg class="countdown" id="countdown" viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" id="ring"></circle></svg>
+          <svg class="countdown" id="countdown" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="46" id="ring"></circle></svg>
         </div>
       </div>
     </div>
@@ -978,7 +979,7 @@ body.electron .drawer.on,body.electron .drawer-backdrop.on,body.electron .replay
     <div class="drawer-head">
       <h2>SETTINGS</h2>
       <button class="wbtn" id="drawerClose" aria-label="Close settings">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
       </button>
     </div>
     <div class="drawer-body">
@@ -1010,9 +1011,9 @@ body.electron .drawer.on,body.electron .drawer-backdrop.on,body.electron .replay
         <div class="s-title">SKILL REGISTRY (ON DISK)</div>
         <div class="s-row"><span>skills</span><b id="stSkills">&#8212;</b></div>
         <div class="s-row"><span>warnings</span><b id="stWarnings">&#8212;</b></div>
-        <div class="s-actions"><button class="linkbtn" id="btnSkillToggle">SHOW SKILLS</button></div>
+        <div class="s-actions"><button class="linkbtn" id="btnSkillToggle" aria-expanded="false">SHOW SKILLS</button></div>
         <div class="skill-list" id="skillList"></div>
-        <div class="s-note">The shared registry file source. MCP delegations and Wisp asks both read it, but each call activates only the skills it selects — see WISP ASKS above for chat/hotkey behavior.</div>
+        <div class="s-note">The shared registry file source. MCP delegations and Wisp asks both read it, but each call activates only the skills it selects — see WISP ASKS below for chat/hotkey behavior.</div>
       </div>
       <div class="s-section">
         <div class="s-title">PAST RUNS</div>
@@ -1062,28 +1063,74 @@ body.electron .drawer.on,body.electron .drawer-backdrop.on,body.electron .replay
     <span class="rb-label" id="replayLabel">replaying&#8230;</span>
     <button class="linkbtn" id="replayExit">EXIT</button>
   </div>
-  <div class="toast" id="toast"></div>
+  <div class="toast" id="toast" role="status"></div>
   </div>
 </div>
 
 <script>
+/* ================================================================
+   Constants & state
+   ================================================================ */
 window.__wispErrors = [];
 window.addEventListener('error', (event) => window.__wispErrors.push(String(event.message)));
+
 const $ = (id) => document.getElementById(id);
 const app = $('app');
 
 const MODES = ['emotion', 'focus', 'stream', 'chat', 'verdict', 'history'];
+// Widget size per mode; mirrors the body.electron widget sizes in the CSS.
 const SIZES = { emotion: [288, 248], focus: [320, 356], stream: [470, 340], chat: [440, 420], verdict: [352, 372], history: [392, 372] };
 const SETTINGS_SIZE = [336, 452];
+const TIMING = {
+  modeApplyDelay: 50,      // Electron: let the native resize land before re-layout
+  modeSettle: 340,         // re-fit the controls once the mode transition finished
+  modeRefresh: 420,        // then ask the shell to repaint
+  drawerRefresh: 260,
+  mergeWindow: 6000,       // think/text chunks closer than this merge into one entry
+  focusFadeOut: 420,       // .fl.out fade before the node is removed
+  impatientAfter: 20000,   // a live run silent this long makes the creature impatient
+  dormantAfter: 45000,     // idle this long after a run, the creature goes dormant
+  impatientCheck: 1000,
+  dormantCheck: 3000,
+  historyPoll: 10000,
+  askReconcilePoll: 4000,
+  clockTick: 500,
+  askStartPolls: 20,       // waitForAskStart: attempts x interval
+  askStartInterval: 120,
+  hoverOffDelay: 40,
+  toast: 3600,
+  nativeShellFallback: 1200,
+};
+const LIMITS = {
+  focusLines: 5,
+  streamEntries: 400,
+  nearBottomPx: 40,        // within this distance of the bottom, keep following new content
+  threadMenuItems: 20,
+  pastRuns: 12,
+  chatTextMaxHeight: 100,
+  errorLog: 100,
+};
+// Mirrors MAX_UPLOAD_BYTES in antigravity_viewer.py; the server enforces it too.
+const MAX_UPLOAD_BYTES = 12 * 1024 * 1024;
+const REQUEST_HEADERS = { 'X-Wisp-Request': '1', 'Content-Type': 'application/json' };
 const KIND_LABEL = { think: 'THINK', tool: 'TOOL', result: 'DONE', text: 'TEXT', stderr: 'WARN', raw: 'RAW', sys: 'SYS' };
 const KIND_CLASS = { think: 'think', tool: 'tool', result: 'done', text: 'text', stderr: 'sys', raw: 'sys', sys: 'sys' };
+const WISP_THEMES = ['ember', 'aurora', 'moss'];
+const ASK_HARNESS = 'wisp-hotkey';
+// Sections the bridge appends after the answer; chat folds them behind a toggle.
+const AUX_SECTION_MARKERS = [
+  '### Tool Activity',
+  '### Lifecycle',
+  '### Working Notes (pre-final)',
+  '### Reasoning & Analysis',
+];
 
 const S = {
   state: 'dormant', runActive: false, replaying: false, lastEventAt: 0,
   startedAt: 0, elapsedBase: 0, counters: { thoughts: 0, tools: 0, retries: 0 },
   currentFile: null, autoscroll: true, anim: 'full', hoverTimer: null,
   dragging: false, native: false, electronShell: false, settingsOpen: false,
-  selectedModel: 'gemini-3.8-flash-high', chatModel: '', models: [], modelMenuOpen: false, activeModel: '',
+  selectedModel: '', chatModel: '', models: [], modelMenuOpen: false, activeModel: '',
   threads: [], chatThread: null, chatPending: false, chatStream: null,
   chatAutoscroll: true, threadMenuOpen: false, pendingCapture: null,
   pendingImages: [],
@@ -1094,14 +1141,51 @@ const S = {
   // Wisp-ask run_start seen after the ask was posted.
   askRunId: null, askAwaitingRun: false, workspace: '',
 };
-const ASK_HARNESS = 'wisp-hotkey';
-const images = {};
-let ringRaf = null, ringEnd = 0, ringTotal = 0;
-const focusQueue = [];
 
+// DOM bookkeeping for effects and feeds (not UI state).
+const fx = {
+  images: {},                              // creature state -> <img>
+  ring: { raf: 0, end: 0, total: 0 },      // quota countdown ring
+  focusQueue: [],
+  lastFocus: { kind: '', el: null, ts: 0 },
+  lastStream: null,                        // newest stream entry (merge target)
+  streamEntryCount: 0,
+  toastTimer: 0,
+  events: null,                            // EventSource
+  runsRequest: null,                       // in-flight /api/runs promise
+};
+
+// Swallowed-but-recorded failures; WISP_DIAG in the Electron shell collects them.
+function report(err) {
+  const log = window.__wispErrors;
+  log.push(String(err && err.message ? err.message : err));
+  if (log.length > LIMITS.errorLog) log.splice(0, log.length - LIMITS.errorLog);
+}
+
+// JSON request helper. POSTs `body` as JSON when given, otherwise GETs.
+// Throws on network errors and non-2xx responses; the error carries
+// `status` and the parsed response body as `data`.
+async function api(path, body) {
+  const init = body === undefined
+    ? {}
+    : { method: 'POST', headers: REQUEST_HEADERS, body: JSON.stringify(body) };
+  const response = await fetch(path, init);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(data.error || data.message || 'HTTP ' + response.status);
+    error.status = response.status;
+    error.data = data;
+    throw error;
+  }
+  return data;
+}
+
+/* ================================================================
+   Native bridge (Electron preload or pywebview)
+   ================================================================ */
 function nativeCall(name, ...args) {
   if (S.native && window.pywebview && window.pywebview.api && window.pywebview.api[name]) {
-    try { return window.pywebview.api[name](...args); } catch (err) { }
+    try { return window.pywebview.api[name](...args); } catch (err) { report(err); }
   }
   return undefined;
 }
@@ -1115,30 +1199,28 @@ function syncShape() {
   setShape(emotion && !hovered ? 'circle' : 'card');
 }
 
-function applyTestMode(on) {
-  for (const el of document.querySelectorAll('.testbadge')) el.hidden = !on;
-}
-
-const WISP_THEMES = ['ember', 'aurora', 'moss'];
-
-function applyTheme(name) {
-  const theme = WISP_THEMES.includes(name) ? name : 'ember';
-  document.body.dataset.theme = theme;
-  const seg = $('themeSeg');
-  if (seg) {
-    seg.querySelectorAll('button').forEach((button) => {
-      button.classList.toggle('active', button.dataset.theme === theme);
-    });
-  }
-  try { localStorage.setItem('wisp.theme', theme); } catch (err) { }
-}
-
 function updateInteractive() {
   const interactive =
     S.dragging || S.settingsOpen || S.modelMenuOpen || S.threadMenuOpen || S.hoverOn;
   if (S.interactiveOn === interactive) return;
   S.interactiveOn = interactive;
   nativeCall('set_interactive', interactive);
+}
+
+/* ================================================================
+   Layout & modes
+   ================================================================ */
+function applyTestMode(on) {
+  for (const el of document.querySelectorAll('.testbadge')) el.hidden = !on;
+}
+
+function applyTheme(name) {
+  const theme = WISP_THEMES.includes(name) ? name : 'ember';
+  document.body.dataset.theme = theme;
+  $('themeSeg').querySelectorAll('button').forEach((button) => {
+    button.classList.toggle('active', button.dataset.theme === theme);
+  });
+  try { localStorage.setItem('wisp.theme', theme); } catch (err) { report(err); }
 }
 
 function updateCompact() {
@@ -1150,7 +1232,6 @@ function updateCompact() {
 function fitControls() {
   updateCompact();
   const bar = $('controls');
-  if (!bar) return;
   const overflowing = () => bar.scrollWidth > bar.clientWidth + 1;
   if (overflowing() && app.dataset.layout === 'wide') {
     app.dataset.layout = 'stack';
@@ -1163,7 +1244,11 @@ function fitControls() {
 function applyMode(mode) {
   app.dataset.mode = mode;
   updateModelLabel();
-  document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b.dataset.mode === mode));
+  document.querySelectorAll('.tab').forEach((tab) => {
+    const active = tab.dataset.mode === mode;
+    tab.classList.toggle('active', active);
+    tab.setAttribute('aria-pressed', String(active));
+  });
   $('focusThink').classList.toggle('on', mode === 'focus');
   $('streamThink').classList.toggle('on', mode === 'stream');
   $('chatWrap').classList.toggle('on', mode === 'chat');
@@ -1184,10 +1269,10 @@ function setMode(mode) {
   closeModelMenu();
   if (S.settingsOpen) closeDrawer();
   if (!S.settingsOpen) nativeSetView(SIZES[mode]);
-  const delay = S.electronShell ? 50 : 0;
+  const delay = S.electronShell ? TIMING.modeApplyDelay : 0;
   setTimeout(() => applyMode(mode), delay);
-  setTimeout(() => { fitControls(); syncShape(); }, delay + 340);
-  setTimeout(() => nativeCall('refresh'), delay + 420);
+  setTimeout(() => { fitControls(); syncShape(); }, delay + TIMING.modeSettle);
+  setTimeout(() => nativeCall('refresh'), delay + TIMING.modeRefresh);
 }
 
 function setState(next) {
@@ -1195,7 +1280,7 @@ function setState(next) {
   S.state = next;
   app.classList.forEach((c) => { if (c.startsWith('state-')) app.classList.remove(c); });
   app.classList.add('state-' + next);
-  for (const img of Object.values(images)) img.classList.toggle('on', img.dataset.state === next);
+  for (const img of Object.values(fx.images)) img.classList.toggle('on', img.dataset.state === next);
 }
 
 function setLiveModel(text) {
@@ -1208,75 +1293,46 @@ function setLiveModel(text) {
 
 function updateModelLabel() {
   const chatTab = app.dataset.mode === 'chat';
-  $('modelLabel').textContent = chatTab
-    ? (S.chatModel || S.selectedModel)
-    : S.selectedModel;
+  const model = chatTab ? (S.chatModel || S.selectedModel) : S.selectedModel;
+  $('modelLabel').textContent = model || 'model';
 }
 
+function toast(message, ms) {
+  const el = $('toast');
+  el.textContent = message;
+  el.classList.add('on');
+  clearTimeout(fx.toastTimer);
+  fx.toastTimer = setTimeout(() => el.classList.remove('on'), ms || TIMING.toast);
+}
+
+function nearBottom(el) {
+  return el.scrollHeight - el.scrollTop - el.clientHeight < LIMITS.nearBottomPx;
+}
+
+/* ================================================================
+   Formatting
+   ================================================================ */
 function fmtClock(ts) { return new Date(ts * 1000).toTimeString().slice(0, 8); }
+
 function fmtElapsed(seconds) {
   const s = Math.max(0, Math.floor(seconds));
   return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
 }
 
-function tickTimer() {
-  const value = S.runActive ? (Date.now() - S.startedAt) / 1000 : S.elapsedBase;
-  const text = fmtElapsed(value);
-  $('timer').textContent = text;
-  $('vElapsed').textContent = text;
-  const focusMeta = $('focusMeta');
-  if (focusMeta) focusMeta.textContent = text;
+function fmtAge(ageSeconds) {
+  const age = Math.max(0, ageSeconds || 0);
+  return age < 90 ? Math.round(age) + 's' : Math.round(age / 60) + 'm';
 }
 
-function renderCounters() {
-  $('vThoughts').textContent = S.counters.thoughts;
-  $('vTools').textContent = S.counters.tools;
-  $('vRetries').textContent = S.counters.retries;
-}
+function ageSince(ts) { return fmtAge(Date.now() / 1000 - (ts || 0)); }
 
 function lineText(text, max) {
   const flat = String(text).replace(/\s+/g, ' ').trim();
-  return flat.length > max ? flat.slice(0, max - 1) + '\u2026' : flat;
+  return flat.length > max ? flat.slice(0, max - 1) + '…' : flat;
 }
-
-let lastFocus = { kind: '', el: null, ts: 0 };
 
 function logicalTime(ts) {
   return typeof ts === 'number' && ts > 0 ? ts * 1000 : Date.now();
-}
-
-function addFocus(kind, text, ts) {
-  const now = logicalTime(ts);
-  if (
-    (kind === 'think' || kind === 'text') &&
-    lastFocus.kind === kind &&
-    lastFocus.el &&
-    now - lastFocus.ts < 6000
-  ) {
-    lastFocus.el._raw = (lastFocus.el._raw || '') + text;
-    lastFocus.el.textContent = cleanFocusText(lastFocus.el._raw);
-    lastFocus.el.title = lastFocus.el._raw;
-    lastFocus.ts = now;
-    const scroller = $('focusLines').parentElement;
-    scroller.scrollTop = scroller.scrollHeight;
-    return;
-  }
-  $('focusEmpty').style.display = 'none';
-  const line = document.createElement('div');
-  line.className = 'fl ' + kind;
-  line._raw = String(text);
-  line.textContent = cleanFocusText(text);
-  line.title = String(text);
-  $('focusLines').appendChild(line);
-  focusQueue.push(line);
-  lastFocus = { kind, el: line, ts: now };
-  while (focusQueue.length > 5) {
-    const old = focusQueue.shift();
-    old.classList.add('out');
-    setTimeout(() => old.remove(), 420);
-  }
-  const scroller = $('focusLines').parentElement;
-  scroller.scrollTop = scroller.scrollHeight;
 }
 
 function escapeHtml(value) {
@@ -1285,6 +1341,93 @@ function escapeHtml(value) {
   })[character]);
 }
 
+/* ================================================================
+   Creature FX
+   ================================================================ */
+async function loadAssets() {
+  try {
+    const data = await api('/api/assets');
+    const mapping = data.assets || {};
+    const version = Date.now();
+    for (const [state, file] of Object.entries(mapping)) {
+      const img = document.createElement('img');
+      img.dataset.state = state;
+      img.alt = state;
+      img.src = '/assets/' + file + '?v=' + version;
+      if (state === 'dormant') img.classList.add('on');
+      $('creature').insertBefore(img, $('creature').firstChild);
+      fx.images[state] = img;
+    }
+  } catch (err) { report(err); }
+}
+
+function burst(count) {
+  // `.spark` has no animation under reduced motion, so animationend would never
+  // fire and the nodes would pile up.
+  if (S.anim === 'off' || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const rect = $('creature').getBoundingClientRect();
+  const radius = Math.max(rect.width, 90) * 0.5;
+  for (let i = 0; i < count; i++) {
+    const spark = document.createElement('div');
+    spark.className = 'spark';
+    const angle = Math.random() * Math.PI * 2;
+    const distance = radius * (0.5 + Math.random() * 0.8);
+    spark.style.setProperty('--sx', (Math.cos(angle) * distance).toFixed(1) + 'px');
+    spark.style.setProperty('--sy', (Math.sin(angle) * distance).toFixed(1) + 'px');
+    spark.style.animationDelay = (Math.random() * 140).toFixed(0) + 'ms';
+    $('creature').appendChild(spark);
+    spark.addEventListener('animationend', () => spark.remove());
+  }
+}
+
+function restartAnimation(el, className) {
+  el.classList.remove(className);
+  void el.offsetWidth;
+  el.classList.add(className);
+}
+
+function ripple() { restartAnimation($('ripple'), 'go'); }
+function jitter() { restartAnimation($('creature'), 'jitter'); }
+
+// "1h30m" -> 5400. Returns null when no unit is found.
+function parseResetSeconds(text) {
+  if (!text) return null;
+  const units = { s: 1, m: 60, h: 3600, d: 86400, w: 604800 };
+  let total = 0;
+  let matched = false;
+  for (const part of String(text).matchAll(/([0-9]+)\s*([smhdw])/gi)) {
+    total += parseInt(part[1], 10) * units[part[2].toLowerCase()];
+    matched = true;
+  }
+  return matched ? total : null;
+}
+
+function startCountdown(resetsText) {
+  const seconds = parseResetSeconds(resetsText);
+  if (!seconds || seconds <= 0) { $('countdown').classList.remove('on'); return; }
+  const ring = fx.ring;
+  ring.total = seconds * 1000;
+  ring.end = Date.now() + ring.total;
+  $('countdown').classList.add('on');
+  const circumference = 2 * Math.PI * 46;
+  $('ring').style.strokeDasharray = String(circumference);
+  cancelAnimationFrame(ring.raf);
+  const step = () => {
+    const remaining = Math.max(0, ring.end - Date.now());
+    $('ring').style.strokeDashoffset = String(-circumference * (1 - remaining / ring.total));
+    if (remaining > 0) ring.raf = requestAnimationFrame(step);
+  };
+  ring.raf = requestAnimationFrame(step);
+}
+
+function stopCountdown() {
+  cancelAnimationFrame(fx.ring.raf);
+  $('countdown').classList.remove('on');
+}
+
+/* ================================================================
+   Markdown
+   ================================================================ */
 const MD_PATH_PATTERN = /(file:\/\/\/[^\s<)"]+|[A-Za-z]:[\\/][^\s<)"]+)/g;
 
 function inlineMd(value) {
@@ -1295,6 +1438,7 @@ function inlineMd(value) {
     .replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>');
 }
 
+// Plain one-line rendering for Focus cards.
 function cleanFocusText(value) {
   return String(value == null ? '' : value)
     .replace(/```[\s\S]*?```/g, ' [code] ')
@@ -1302,12 +1446,16 @@ function cleanFocusText(value) {
     .replace(/^#{1,6}\s+/gm, '')
     .replace(/\*\*([^*]+)\*\*/g, '$1')
     .replace(/(^|[^*])\*([^*]+)\*/g, '$1$2')
-    .replace(/^\s*[-*\u2022]\s+/gm, '')
+    .replace(/^\s*[-*•]\s+/gm, '')
     .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
+// Minimal markdown for model output, which is untrusted. XSS rule: every line
+// is escaped in full (escapeHtml / inlineMd) before any tag is added, and no
+// attribute or URL is ever built from input, so only the fixed tags below
+// can appear in the result.
 function renderMarkdown(text) {
   const lines = String(text == null ? '' : text).split('\n');
   let html = '';
@@ -1345,7 +1493,7 @@ function renderMarkdown(text) {
       html += '<hr class="md-hr">';
       continue;
     }
-    const bullet = trimmed.match(/^[-*\u2022]\s+(.*)$/);
+    const bullet = trimmed.match(/^[-*•]\s+(.*)$/);
     if (bullet) {
       if (listTag !== 'ul') { flushList(); html += '<ul>'; listTag = 'ul'; }
       html += '<li>' + inlineMd(bullet[1]) + '</li>';
@@ -1373,7 +1521,60 @@ function renderMarkdown(text) {
   return html || '<p></p>';
 }
 
-let lastStream = null;
+/* ================================================================
+   Feed: Focus + Stream panes
+   ================================================================ */
+function tickTimer() {
+  const value = S.runActive ? (Date.now() - S.startedAt) / 1000 : S.elapsedBase;
+  const text = fmtElapsed(value);
+  $('timer').textContent = text;
+  $('vElapsed').textContent = text;
+  $('focusMeta').textContent = text;
+}
+
+function renderCounters() {
+  $('vThoughts').textContent = S.counters.thoughts;
+  $('vTools').textContent = S.counters.tools;
+  $('vRetries').textContent = S.counters.retries;
+}
+
+function scrollFocusToEnd() {
+  const scroller = $('focusLines').parentElement;
+  scroller.scrollTop = scroller.scrollHeight;
+}
+
+function addFocus(kind, text, ts) {
+  const now = logicalTime(ts);
+  const last = fx.lastFocus;
+  if (
+    (kind === 'think' || kind === 'text') &&
+    last.kind === kind &&
+    last.el &&
+    now - last.ts < TIMING.mergeWindow
+  ) {
+    last.el._raw = (last.el._raw || '') + text;
+    last.el.textContent = cleanFocusText(last.el._raw);
+    last.el.title = last.el._raw;
+    last.ts = now;
+    scrollFocusToEnd();
+    return;
+  }
+  $('focusEmpty').style.display = 'none';
+  const line = document.createElement('div');
+  line.className = 'fl ' + kind;
+  line._raw = String(text);
+  line.textContent = cleanFocusText(text);
+  line.title = String(text);
+  $('focusLines').appendChild(line);
+  fx.focusQueue.push(line);
+  fx.lastFocus = { kind, el: line, ts: now };
+  while (fx.focusQueue.length > LIMITS.focusLines) {
+    const old = fx.focusQueue.shift();
+    old.classList.add('out');
+    setTimeout(() => old.remove(), TIMING.focusFadeOut);
+  }
+  scrollFocusToEnd();
+}
 
 function renderEntryBody(entry) {
   const body = entry._body;
@@ -1389,6 +1590,8 @@ function renderEntryBody(entry) {
   }
 }
 
+// `raw` lines that are really agy JSON steps are upgraded to their real kind.
+// Returns [kind, text], 'skip' for content-free event containers, or null.
 function reclassifyRaw(text) {
   let data;
   try {
@@ -1436,21 +1639,22 @@ function addEntry(kind, text, ts, meta) {
     }
   }
   const now = logicalTime(ts);
+  const last = fx.lastStream;
   if (
     (kind === 'think' || kind === 'text') &&
-    lastStream &&
-    lastStream._kind === kind &&
-    now - lastStream._ts < 6000
+    last &&
+    last._kind === kind &&
+    now - last._ts < TIMING.mergeWindow
   ) {
-    const entry = lastStream;
-    entry._raw += text;
-    entry._ts = now;
-    if (!entry._raf) {
-      entry._raf = requestAnimationFrame(() => {
-        entry._raf = null;
-        renderEntryBody(entry);
-        const scroller = $('streamScroll');
-        if (S.autoscroll) scroller.scrollTop = scroller.scrollHeight;
+    // Merge the chunk and re-render at most once per frame. The frame renders
+    // the entry it was scheduled for, even if a newer entry has replaced it.
+    last._raw += text;
+    last._ts = now;
+    if (!last._raf) {
+      last._raf = requestAnimationFrame(() => {
+        last._raf = null;
+        renderEntryBody(last);
+        streamScroll(false);
       });
     }
     return;
@@ -1477,21 +1681,18 @@ function addEntry(kind, text, ts, meta) {
   entry._ts = now;
   entry.append(metaRow, body);
   renderEntryBody(entry);
-  $('streamLines').appendChild(entry);
-  streamLines += 1;
-  const streamMeta = $('streamMeta');
-  if (streamMeta) streamMeta.textContent = streamLines + ' entries';
-  lastStream = entry;
-  while ($('streamLines').children.length > 400) $('streamLines').removeChild($('streamLines').firstChild);
-  const el = $('streamScroll');
-  const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-  S.autoscroll = nearBottom;
-  if (nearBottom) streamScroll(true);
+  const list = $('streamLines');
+  list.appendChild(entry);
+  fx.streamEntryCount += 1;
+  $('streamMeta').textContent = fx.streamEntryCount + ' entries';
+  fx.lastStream = entry;
+  while (list.children.length > LIMITS.streamEntries) list.removeChild(list.firstChild);
+  S.autoscroll = nearBottom($('streamScroll'));
+  if (S.autoscroll) streamScroll(true);
 }
 
 function streamScroll(force) {
   const el = $('streamScroll');
-  if (!el) return;
   if (force || S.autoscroll) el.scrollTop = el.scrollHeight;
 }
 
@@ -1505,94 +1706,31 @@ function pushActivity(kind, text, options, ts) {
   addEntry(kind, opts.streamText || text, ts);
 }
 
-let streamLines = 0;
-function burst(count) {
-  // `.spark` has no animation under reduced motion, so animationend would never
-  // fire and the nodes would pile up.
-  if (S.anim === 'off' || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  const rect = $('creature').getBoundingClientRect();
-  const radius = Math.max(rect.width, 90) * 0.5;
-  for (let i = 0; i < count; i++) {
-    const spark = document.createElement('div');
-    spark.className = 'spark';
-    const angle = Math.random() * Math.PI * 2;
-    const distance = radius * (0.5 + Math.random() * 0.8);
-    spark.style.setProperty('--sx', (Math.cos(angle) * distance).toFixed(1) + 'px');
-    spark.style.setProperty('--sy', (Math.sin(angle) * distance).toFixed(1) + 'px');
-    spark.style.animationDelay = (Math.random() * 140).toFixed(0) + 'ms';
-    $('creature').appendChild(spark);
-    spark.addEventListener('animationend', () => spark.remove());
-  }
+function resetFeed() {
+  fx.streamEntryCount = 0;
+  $('streamMeta').textContent = '0 entries';
+  fx.focusQueue.forEach((line) => line.remove());
+  fx.focusQueue.length = 0;
+  fx.lastFocus = { kind: '', el: null, ts: 0 };
+  if (fx.lastStream && fx.lastStream._raf) cancelAnimationFrame(fx.lastStream._raf);
+  fx.lastStream = null;
+  $('focusLines').innerHTML = '';
+  $('streamLines').innerHTML = '';
+  $('focusEmpty').style.display = '';
+  $('streamEmpty').style.display = '';
 }
 
-function ripple() {
-  const el = $('ripple');
-  el.classList.remove('go');
-  void el.offsetWidth;
-  el.classList.add('go');
-}
-
-function jitter() {
-  const el = $('creature');
-  el.classList.remove('jitter');
-  void el.offsetWidth;
-  el.classList.add('jitter');
-}
-
-function parseResetSeconds(text) {
-  if (!text) return null;
-  const units = { s: 1, m: 60, h: 3600, d: 86400, w: 604800 };
-  let total = 0;
-  let matched = false;
-  for (const part of String(text).matchAll(/([0-9]+)\s*([smhdw])/gi)) {
-    total += parseInt(part[1], 10) * units[part[2].toLowerCase()];
-    matched = true;
-  }
-  return matched ? total : null;
-}
-
-function startCountdown(resetsText) {
-  const seconds = parseResetSeconds(resetsText);
-  if (!seconds || seconds <= 0) { $('countdown').classList.remove('on'); return; }
-  ringTotal = seconds * 1000;
-  ringEnd = Date.now() + ringTotal;
-  $('countdown').classList.add('on');
-  const circumference = 2 * Math.PI * 46;
-  $('ring').style.strokeDasharray = String(circumference);
-  cancelAnimationFrame(ringRaf);
-  const step = () => {
-    const remaining = Math.max(0, ringEnd - Date.now());
-    $('ring').style.strokeDashoffset = String(-circumference * (1 - remaining / ringTotal));
-    if (remaining > 0) ringRaf = requestAnimationFrame(step);
-  };
-  ringRaf = requestAnimationFrame(step);
-}
-
-function stopCountdown() {
-  cancelAnimationFrame(ringRaf);
-  $('countdown').classList.remove('on');
-}
-
+/* ================================================================
+   Run lifecycle
+   ================================================================ */
 function beginRun(ev) {
   S.runActive = true;
   if (typeof ev.meta.replay === 'boolean') S.replaying = ev.meta.replay;
   S.startedAt = Date.now();
   S.counters = { thoughts: 0, tools: 0, retries: 0 };
-  streamLines = 0;
-  const streamMetaReset = $('streamMeta');
-  if (streamMetaReset) streamMetaReset.textContent = '0 entries';
-  focusQueue.forEach((line) => line.remove());
-  focusQueue.length = 0;
-  lastFocus = { kind: '', el: null, ts: 0 };
-  if (lastStream && lastStream._raf) cancelAnimationFrame(lastStream._raf);
-  lastStream = null;
-  $('focusLines').innerHTML = '';
-  $('streamLines').innerHTML = '';
-  $('focusEmpty').style.display = '';
-  $('streamEmpty').style.display = '';
+  resetFeed();
   renderCounters();
-  const model = ev.meta.primary_model || ev.model || '';
-  setLiveModel(model);
+  setLiveModel(ev.meta.primary_model || ev.model || '');
   setState('awakening');
 }
 
@@ -1602,10 +1740,10 @@ function endRun(ev) {
   const success = !!ev.meta.success;
   setState(success ? 'triumph' : 'withered');
   if (success) burst(14);
-  const dot = $('vDot');
-  dot.className = 'vdot ' + (success ? 'ok' : 'bad');
+  $('vDot').className = 'vdot ' + (success ? 'ok' : 'bad');
   $('verdictLabel').textContent = success ? 'PASS' : 'FAIL';
-  $('verdictNote').textContent = fmtElapsed(S.elapsedBase) + ' \u00b7 ' + (ev.meta.attempts || 1) + ' attempt' + ((ev.meta.attempts || 1) > 1 ? 's' : '');
+  const attempts = ev.meta.attempts || 1;
+  $('verdictNote').textContent = fmtElapsed(S.elapsedBase) + ' · ' + attempts + ' attempt' + (attempts > 1 ? 's' : '');
   $('verdictDetail').textContent = ev.meta.error || (success ? 'Delegation completed; full report saved under .antigravity-reports/.' : '');
   const kv = $('verdictKv');
   kv.innerHTML = '';
@@ -1632,52 +1770,6 @@ function endRun(ev) {
   if (app.dataset.mode === 'history') loadHistory();
 }
 
-async function loadHistory() {
-  try {
-    const response = await fetch('/api/runs');
-    const data = await response.json();
-    const list = $('historyList');
-    list.innerHTML = '';
-    if (!data.runs.length) {
-      list.innerHTML = '<div class="hempty">No runs archived yet.</div>';
-      $('histCurrent').textContent = 'idle';
-      return;
-    }
-    const active = data.runs.find((run) => !run.finished);
-    $('histCurrent').textContent = active ? active.file.replace('run-', '') : 'idle';
-    for (const run of data.runs) {
-      const row = document.createElement('div');
-      row.className = 'hrow' + (!run.finished ? ' live' : '');
-      const dot = document.createElement('span');
-      dot.className = 'hdot ' + (!run.finished ? 'live' : (run.success === true ? 'ok' : (run.success === false ? 'bad' : '')));
-      const time = document.createElement('span');
-      time.className = 'htime';
-      time.textContent = run.started_ts ? fmtClock(run.started_ts) : new Date(run.mtime * 1000).toTimeString().slice(0, 5);
-      const model = document.createElement('span');
-      model.className = 'hmodel';
-      const workspaceTag = run.is_foreign && run.workspace
-        ? ' \u00b7 ' + String(run.workspace).split(/[\\/]/).pop()
-        : '';
-      model.textContent = (run.model || run.file)
-        + (run.failover_used ? ' \u00b7 failover' : '')
-        + workspaceTag;
-      const dur = document.createElement('span');
-      dur.className = 'hdur';
-      dur.textContent = run.finished ? fmtElapsed(run.elapsed_seconds || 0) : 'live';
-      const act = document.createElement('span');
-      act.className = 'hact';
-      act.textContent = run.file === S.currentFile ? 'VIEWING' : 'REPLAY';
-      row.append(dot, time, model, dur, act);
-      row.addEventListener('click', () => {
-        if (run.file === S.currentFile) { setMode('stream'); return; }
-        startReplay(run.file);
-        setMode('stream');
-      });
-      list.appendChild(row);
-    }
-  } catch (err) { }
-}
-
 function normalizePath(value) {
   return String(value || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
 }
@@ -1687,6 +1779,16 @@ function isOwnAskStart(ev) {
   const meta = ev.meta || {};
   if (meta.replay || meta.harness !== ASK_HARNESS) return false;
   return !S.workspace || !meta.workspace || normalizePath(meta.workspace) === normalizePath(S.workspace);
+}
+
+function describeAttemptEnd(meta) {
+  const bits = [];
+  if (meta.exit_code !== undefined && meta.exit_code !== null) bits.push('exit ' + meta.exit_code);
+  if (meta.duration_seconds) bits.push(Number(meta.duration_seconds).toFixed(1) + 's');
+  if (meta.rate_limited) bits.push('rate limited');
+  if (meta.timed_out) bits.push('timed out');
+  if (meta.interrupted) bits.push('interrupted');
+  return 'Attempt finished' + (bits.length ? ' · ' + bits.join(' · ') : '');
 }
 
 function handleEvent(ev) {
@@ -1734,21 +1836,9 @@ function handleEvent(ev) {
     case 'stderr':
       addEntry('stderr', ev.text, ev.ts);
       break;
-    case 'attempt_end': {
-      const meta = ev.meta || {};
-      const bits = [];
-      if (meta.exit_code !== undefined && meta.exit_code !== null) {
-        bits.push('exit ' + meta.exit_code);
-      }
-      if (meta.duration_seconds) {
-        bits.push(Number(meta.duration_seconds).toFixed(1) + 's');
-      }
-      if (meta.rate_limited) bits.push('rate limited');
-      if (meta.timed_out) bits.push('timed out');
-      if (meta.interrupted) bits.push('interrupted');
-      addEntry('sys', 'Attempt finished' + (bits.length ? ' \u00b7 ' + bits.join(' \u00b7 ') : ''), ev.ts);
+    case 'attempt_end':
+      addEntry('sys', describeAttemptEnd(ev.meta || {}), ev.ts);
       break;
-    }
     case 'quota_hook':
       addEntry('sys', 'Quota hook: ' + (ev.text || 'running'), ev.ts);
       break;
@@ -1762,12 +1852,12 @@ function handleEvent(ev) {
       setState('strained');
       S.counters.retries++; renderCounters();
       jitter();
-      addEntry('stderr', 'Transient failure \u2014 ' + ev.text, ev.ts);
+      addEntry('stderr', 'Transient failure — ' + ev.text, ev.ts);
       break;
     case 'failover':
       setState('shifting');
       setLiveModel(ev.meta && ev.meta.to_model ? ev.meta.to_model : ev.model);
-      addEntry('sys', 'Failover \u2192 ' + (ev.meta.to_model || '?'), ev.ts);
+      addEntry('sys', 'Failover → ' + (ev.meta.to_model || '?'), ev.ts);
       break;
     case 'quota_wait':
       addEntry('sys', ev.text || 'Waiting for quota reset', ev.ts);
@@ -1781,33 +1871,36 @@ function handleEvent(ev) {
   }
 }
 
-let es = null;
+/* ================================================================
+   SSE: live feed and replays
+   ================================================================ */
 function connect(file) {
-  if (es) es.close();
+  if (fx.events) fx.events.close();
   const url = file ? '/events?file=' + encodeURIComponent(file) : '/events';
-  es = new EventSource(url);
+  const es = new EventSource(url);
+  fx.events = es;
   es.addEventListener('reset', (message) => {
     let data;
-    try { data = JSON.parse(message.data); } catch (err) { return; }
+    try { data = JSON.parse(message.data); } catch (err) { report(err); return; }
     const changed = !!data.file && data.file !== S.currentFile;
     S.currentFile = data.file || null;
     if (!data.replay) {
       stopCountdown();
       if (S.replaying) {
         exitReplay();
-        toast('New delegation detected \u2014 switched to live.');
+        toast('New delegation detected — switched to live.');
       }
     }
     if (changed && app.dataset.mode === 'history') loadHistory();
   });
   es.addEventListener('live', (message) => {
-    try { handleEvent(JSON.parse(message.data)); } catch (err) { }
+    try { handleEvent(JSON.parse(message.data)); } catch (err) { report(err); }
   });
   es.addEventListener('replay_end', () => {
     S.runActive = false;
     if (S.replaying) {
       exitReplay();
-      toast('Replay complete \u2014 back to live.');
+      toast('Replay complete — back to live.');
     } else {
       toast('Replay complete.');
     }
@@ -1815,40 +1908,40 @@ function connect(file) {
   es.onerror = () => {
     if (S.replaying) {
       exitReplay();
-      toast('Replay interrupted \u2014 back to live.');
+      toast('Replay interrupted — back to live.');
     }
   };
 }
 
-async function loadAssets() {
-  try {
-    const response = await fetch('/api/assets');
-    const data = await response.json();
-    const mapping = data.assets || {};
-    const version = Date.now();
-    for (const [state, file] of Object.entries(mapping)) {
-      const img = document.createElement('img');
-      img.dataset.state = state;
-      img.alt = state;
-      img.src = '/assets/' + file + '?v=' + version;
-      if (state === 'dormant') img.classList.add('on');
-      $('creature').insertBefore(img, $('creature').firstChild);
-      images[state] = img;
-    }
-    setTimeout(() => {
-      for (const file of Object.values(mapping)) { const pre = new Image(); pre.src = '/assets/' + file + '?v=' + version; }
-    }, 400);
-  } catch (err) { }
-}
-
+/* ================================================================
+   Models & settings drawer
+   ================================================================ */
 async function loadSelectedModel() {
   try {
-    const response = await fetch('/api/model');
-    const data = await response.json();
-    if (data.model) { S.selectedModel = data.model; }
+    const data = await api('/api/model');
+    if (data.model) S.selectedModel = data.model;
     S.chatModel = data.chat_model || '';
     updateModelLabel();
-  } catch (err) { }
+  } catch (err) { report(err); }
+}
+
+async function selectModel(name) {
+  const chatTab = app.dataset.mode === 'chat';
+  if (chatTab) {
+    S.chatModel = name;
+  } else {
+    S.selectedModel = name;
+  }
+  updateModelLabel();
+  closeModelMenu();
+  try {
+    await api('/api/model', chatTab ? { chat_model: name } : { model: name });
+    toast((chatTab ? 'Chat model: ' : 'Model for the next delegation: ') + name);
+  } catch (err) {
+    report(err);
+    toast('Could not save model selection.');
+  }
+  loadStatus();
 }
 
 async function openModelMenu() {
@@ -1857,12 +1950,12 @@ async function openModelMenu() {
   S.modelMenuOpen = true;
   updateInteractive();
   $('modelBtn').classList.add('open');
-  menu.innerHTML = '<div class="empty" style="padding:10px">loading\u2026</div>';
+  $('modelBtn').setAttribute('aria-expanded', 'true');
+  menu.innerHTML = '<div class="empty" style="padding:10px">loading…</div>';
   menu.classList.add('on');
   try {
     if (!S.models.length) {
-      const response = await fetch('/api/models');
-      const data = await response.json();
+      const data = await api('/api/models');
       S.models = data.models || [];
     }
     menu.innerHTML = '';
@@ -1874,28 +1967,11 @@ async function openModelMenu() {
       const label = document.createElement('span');
       label.textContent = name;
       item.append(mark, label);
-      item.addEventListener('click', async () => {
-        const chatTab = app.dataset.mode === 'chat';
-        if (chatTab) {
-          S.chatModel = name;
-        } else {
-          S.selectedModel = name;
-        }
-        updateModelLabel();
-        closeModelMenu();
-        try {
-          await fetch('/api/model', {
-            method: 'POST',
-            headers: { 'X-Wisp-Request': '1', 'Content-Type': 'application/json' },
-            body: JSON.stringify(chatTab ? { chat_model: name } : { model: name }),
-          });
-          toast((chatTab ? 'Chat model: ' : 'Model for the next delegation: ') + name);
-        } catch (err) { toast('Could not save model selection.'); }
-        loadStatus();
-      });
+      item.addEventListener('click', () => selectModel(name));
       menu.appendChild(item);
     }
   } catch (err) {
+    report(err);
     menu.innerHTML = '<div class="empty" style="padding:10px">model list unavailable</div>';
   }
 }
@@ -1904,13 +1980,13 @@ function closeModelMenu() {
   S.modelMenuOpen = false;
   $('modelMenu').classList.remove('on');
   $('modelBtn').classList.remove('open');
+  $('modelBtn').setAttribute('aria-expanded', 'false');
   updateInteractive();
 }
 
 async function loadStatus() {
   try {
-    const response = await fetch('/api/status');
-    const data = await response.json();
+    const data = await api('/api/status');
     applyTestMode(!!data.test_mode);
     S.workspace = data.workspace || '';
     $('stServer').textContent = data.server.name + ' v' + data.server.version;
@@ -1945,25 +2021,47 @@ async function loadStatus() {
       updateModelLabel();
     }
     const askSkills = (data.selected && data.selected.ask_skills) || [];
-    const askAll = askSkills.includes('all') || askSkills.length > 0;
+    const askAll = askSkills.length > 0;
     $('askSeg').querySelectorAll('button').forEach((button) => {
-      button.classList.toggle('active', askAll ? button.dataset.ask === 'all' : button.dataset.ask === 'none');
+      button.classList.toggle('active', button.dataset.ask === (askAll ? 'all' : 'none'));
     });
     loadHotkeys();
-  } catch (err) { }
+  } catch (err) { report(err); }
+}
+
+async function loadHotkeys() {
+  const bridge = window.pywebview && window.pywebview.api;
+  if (!bridge || !bridge.hotkeys) {
+    $('stHotkeyAsk').textContent = 'unavailable';
+    $('stHotkeyPrompt').textContent = 'unavailable';
+    $('stHotkeyStatus').textContent = 'browser mode';
+    $('stHotkeyStatus').className = 'mini';
+    return;
+  }
+  try {
+    const data = await bridge.hotkeys();
+    $('stHotkeyAsk').textContent = data.quick || '—';
+    $('stHotkeyPrompt').textContent = data.prompt || '—';
+    const allOk = data.quick_ok && data.prompt_ok;
+    $('stHotkeyStatus').textContent = allOk ? 'registered' : (data.quick_ok || data.prompt_ok ? 'partial' : 'failed');
+    $('stHotkeyStatus').className = 'mini ' + (allOk ? 'ok' : 'bad');
+  } catch (err) {
+    report(err);
+    $('stHotkeyStatus').textContent = 'error';
+    $('stHotkeyStatus').className = 'mini bad';
+  }
 }
 
 async function loadRuns() {
   try {
-    const response = await fetch('/api/runs');
-    const data = await response.json();
+    const runs = await fetchRuns();
     const list = $('runsList');
     list.innerHTML = '';
-    if (!data.runs.length) {
+    if (!runs.length) {
       list.innerHTML = '<div class="s-note">No archived runs yet.</div>';
       return;
     }
-    for (const run of data.runs.slice(0, 12)) {
+    for (const run of runs.slice(0, LIMITS.pastRuns)) {
       const row = document.createElement('div');
       row.className = 'run-row';
       const name = document.createElement('span');
@@ -1971,7 +2069,7 @@ async function loadRuns() {
       name.textContent = run.file;
       const age = document.createElement('span');
       age.className = 'rage';
-      age.textContent = run.age_seconds < 90 ? run.age_seconds + 's' : Math.round(run.age_seconds / 60) + 'm';
+      age.textContent = fmtAge(run.age_seconds);
       const replay = document.createElement('button');
       replay.className = 'run-replay';
       replay.textContent = 'REPLAY';
@@ -1979,9 +2077,37 @@ async function loadRuns() {
       row.append(name, age, replay);
       list.appendChild(row);
     }
-  } catch (err) { }
+  } catch (err) { report(err); }
 }
 
+function openDrawer() {
+  S.settingsOpen = true;
+  app.classList.add('pinned', 'settings');
+  $('drawer').classList.add('on');
+  $('drawerBackdrop').classList.add('on');
+  nativeSetView(SETTINGS_SIZE);
+  syncShape();
+  updateInteractive();
+  setTimeout(() => nativeCall('refresh'), TIMING.drawerRefresh);
+  loadStatus();
+  loadRuns();
+  loadChatThreads();
+}
+
+function closeDrawer() {
+  S.settingsOpen = false;
+  app.classList.remove('pinned', 'settings');
+  $('drawer').classList.remove('on');
+  $('drawerBackdrop').classList.remove('on');
+  nativeSetView(SIZES[app.dataset.mode] || SIZES.emotion);
+  syncShape();
+  updateInteractive();
+  setTimeout(() => nativeCall('refresh'), TIMING.drawerRefresh);
+}
+
+/* ================================================================
+   Replay
+   ================================================================ */
 function startReplay(file) {
   S.replaying = true;
   closeDrawer();
@@ -1998,55 +2124,22 @@ function exitReplay() {
   toast('Returned to the live stream.');
 }
 
-function openDrawer() {
-  S.settingsOpen = true;
-  app.classList.add('pinned');
-  app.classList.add('settings');
-  $('drawer').classList.add('on');
-  $('drawerBackdrop').classList.add('on');
-  nativeSetView(SETTINGS_SIZE);
-  syncShape();
-  updateInteractive();
-  setTimeout(() => nativeCall('refresh'), 260);
-  loadStatus();
-  loadRuns();
-  loadChatThreads();
-}
-
-function closeDrawer() {
-  S.settingsOpen = false;
-  app.classList.remove('pinned');
-  app.classList.remove('settings');
-  $('drawer').classList.remove('on');
-  $('drawerBackdrop').classList.remove('on');
-  nativeSetView(SIZES[app.dataset.mode] || SIZES.emotion);
-  syncShape();
-  updateInteractive();
-  setTimeout(() => nativeCall('refresh'), 260);
-}
-
-function toast(message, ms) {
-  const el = $('toast');
-  el.textContent = message;
-  el.classList.add('on');
-  clearTimeout(toast._t);
-  toast._t = setTimeout(() => el.classList.remove('on'), ms || 3600);
-}
-
+/* ================================================================
+   Chat
+   ================================================================ */
 function threadLabelText(thread) {
   if (!thread) return 'no conversation';
   const title = thread.title || 'conversation';
-  return title.length > 32 ? title.slice(0, 31) + '\u2026' : title;
+  return title.length > 32 ? title.slice(0, 31) + '…' : title;
 }
 
 async function loadChatThreads() {
   try {
-    const response = await fetch('/api/chat/threads');
-    const data = await response.json();
+    const data = await api('/api/chat/threads');
     S.threads = data.threads || [];
     renderThreadMenu();
     renderHistoryChats();
-  } catch (err) { }
+  } catch (err) { report(err); }
 }
 
 function renderThreadMenu() {
@@ -2056,7 +2149,7 @@ function renderThreadMenu() {
     menu.innerHTML = '<div class="hempty" style="padding:10px">No conversations yet.</div>';
     return;
   }
-  for (const item of S.threads.slice(0, 20)) {
+  for (const item of S.threads.slice(0, LIMITS.threadMenuItems)) {
     const button = document.createElement('button');
     button.className = 'mi' + (S.chatThread && S.chatThread.id === item.id ? ' sel' : '');
     const mark = document.createElement('span');
@@ -2065,7 +2158,7 @@ function renderThreadMenu() {
     label.textContent = threadLabelText(item);
     const count = document.createElement('span');
     count.className = 'msrc';
-    count.textContent = (item.pinned ? 'PIN \u00b7 ' : '') + item.message_count;
+    count.textContent = (item.pinned ? 'PIN · ' : '') + item.message_count;
     button.append(mark, label, count);
     button.addEventListener('click', () => { closeThreadMenu(); openThread(item.id); });
     menu.appendChild(button);
@@ -2076,6 +2169,7 @@ function openThreadMenu() {
   if (S.threadMenuOpen) { closeThreadMenu(); return; }
   S.threadMenuOpen = true;
   $('threadBtn').classList.add('open');
+  $('threadBtn').setAttribute('aria-expanded', 'true');
   $('threadMenu').classList.add('on');
   updateInteractive();
   renderThreadMenu();
@@ -2085,6 +2179,7 @@ function openThreadMenu() {
 function closeThreadMenu() {
   S.threadMenuOpen = false;
   $('threadBtn').classList.remove('open');
+  $('threadBtn').setAttribute('aria-expanded', 'false');
   $('threadMenu').classList.remove('on');
   updateInteractive();
 }
@@ -2092,13 +2187,6 @@ function closeThreadMenu() {
 function captureThumbUrl(path) {
   return '/captures/' + encodeURIComponent(String(path).split(/[\\/]/).pop() || '');
 }
-
-const AUX_SECTION_MARKERS = [
-  '### Tool Activity',
-  '### Lifecycle',
-  '### Working Notes (pre-final)',
-  '### Reasoning & Analysis',
-];
 
 function splitAssistantDetails(content) {
   const text = String(content || '');
@@ -2111,54 +2199,57 @@ function splitAssistantDetails(content) {
   return { main: text.slice(0, index).trim(), details: text.slice(index).trim() };
 }
 
+function renderAttachments(meta) {
+  const paths = Array.isArray(meta.image_paths) ? meta.image_paths.slice() : [];
+  if (meta.image_path) paths.push(meta.image_path);
+  const unique = [...new Set(paths.filter(Boolean))];
+  if (!unique.length) return null;
+  const row = document.createElement('div');
+  row.className = 'attach-row';
+  for (const path of unique) {
+    const cell = document.createElement('div');
+    cell.className = 'attach';
+    const img = document.createElement('img');
+    img.src = captureThumbUrl(path);
+    img.alt = 'attached image';
+    cell.appendChild(img);
+    row.appendChild(cell);
+  }
+  return row;
+}
+
 function renderChatMessage(role, content, meta) {
   const wrap = document.createElement('div');
   wrap.className = 'msg ' + (role === 'assistant' ? 'assistant' : 'user');
   if (role === 'assistant' && meta && meta.success === false) wrap.classList.add('error');
   const body = document.createElement('div');
   body.className = 'md';
-  if (role === 'assistant') {
-    const parts = splitAssistantDetails(content);
-    body.innerHTML = renderMarkdown(parts.main || content);
-    wrap.appendChild(body);
-    if (parts.details) {
-      const toggle = document.createElement('button');
-      toggle.className = 'detailstoggle';
-      toggle.type = 'button';
-      toggle.textContent = 'SHOW RUN DETAILS';
-      const details = document.createElement('div');
-      details.className = 'md details';
-      details.hidden = true;
-      details.innerHTML = renderMarkdown(parts.details);
-      toggle.addEventListener('click', () => {
-        details.hidden = !details.hidden;
-        toggle.textContent = details.hidden ? 'SHOW RUN DETAILS' : 'HIDE RUN DETAILS';
-        chatScroll(false);
-      });
-      wrap.append(toggle, details);
-    }
-  } else {
-    body.innerHTML = escapeHtml(content);
-    wrap.appendChild(body);
+  wrap.appendChild(body);
+  if (role !== 'assistant') {
+    body.textContent = String(content == null ? '' : content);
+    const attachments = meta ? renderAttachments(meta) : null;
+    if (attachments) wrap.appendChild(attachments);
+    return wrap;
   }
-  if (role === 'user' && meta) {
-    const paths = Array.isArray(meta.image_paths) ? meta.image_paths.slice() : [];
-    if (meta.image_path) paths.push(meta.image_path);
-    const unique = [...new Set(paths.filter(Boolean))];
-    if (unique.length) {
-      const row = document.createElement('div');
-      row.className = 'attach-row';
-      for (const path of unique) {
-        const cell = document.createElement('div');
-        cell.className = 'attach';
-        const img = document.createElement('img');
-        img.src = captureThumbUrl(path);
-        img.alt = 'attached image';
-        cell.appendChild(img);
-        row.appendChild(cell);
-      }
-      wrap.appendChild(row);
-    }
+  const parts = splitAssistantDetails(content);
+  body.innerHTML = renderMarkdown(parts.main || content);
+  if (parts.details) {
+    const toggle = document.createElement('button');
+    toggle.className = 'detailstoggle';
+    toggle.type = 'button';
+    toggle.textContent = 'SHOW RUN DETAILS';
+    toggle.setAttribute('aria-expanded', 'false');
+    const details = document.createElement('div');
+    details.className = 'md details';
+    details.hidden = true;
+    details.innerHTML = renderMarkdown(parts.details);
+    toggle.addEventListener('click', () => {
+      details.hidden = !details.hidden;
+      toggle.textContent = details.hidden ? 'SHOW RUN DETAILS' : 'HIDE RUN DETAILS';
+      toggle.setAttribute('aria-expanded', String(!details.hidden));
+      chatScroll(false);
+    });
+    wrap.append(toggle, details);
   }
   return wrap;
 }
@@ -2181,7 +2272,6 @@ function renderChat() {
 
 function chatScroll(force) {
   const el = $('chatScroll');
-  if (!el) return;
   if (force || S.chatAutoscroll) el.scrollTop = el.scrollHeight;
 }
 
@@ -2213,10 +2303,13 @@ function threadHasPendingAsk(thread) {
   return !answered;
 }
 
+function fetchThread(id) {
+  return api('/api/chat/thread/' + encodeURIComponent(id));
+}
+
 async function openThread(id) {
   try {
-    const response = await fetch('/api/chat/thread/' + encodeURIComponent(id));
-    const data = await response.json();
+    const data = await fetchThread(id);
     if (!data.thread) { toast('Conversation not found.'); return; }
     S.chatThread = data.thread;
     S.chatPending = threadHasPendingAsk(data.thread);
@@ -2224,14 +2317,15 @@ async function openThread(id) {
     updateChatStatus();
     setMode('chat');
   } catch (err) {
-    toast('Could not load conversation.');
+    report(err);
+    toast(err.status === 404 ? 'Conversation not found.' : 'Could not load conversation.');
   }
 }
 
 function updateChatStatus() {
   const el = $('chatStatus');
   if (S.chatPending) {
-    el.textContent = 'answering\u2026';
+    el.textContent = 'answering…';
     el.className = 'mini warn';
     return;
   }
@@ -2245,33 +2339,39 @@ function appendStreamingAssistant() {
   wrap.className = 'msg assistant streaming';
   const body = document.createElement('div');
   body.className = 'md';
-  body.textContent = '\u2026';
+  body.textContent = '…';
   const note = document.createElement('div');
   note.className = 'stream-note';
   note.id = 'streamNote';
-  note.textContent = 'working\u2026';
-  wrap.appendChild(body);
-  wrap.appendChild(note);
+  note.textContent = 'working…';
+  wrap.append(body, note);
   $('chatMessages').appendChild(wrap);
   chatScroll(true);
   return { wrap, body, note, raw: '', raf: null };
 }
 
 function chatAppendDelta(kind, text) {
-  if (!S.chatStream || !text) return;
-  if (kind === 'tool') {
-    S.chatStream.raw += '\n\n> **tool** `' + String(text).replace(/\n/g, ' ') + '`\n\n';
-  } else {
-    S.chatStream.raw += text;
-  }
   const stream = S.chatStream;
+  if (!stream || !text) return;
+  if (kind === 'tool') {
+    stream.raw += '\n\n> **tool** `' + String(text).replace(/\n/g, ' ') + '`\n\n';
+  } else {
+    stream.raw += text;
+  }
   if (!stream.raf) {
     stream.raf = requestAnimationFrame(() => {
       stream.raf = null;
-      stream.body.innerHTML = renderMarkdown(stream.raw || '\u2026');
+      stream.body.innerHTML = renderMarkdown(stream.raw || '…');
       chatScroll(false);
     });
   }
+}
+
+function updateStreamNote() {
+  const note = $('streamNote');
+  if (!note || !S.chatPending) return;
+  const elapsed = S.askStartedAt ? (Date.now() - S.askStartedAt) / 1000 : 0;
+  note.textContent = 'working · ' + fmtElapsed(elapsed) + (S.activeModel ? ' · ' + S.activeModel : '');
 }
 
 function renderCtxChip() {
@@ -2281,7 +2381,7 @@ function renderCtxChip() {
   chip.hidden = false;
   if (capture.kind === 'text') {
     $('ctxKind').textContent = 'TEXT';
-    $('ctxLabel').textContent = lineText(capture.text || '', 46) + ' \u00b7 ' + (capture.text || '').length + ' chars';
+    $('ctxLabel').textContent = lineText(capture.text || '', 46) + ' · ' + (capture.text || '').length + ' chars';
   } else {
     $('ctxKind').textContent = 'IMAGE';
     $('ctxLabel').textContent = String(capture.path || '').split(/[\\/]/).pop() || 'capture';
@@ -2290,7 +2390,6 @@ function renderCtxChip() {
 
 function renderAttachRow() {
   const row = $('attachRow');
-  if (!row) return;
   row.innerHTML = '';
   if (!S.pendingImages.length) { row.hidden = true; return; }
   row.hidden = false;
@@ -2303,8 +2402,9 @@ function renderAttachRow() {
     const remove = document.createElement('button');
     remove.className = 'rm';
     remove.type = 'button';
-    remove.textContent = '\u00d7';
+    remove.textContent = '×';
     remove.title = 'Remove image';
+    remove.setAttribute('aria-label', 'Remove image');
     remove.addEventListener('click', () => {
       S.pendingImages.splice(index, 1);
       renderAttachRow();
@@ -2327,16 +2427,10 @@ function base64FromBuffer(buffer) {
 async function uploadPastedFiles(files) {
   let added = 0;
   for (const file of files) {
-    if (file.size > 12 * 1024 * 1024) { toast('Image too large (12 MB max).'); continue; }
+    if (file.size > MAX_UPLOAD_BYTES) { toast('Image too large (12 MB max).'); continue; }
     try {
       const buffer = await file.arrayBuffer();
-      const response = await fetch('/api/chat/upload', {
-        method: 'POST',
-        headers: { 'X-Wisp-Request': '1', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: base64FromBuffer(buffer) }),
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) { toast(result.error || 'Image upload failed.'); continue; }
+      const result = await api('/api/chat/upload', { data: base64FromBuffer(buffer) });
       S.pendingImages.push({
         path: result.path,
         name: result.name,
@@ -2344,22 +2438,24 @@ async function uploadPastedFiles(files) {
       });
       added += 1;
     } catch (err) {
-      toast('Image upload failed.');
+      report(err);
+      toast((err.data && err.data.error) || 'Image upload failed.');
     }
   }
   if (added) renderAttachRow();
 }
 
+// The ask endpoint records the user message on a worker thread; poll until it
+// is visible so the chat renders the question before the answer streams in.
 async function waitForAskStart(threadId) {
-  for (let attempt = 0; attempt < 20; attempt++) {
+  for (let attempt = 0; attempt < TIMING.askStartPolls; attempt++) {
     try {
-      const response = await fetch('/api/chat/thread/' + encodeURIComponent(threadId));
-      const data = await response.json();
+      const data = await fetchThread(threadId);
       if (data.thread && data.thread.messages.some((message) => message.role === 'user')) {
         return data.thread;
       }
-    } catch (err) { }
-    await new Promise((resolve) => setTimeout(resolve, 120));
+    } catch (err) { report(err); }
+    await new Promise((resolve) => setTimeout(resolve, TIMING.askStartInterval));
   }
   return null;
 }
@@ -2367,13 +2463,13 @@ async function waitForAskStart(threadId) {
 async function sendAsk(prompt, captureOverride) {
   if (S.chatPending) { toast('Wisp is already answering.'); return; }
   const capture = captureOverride !== undefined ? captureOverride : S.pendingCapture;
-  const images = S.pendingImages.map((item) => item.path);
-  if (capture && capture.kind === 'image' && capture.path) images.unshift(capture.path);
+  const imagePaths = S.pendingImages.map((item) => item.path);
+  if (capture && capture.kind === 'image' && capture.path) imagePaths.unshift(capture.path);
   const body = {
     prompt: prompt || '',
     context_text: capture && capture.kind === 'text' ? capture.text : '',
-    image_path: images[0] || '',
-    images,
+    image_path: imagePaths[0] || '',
+    images: imagePaths,
     thread_id: S.chatThread ? S.chatThread.id : '',
   };
   S.pendingCapture = null;
@@ -2381,30 +2477,29 @@ async function sendAsk(prompt, captureOverride) {
   renderCtxChip();
   renderAttachRow();
   setMode('chat');
+  // Arm the run latch before posting: the run_start can beat the response.
   S.askRunId = null;
   S.askAwaitingRun = true;
+  let data;
   try {
-    const response = await fetch('/api/ask', {
-      method: 'POST',
-      headers: { 'X-Wisp-Request': '1', 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const data = await response.json().catch(() => ({}));
-    if (response.status === 409) { S.askAwaitingRun = false; toast(data.message || 'Wisp is busy.'); return; }
-    if (!response.ok) { S.askAwaitingRun = false; toast(data.error || 'Ask failed.'); return; }
-    S.chatPending = true;
-    S.askStartedAt = Date.now();
-    const thread = await waitForAskStart(data.thread_id);
-    if (thread) { S.chatThread = thread; renderChat(); }
-    $('chatText').value = '';
-    autoGrowChatText();
-    // The ask may already have finished (and been reconciled) while we waited.
-    if (S.chatPending) S.chatStream = appendStreamingAssistant();
-    updateChatStatus();
+    data = await api('/api/ask', body);
   } catch (err) {
     S.askAwaitingRun = false;
-    toast('Ask failed: ' + err);
+    report(err);
+    if (err.status === 409) toast(err.data.message || 'Wisp is busy.');
+    else if (err.status) toast(err.data.error || 'Ask failed.');
+    else toast('Ask failed: ' + err);
+    return;
   }
+  S.chatPending = true;
+  S.askStartedAt = Date.now();
+  const thread = await waitForAskStart(data.thread_id);
+  if (thread) { S.chatThread = thread; renderChat(); }
+  $('chatText').value = '';
+  autoGrowChatText();
+  // The ask may already have finished (and been reconciled) while we waited.
+  if (S.chatPending) S.chatStream = appendStreamingAssistant();
+  updateChatStatus();
 }
 
 function clearAsk() {
@@ -2424,25 +2519,95 @@ async function finalizeAsk() {
   loadChatThreads();
 }
 
+// Safety net for asks whose run never reaches this viewer's live feed (the
+// SSE tail may be latched onto another run): poll the thread until answered.
 async function reconcilePendingAsk() {
   if (!S.chatPending || !S.chatThread) return;
   try {
-    const response = await fetch(
-      '/api/chat/thread/' + encodeURIComponent(S.chatThread.id)
-    );
-    const data = await response.json();
+    const data = await fetchThread(S.chatThread.id);
     if (!data.thread || threadHasPendingAsk(data.thread)) return;
     S.chatThread = data.thread;
     clearAsk();
     renderChat();
     updateChatStatus();
     loadChatThreads();
-  } catch (err) { }
+  } catch (err) { report(err); }
 }
 
-function ageLabel(seconds) {
-  const age = Math.max(0, Date.now() / 1000 - (seconds || 0));
-  return age < 90 ? Math.round(age) + 's' : Math.round(age / 60) + 'm';
+function autoGrowChatText() {
+  const el = $('chatText');
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, LIMITS.chatTextMaxHeight) + 'px';
+}
+
+/* ================================================================
+   History
+   ================================================================ */
+// Concurrent callers (History pane, settings drawer) share one request.
+function fetchRuns() {
+  if (!fx.runsRequest) {
+    fx.runsRequest = api('/api/runs')
+      .then((data) => data.runs || [])
+      .finally(() => { fx.runsRequest = null; });
+  }
+  return fx.runsRequest;
+}
+
+// History rows are clickable divs (they may contain a nested pin button), so
+// give them button semantics and keyboard activation.
+function makeRowActivatable(row, activate) {
+  row.setAttribute('role', 'button');
+  row.tabIndex = 0;
+  row.addEventListener('click', activate);
+  row.addEventListener('keydown', (event) => {
+    if (event.target !== row || (event.key !== 'Enter' && event.key !== ' ')) return;
+    event.preventDefault();
+    activate();
+  });
+}
+
+async function loadHistory() {
+  try {
+    const runs = await fetchRuns();
+    const list = $('historyList');
+    list.innerHTML = '';
+    if (!runs.length) {
+      list.innerHTML = '<div class="hempty">No runs archived yet.</div>';
+      $('histCurrent').textContent = 'idle';
+      return;
+    }
+    const active = runs.find((run) => !run.finished);
+    $('histCurrent').textContent = active ? active.file.replace('run-', '') : 'idle';
+    for (const run of runs) {
+      const row = document.createElement('div');
+      row.className = 'hrow' + (!run.finished ? ' live' : '');
+      const dot = document.createElement('span');
+      dot.className = 'hdot ' + (!run.finished ? 'live' : (run.success === true ? 'ok' : (run.success === false ? 'bad' : '')));
+      const time = document.createElement('span');
+      time.className = 'htime';
+      time.textContent = run.started_ts ? fmtClock(run.started_ts) : fmtClock(run.mtime).slice(0, 5);
+      const model = document.createElement('span');
+      model.className = 'hmodel';
+      const workspaceTag = run.is_foreign && run.workspace
+        ? ' · ' + String(run.workspace).split(/[\\/]/).pop()
+        : '';
+      model.textContent = (run.model || run.file)
+        + (run.failover_used ? ' · failover' : '')
+        + workspaceTag;
+      const dur = document.createElement('span');
+      dur.className = 'hdur';
+      dur.textContent = run.finished ? fmtElapsed(run.elapsed_seconds || 0) : 'live';
+      const act = document.createElement('span');
+      act.className = 'hact';
+      act.textContent = run.file === S.currentFile ? 'VIEWING' : 'REPLAY';
+      row.append(dot, time, model, dur, act);
+      makeRowActivatable(row, () => {
+        if (run.file !== S.currentFile) startReplay(run.file);
+        setMode('stream');
+      });
+      list.appendChild(row);
+    }
+  } catch (err) { report(err); }
 }
 
 function renderHistoryChats() {
@@ -2462,86 +2627,81 @@ function renderHistoryChats() {
     title.textContent = item.title || 'Conversation';
     const age = document.createElement('span');
     age.className = 'rage';
-    age.textContent = ageLabel(item.updated);
+    age.textContent = ageSince(item.updated);
     const pin = document.createElement('button');
     pin.className = 'hpin' + (item.pinned ? ' on' : '');
     pin.textContent = item.pinned ? 'UNPIN' : 'PIN';
     pin.addEventListener('click', async (event) => {
       event.stopPropagation();
       try {
-        await fetch('/api/chat/thread/' + encodeURIComponent(item.id) + '/pin', {
-          method: 'POST',
-          headers: { 'X-Wisp-Request': '1', 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pinned: !item.pinned }),
-        });
+        await api('/api/chat/thread/' + encodeURIComponent(item.id) + '/pin', { pinned: !item.pinned });
         loadChatThreads();
-      } catch (err) { toast('Pin failed.'); }
+      } catch (err) {
+        report(err);
+        toast('Pin failed.');
+      }
     });
     row.append(dot, title, age, pin);
-    row.addEventListener('click', () => openThread(item.id));
+    makeRowActivatable(row, () => openThread(item.id));
     list.appendChild(row);
   }
 }
 
-async function loadHotkeys() {
-  const api = window.pywebview && window.pywebview.api;
-  if (!api || !api.hotkeys) {
-    $('stHotkeyAsk').textContent = 'unavailable';
-    $('stHotkeyPrompt').textContent = 'unavailable';
-    $('stHotkeyStatus').textContent = 'browser mode';
-    $('stHotkeyStatus').className = 'mini';
-    return;
-  }
-  try {
-    const data = await api.hotkeys();
-    $('stHotkeyAsk').textContent = data.quick || '\u2014';
-    $('stHotkeyPrompt').textContent = data.prompt || '\u2014';
-    const allOk = data.quick_ok && data.prompt_ok;
-    $('stHotkeyStatus').textContent = allOk ? 'registered' : (data.quick_ok || data.prompt_ok ? 'partial' : 'failed');
-    $('stHotkeyStatus').className = 'mini ' + (allOk ? 'ok' : 'bad');
-  } catch (err) {
-    $('stHotkeyStatus').textContent = 'error';
-    $('stHotkeyStatus').className = 'mini bad';
-  }
-}
-
-function handleHotkey(payload) {
+/* ================================================================
+   Hotkeys & native shell
+   ================================================================ */
+async function handleHotkey(payload) {
   const mode = payload && payload.mode === 'prompt' ? 'prompt' : 'quick';
   if (S.chatPending) { toast('Wisp is already answering.'); return; }
-  if (S.capturing) { toast('Capture already in progress\u2026'); return; }
+  if (S.capturing) { toast('Capture already in progress…'); return; }
   S.capturing = true;
-  toast('Capturing\u2026', 1600);
-  fetch('/api/capture', {
-    method: 'POST',
-    headers: { 'X-Wisp-Request': '1', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mode: 'auto' }),
-  })
-    .then((response) => response.json())
-    .then((capture) => {
-      if (!capture || capture.kind === 'none') {
-        toast(capture && capture.reason ? capture.reason : 'Nothing captured.');
-        return;
-      }
-      if (mode === 'prompt') {
-        S.pendingCapture = capture;
-        renderCtxChip();
-        setMode('chat');
-        setTimeout(() => $('chatText').focus(), 420);
-        toast('Captured. Add a prompt, then press Enter.', 3600);
-      } else {
-        sendAsk('', capture);
-      }
-    })
-    .catch((err) => toast('Capture failed: ' + err))
-    .finally(() => { S.capturing = false; });
+  toast('Capturing…', 1600);
+  try {
+    const capture = await api('/api/capture', { mode: 'auto' });
+    if (!capture || capture.kind === 'none') {
+      toast(capture && capture.reason ? capture.reason : 'Nothing captured.');
+    } else if (mode === 'prompt') {
+      S.pendingCapture = capture;
+      renderCtxChip();
+      setMode('chat');
+      setTimeout(() => $('chatText').focus(), TIMING.modeRefresh);
+      toast('Captured. Add a prompt, then press Enter.');
+    } else {
+      sendAsk('', capture);
+    }
+  } catch (err) {
+    report(err);
+    toast('Capture failed: ' + err);
+  } finally {
+    S.capturing = false;
+  }
 }
 
-function autoGrowChatText() {
-  const el = $('chatText');
-  el.style.height = 'auto';
-  el.style.height = Math.min(el.scrollHeight, 100) + 'px';
+function bindNativeDrag() {
+  let lastX = 0, lastY = 0;
+  document.querySelectorAll('[data-drag]').forEach((zone) => {
+    zone.addEventListener('mousedown', (event) => {
+      if (event.target.closest('button')) return;
+      S.dragging = true;
+      updateInteractive();
+      lastX = event.screenX;
+      lastY = event.screenY;
+      event.preventDefault();
+    });
+  });
+  window.addEventListener('mousemove', (event) => {
+    if (!S.dragging) return;
+    const dx = event.screenX - lastX;
+    const dy = event.screenY - lastY;
+    lastX = event.screenX;
+    lastY = event.screenY;
+    if (dx || dy) nativeCall('move', dx, dy);
+  });
+  window.addEventListener('mouseup', () => { S.dragging = false; updateInteractive(); });
 }
 
+// Runs on pywebviewready and again from a boot fallback timer; only the first
+// call with a bridge present does anything.
 function initNativeShell() {
   if (S.native || !(window.pywebview && window.pywebview.api)) return;
   S.native = true;
@@ -2554,163 +2714,34 @@ function initNativeShell() {
   if (S.electronShell && window.pywebview.api.onHotkey) {
     window.pywebview.api.onHotkey(handleHotkey);
   }
-  if (!S.electronShell) {
-    const dragZones = document.querySelectorAll('[data-drag]');
-    let lastX = 0, lastY = 0;
-    dragZones.forEach((zone) => {
-      zone.addEventListener('mousedown', (event) => {
-        if (event.target.closest('button')) return;
-        S.dragging = true;
-        updateInteractive();
-        lastX = event.screenX;
-        lastY = event.screenY;
-        event.preventDefault();
-      });
-    });
-    window.addEventListener('mousemove', (event) => {
-      if (!S.dragging) return;
-      const dx = event.screenX - lastX;
-      const dy = event.screenY - lastY;
-      lastX = event.screenX;
-      lastY = event.screenY;
-      if (dx || dy) nativeCall('move', dx, dy);
-    });
-    window.addEventListener('mouseup', () => { S.dragging = false; updateInteractive(); });
-  }
+  // Electron drags natively via -webkit-app-region; pywebview needs IPC moves.
+  if (!S.electronShell) bindNativeDrag();
   $('closeBtn').addEventListener('click', () => nativeCall('close'));
   $('minBtn').addEventListener('click', () => nativeCall('minimize'));
-  $('pinBtn').addEventListener('click', async () => {
-    const pinned = await nativeCall('toggle_pin');
+  const setPinned = (pinned) => {
     $('pinBtn').classList.toggle('active', !!pinned);
-  });
-  Promise.resolve(nativeCall('is_pinned'))
-    .then((pinned) => $('pinBtn').classList.toggle('active', !!pinned))
-    .catch(() => { });
+    $('pinBtn').setAttribute('aria-pressed', String(!!pinned));
+  };
+  $('pinBtn').addEventListener('click', async () => setPinned(await nativeCall('toggle_pin')));
+  Promise.resolve(nativeCall('is_pinned')).then(setPinned).catch(report);
 }
 window.addEventListener('pywebviewready', initNativeShell);
 
-function bind() {
-  document.querySelectorAll('.tab').forEach((button) => {
-    button.addEventListener('click', () => setMode(button.dataset.mode));
-  });
-  $('modelBtn').addEventListener('click', (event) => {
-    event.stopPropagation();
-    openModelMenu();
-  });
-  document.addEventListener('click', () => { if (S.modelMenuOpen) closeModelMenu(); });
-  $('modelMenu').addEventListener('click', (event) => event.stopPropagation());
-  $('threadBtn').addEventListener('click', (event) => {
-    event.stopPropagation();
-    openThreadMenu();
-  });
-  $('threadMenu').addEventListener('click', (event) => event.stopPropagation());
-  document.addEventListener('click', () => { if (S.threadMenuOpen) closeThreadMenu(); });
-  $('chatNew').addEventListener('click', newChat);
-  $('chatSend').addEventListener('click', () => sendAsk(($('chatText').value || '').trim()));
-  $('ctxClear').addEventListener('click', () => { S.pendingCapture = null; renderCtxChip(); });
-  $('chatText').addEventListener('input', autoGrowChatText);
-  $('chatText').addEventListener('keydown', (event) => {
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault();
-      sendAsk(($('chatText').value || '').trim());
-    }
-  });
-  $('chatText').addEventListener('paste', (event) => {
-    const items = event.clipboardData ? Array.from(event.clipboardData.items) : [];
-    const files = items
-      .filter((item) => item.kind === 'file' && String(item.type).startsWith('image/'))
-      .map((item) => item.getAsFile())
-      .filter(Boolean);
-    if (!files.length) return;
-    event.preventDefault();
-    uploadPastedFiles(files);
-  });
-  $('chatScroll').addEventListener('scroll', () => {
-    const el = $('chatScroll');
-    S.chatAutoscroll = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
-  });
-  $('askSeg').addEventListener('click', async (event) => {
+/* ================================================================
+   Bindings
+   ================================================================ */
+function bindSegment(id, onPick) {
+  $(id).addEventListener('click', (event) => {
     const button = event.target.closest('button');
-    if (!button) return;
-    const skills = button.dataset.ask === 'all' ? ['all'] : [];
-    $('askSeg').querySelectorAll('button').forEach((b) => b.classList.toggle('active', b === button));
-    try {
-      await fetch('/api/model', {
-        method: 'POST',
-        headers: { 'X-Wisp-Request': '1', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ask_skills: skills }),
-      });
-    } catch (err) { toast('Could not save ask settings.'); }
+    if (button) onPick(button);
   });
-  $('settingsBtn').addEventListener('click', openDrawer);
-  $('quickAskBtn').addEventListener('click', () => handleHotkey({ mode: 'quick' }));
-  $('promptAskBtn').addEventListener('click', () => handleHotkey({ mode: 'prompt' }));
-  $('drawerClose').addEventListener('click', closeDrawer);
-  $('drawerBackdrop').addEventListener('click', closeDrawer);
-  $('streamScroll').addEventListener('scroll', () => {
-    const el = $('streamScroll');
-    S.autoscroll = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
-  });
-  $('btnSwitch').addEventListener('click', async () => {
-    if (!confirm('Clear the stored Google credential and open a sign-in terminal?')) return;
-    try {
-      const response = await fetch('/api/account/switch', { method: 'POST', headers: { 'X-Wisp-Request': '1' } });
-      const data = await response.json();
-      toast(data.output || 'Sign-in terminal launched.', 6000);
-      setTimeout(loadStatus, 3500);
-    } catch (err) { toast('Switch failed: ' + err); }
-  });
-  $('btnRecheck').addEventListener('click', async () => {
-    try {
-      const response = await fetch('/api/account/recheck', { method: 'POST', headers: { 'X-Wisp-Request': '1' } });
-      const data = await response.json();
-      toast(data.auth && data.auth.account ? 'Signed in as ' + data.auth.account : 'Still not signed in.');
-      loadStatus();
-    } catch (err) { toast('Recheck failed: ' + err); }
-  });
-  $('btnSkillToggle').addEventListener('click', () => {
-    const list = $('skillList');
-    list.classList.toggle('on');
-    $('btnSkillToggle').textContent = list.classList.contains('on') ? 'HIDE SKILLS' : 'SHOW SKILLS';
-  });
-  $('copyDir').addEventListener('click', async () => {
-    try { await navigator.clipboard.writeText($('stLiveDir').textContent); toast('Live dir copied.'); }
-    catch (err) { toast('Copy failed.'); }
-  });
-  $('replayLast').addEventListener('click', () => { if (S.currentFile) startReplay(S.currentFile); });
-  $('replayExit').addEventListener('click', exitReplay);
-  $('animSeg').addEventListener('click', (event) => {
-    const button = event.target.closest('button');
-    if (!button) return;
-    S.anim = button.dataset.anim;
-    app.classList.remove('anim-full', 'anim-gentle', 'anim-off');
-    app.classList.add('anim-' + S.anim);
-    $('animSeg').querySelectorAll('button').forEach((b) => b.classList.toggle('active', b === button));
-    try { localStorage.setItem('wisp.anim', S.anim); } catch (err) { }
-  });
-  $('themeSeg').addEventListener('click', (event) => {
-    const button = event.target.closest('button');
-    if (!button) return;
-    applyTheme(button.dataset.theme);
-  });
-  document.addEventListener('keydown', (event) => {
-    if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') return;
-    if (event.key === 'Escape') {
-      if (S.settingsOpen) closeDrawer();
-      if (S.modelMenuOpen) closeModelMenu();
-      if (S.threadMenuOpen) closeThreadMenu();
-      return;
-    }
-    if (event.ctrlKey || event.altKey || event.metaKey) return;
-    if (event.key === '1') setMode('emotion');
-    if (event.key === '2') setMode('focus');
-    if (event.key === '3') setMode('stream');
-    if (event.key === '4') setMode('chat');
-    if (event.key === '5') setMode('verdict');
-    if (event.key === '6') setMode('history');
-    if (event.key === 's' || event.key === 'S') (S.settingsOpen ? closeDrawer() : openDrawer());
-  });
+}
 
+function markSegment(id, active) {
+  $(id).querySelectorAll('button').forEach((b) => b.classList.toggle('active', b === active));
+}
+
+function bindHover() {
   const hoverZones = () => [
     document.querySelector('.creature-scale'),
     ...document.querySelectorAll('.tab'),
@@ -2720,7 +2751,7 @@ function bind() {
     $('bubble'),
     $('drawer'),
     $('replayBar'),
-  ].filter((el) => el);
+  ];
 
   const insideZones = (x, y) => {
     for (const el of hoverZones()) {
@@ -2743,77 +2774,209 @@ function bind() {
         app.classList.add('hover');
         syncShape();
       }
-    } else {
-      S.hoverOn = false;
-      if (S.dragging || S.settingsOpen || S.modelMenuOpen) return;
-      clearTimeout(S.hoverTimer);
-      S.hoverTimer = setTimeout(() => {
-        app.classList.remove('hover');
-        syncShape();
-        updateInteractive();
-      }, 40);
+      return;
     }
+    S.hoverOn = false;
+    if (S.dragging || S.settingsOpen || S.modelMenuOpen) return;
+    clearTimeout(S.hoverTimer);
+    S.hoverTimer = setTimeout(() => {
+      app.classList.remove('hover');
+      syncShape();
+      updateInteractive();
+    }, TIMING.hoverOffDelay);
   };
 
+  // Electron keeps the window click-through, so mousemove never reaches the
+  // page; the shell streams the cursor position instead.
   const cursorFeed = window.pywebview && window.pywebview.shell === 'electron' &&
     window.pywebview.api && window.pywebview.api.subscribeCursor;
   if (cursorFeed) {
     window.pywebview.api.subscribeCursor((position) => {
       showHover(insideZones(position.x, position.y));
     });
-  } else {
-    let hoverRaf = null, lastX = 0, lastY = 0;
-    window.addEventListener('mousemove', (event) => {
-      lastX = event.clientX;
-      lastY = event.clientY;
-      if (hoverRaf) return;
-      hoverRaf = requestAnimationFrame(() => {
-        hoverRaf = null;
-        showHover(insideZones(lastX, lastY));
-      });
-    });
-    document.addEventListener('mouseleave', () => showHover(false));
+    return;
   }
+  let hoverRaf = null, lastX = 0, lastY = 0;
+  window.addEventListener('mousemove', (event) => {
+    lastX = event.clientX;
+    lastY = event.clientY;
+    if (hoverRaf) return;
+    hoverRaf = requestAnimationFrame(() => {
+      hoverRaf = null;
+      showHover(insideZones(lastX, lastY));
+    });
+  });
+  document.addEventListener('mouseleave', () => showHover(false));
+}
+
+function bindKeys() {
+  const modeKeys = { 1: 'emotion', 2: 'focus', 3: 'stream', 4: 'chat', 5: 'verdict', 6: 'history' };
+  document.addEventListener('keydown', (event) => {
+    if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') return;
+    if (event.key === 'Escape') {
+      if (S.settingsOpen) closeDrawer();
+      if (S.modelMenuOpen) closeModelMenu();
+      if (S.threadMenuOpen) closeThreadMenu();
+      return;
+    }
+    if (event.ctrlKey || event.altKey || event.metaKey) return;
+    if (modeKeys[event.key]) setMode(modeKeys[event.key]);
+    if (event.key === 's' || event.key === 'S') (S.settingsOpen ? closeDrawer() : openDrawer());
+  });
+}
+
+function bindChat() {
+  const submit = () => sendAsk(($('chatText').value || '').trim());
+  $('chatNew').addEventListener('click', newChat);
+  $('chatSend').addEventListener('click', submit);
+  $('ctxClear').addEventListener('click', () => { S.pendingCapture = null; renderCtxChip(); });
+  $('chatText').addEventListener('input', autoGrowChatText);
+  $('chatText').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      submit();
+    }
+  });
+  $('chatText').addEventListener('paste', (event) => {
+    const items = event.clipboardData ? Array.from(event.clipboardData.items) : [];
+    const files = items
+      .filter((item) => item.kind === 'file' && String(item.type).startsWith('image/'))
+      .map((item) => item.getAsFile())
+      .filter(Boolean);
+    if (!files.length) return;
+    event.preventDefault();
+    uploadPastedFiles(files);
+  });
+  $('chatScroll').addEventListener('scroll', () => { S.chatAutoscroll = nearBottom($('chatScroll')); });
+}
+
+function bindSettings() {
+  $('settingsBtn').addEventListener('click', openDrawer);
+  $('drawerClose').addEventListener('click', closeDrawer);
+  $('drawerBackdrop').addEventListener('click', closeDrawer);
+  bindSegment('askSeg', async (button) => {
+    markSegment('askSeg', button);
+    try {
+      await api('/api/model', { ask_skills: button.dataset.ask === 'all' ? ['all'] : [] });
+    } catch (err) {
+      report(err);
+      toast('Could not save ask settings.');
+    }
+  });
+  bindSegment('animSeg', (button) => {
+    S.anim = button.dataset.anim;
+    app.classList.remove('anim-full', 'anim-gentle', 'anim-off');
+    app.classList.add('anim-' + S.anim);
+    markSegment('animSeg', button);
+    try { localStorage.setItem('wisp.anim', S.anim); } catch (err) { report(err); }
+  });
+  bindSegment('themeSeg', (button) => applyTheme(button.dataset.theme));
+  $('btnSwitch').addEventListener('click', async () => {
+    if (!confirm('Clear the stored Google credential and open a sign-in terminal?')) return;
+    try {
+      const data = await api('/api/account/switch', {});
+      toast(data.output || 'Sign-in terminal launched.', 6000);
+      setTimeout(loadStatus, 3500);
+    } catch (err) {
+      report(err);
+      toast('Switch failed: ' + err);
+    }
+  });
+  $('btnRecheck').addEventListener('click', async () => {
+    try {
+      const data = await api('/api/account/recheck', {});
+      toast(data.auth && data.auth.account ? 'Signed in as ' + data.auth.account : 'Still not signed in.');
+      loadStatus();
+    } catch (err) {
+      report(err);
+      toast('Recheck failed: ' + err);
+    }
+  });
+  $('btnSkillToggle').addEventListener('click', () => {
+    const list = $('skillList');
+    const open = list.classList.toggle('on');
+    $('btnSkillToggle').textContent = open ? 'HIDE SKILLS' : 'SHOW SKILLS';
+    $('btnSkillToggle').setAttribute('aria-expanded', String(open));
+  });
+}
+
+function bind() {
+  document.querySelectorAll('.tab').forEach((button) => {
+    button.addEventListener('click', () => setMode(button.dataset.mode));
+  });
+  $('modelBtn').addEventListener('click', (event) => {
+    event.stopPropagation();
+    openModelMenu();
+  });
+  $('threadBtn').addEventListener('click', (event) => {
+    event.stopPropagation();
+    openThreadMenu();
+  });
+  $('modelMenu').addEventListener('click', (event) => event.stopPropagation());
+  $('threadMenu').addEventListener('click', (event) => event.stopPropagation());
+  // Any click outside an open menu closes it.
+  document.addEventListener('click', () => {
+    if (S.modelMenuOpen) closeModelMenu();
+    if (S.threadMenuOpen) closeThreadMenu();
+  });
+  $('quickAskBtn').addEventListener('click', () => handleHotkey({ mode: 'quick' }));
+  $('promptAskBtn').addEventListener('click', () => handleHotkey({ mode: 'prompt' }));
+  $('streamScroll').addEventListener('scroll', () => { S.autoscroll = nearBottom($('streamScroll')); });
+  $('copyDir').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText($('stLiveDir').textContent);
+      toast('Live dir copied.');
+    } catch (err) {
+      report(err);
+      toast('Copy failed.');
+    }
+  });
+  $('replayLast').addEventListener('click', () => { if (S.currentFile) startReplay(S.currentFile); });
+  $('replayExit').addEventListener('click', exitReplay);
+  bindChat();
+  bindSettings();
+  bindKeys();
+  bindHover();
+}
+
+/* ================================================================
+   Boot
+   ================================================================ */
+function startTimers() {
+  setInterval(tickTimer, TIMING.clockTick);
+  setInterval(updateStreamNote, TIMING.clockTick);
+  setInterval(() => {
+    if (!S.runActive || S.replaying) return;
+    if (Date.now() - S.lastEventAt > TIMING.impatientAfter && S.state !== 'impatient' && S.state !== 'withered') {
+      setState('impatient');
+    }
+  }, TIMING.impatientCheck);
+  setInterval(() => {
+    if (!S.runActive && S.state !== 'dormant' && Date.now() - S.lastEventAt > TIMING.dormantAfter) setState('dormant');
+  }, TIMING.dormantCheck);
+  setInterval(() => { if (app.dataset.mode === 'history') loadHistory(); }, TIMING.historyPoll);
+  setInterval(reconcilePendingAsk, TIMING.askReconcilePoll);
 }
 
 function boot() {
   if (new URLSearchParams(location.search).get('transparent') === '1') document.body.classList.add('transparent');
   let savedTheme = 'ember';
-  try { savedTheme = localStorage.getItem('wisp.theme') || 'ember'; } catch (err) { }
+  try { savedTheme = localStorage.getItem('wisp.theme') || 'ember'; } catch (err) { report(err); }
   applyTheme(savedTheme);
   bind();
   window.addEventListener('resize', () => fitControls());
-  const widgetEl = document.querySelector('.widget');
-  if (window.ResizeObserver && widgetEl) {
-    new ResizeObserver(() => fitControls()).observe(widgetEl);
-  }
+  if (window.ResizeObserver) new ResizeObserver(() => fitControls()).observe(document.querySelector('.widget'));
   setMode('emotion');
   fitControls();
-  setTimeout(fitControls, 350);
-  fetch('/api/status')
-    .then((response) => response.json())
-    .then((data) => applyTestMode(!!data.test_mode))
-    .catch(() => { });
+  setTimeout(fitControls, TIMING.modeSettle);
+  loadStatus();
   loadChatThreads();
   loadAssets();
   loadSelectedModel();
   connect(null);
-  setInterval(tickTimer, 500);
-  setInterval(() => {
-    if (!S.runActive || S.replaying) return;
-    if (Date.now() - S.lastEventAt > 20000 && S.state !== 'impatient' && S.state !== 'withered') setState('impatient');
-  }, 1000);
-  setInterval(() => { if (!S.runActive && S.state !== 'dormant' && Date.now() - S.lastEventAt > 45000) setState('dormant'); }, 3000);
-  setInterval(() => { if (app.dataset.mode === 'history') loadHistory(); }, 10000);
-  setInterval(reconcilePendingAsk, 4000);
-  setInterval(() => {
-    const note = document.getElementById('streamNote');
-    if (!note || !S.chatPending) return;
-    const elapsed = S.askStartedAt ? (Date.now() - S.askStartedAt) / 1000 : 0;
-    note.textContent = 'working \u00b7 ' + fmtElapsed(elapsed) + (S.activeModel ? ' \u00b7 ' + S.activeModel : '');
-  }, 500);
-  setTimeout(initNativeShell, 1200);
-  window.addEventListener('beforeunload', () => { if (es) es.close(); });
+  startTimers();
+  setTimeout(initNativeShell, TIMING.nativeShellFallback);
+  window.addEventListener('beforeunload', () => { if (fx.events) fx.events.close(); });
 }
 boot();
 </script>
