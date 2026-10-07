@@ -141,6 +141,26 @@ class TestSuccessIsNotRateLimited:
         assert len(calls) == 1
         assert result.to_dict()["attempts"][0]["rate_limited"] is False
 
+    def test_clean_exit_with_only_a_quota_message_fails_over(self) -> None:
+        quota = bridge.AttemptResult(
+            exit_code=0,
+            stdout="Error: RESOURCE_EXHAUSTED (code 429): Individual quota reached",
+            duration_seconds=0.01,
+        )
+        recovered = bridge.AttemptResult(
+            exit_code=0,
+            stdout=json.dumps({"event": "result", "result": "Findings: none."}),
+            duration_seconds=0.01,
+        )
+        calls: list[list[str]] = []
+
+        result = bridge.run_bridge(_config(), launcher=_scripted([quota, recovered], calls))
+
+        assert quota.rate_limited
+        assert result.success
+        assert result.failover_used
+        assert len(calls) == 2
+
     def test_failed_attempt_with_quota_text_is_still_rate_limited(self) -> None:
         attempt = bridge.AttemptResult(exit_code=1, stderr="RESOURCE_EXHAUSTED")
 

@@ -304,16 +304,33 @@ def extract_reset_text(text: str | None) -> str | None:
     return " ".join(match.group(1).split())
 
 
+def _has_review_text(stdout: str) -> bool:
+    """True when the stream carries at least one model-authored text event."""
+    return any(
+        kind == "text"
+        for line in stdout.splitlines()
+        for kind, _text, _meta in parse_stream_line(line)
+    )
+
+
 def attempt_succeeded(attempt: "AttemptResult") -> bool:
-    """A run is successful only when it exits cleanly with content on stdout.
+    """A run is successful only when it exits cleanly with a real review.
 
     stdout is the stream that carries the ``stream-json`` critique; a clean
     exit whose only output is a stderr diagnostic is not a successful review,
-    so it is classified as a transient failure and retried.
+    so it is classified as a transient failure and retried. A clean exit that
+    carries a quota signature counts only if the model also wrote text: a
+    critique may legitimately quote files that mention ``RESOURCE_EXHAUSTED``,
+    but a bare quota message must still trigger failover.
     """
     if attempt.exit_code != 0 or attempt.timed_out or attempt.interrupted:
         return False
-    return bool((attempt.stdout or "").strip())
+    stdout = attempt.stdout or ""
+    if not stdout.strip():
+        return False
+    if is_rate_limited(attempt.combined_output):
+        return _has_review_text(stdout)
+    return True
 
 
 def is_transient_failure(attempt: "AttemptResult") -> bool:
