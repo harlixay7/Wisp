@@ -420,6 +420,21 @@ class TestAggregationHardening:
         assert "duplicate action fragment" in critique
         assert "2 duplicate action fragment(s)" in critique
 
+    def test_duplicate_tool_results_are_counted_across_steps(self) -> None:
+        """AST-001 (fresh re-audit): identical tool_results inside separate
+        step_update events must dedupe to one entry with the duplicate
+        counted - the seen-set add was missing from the step loop."""
+        result_payload = json.dumps({"output": "same result text"})
+        raw = "\n".join(
+            [
+                json.dumps({"event": "step_update", "step_update": {"step_index": 1, "tool_result": json.loads(result_payload)}}),
+                json.dumps({"event": "step_update", "step_update": {"step_index": 2, "tool_result": json.loads(result_payload)}}),
+            ]
+        )
+        critique = aggregate_stream_json(raw)
+        assert critique.count("same result text") == 1
+        assert "1 duplicate tool-result fragment(s)" in critique
+
     def test_coalesce_wrapper_matches_buffer_semantics(self) -> None:
         from tools.antigravity_bridge import _DeltaBuffer, _coalesce_chunks
 

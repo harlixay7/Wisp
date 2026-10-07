@@ -1444,6 +1444,10 @@ def aggregate_stream_json(raw: str) -> str:
                     reasoning.append(fragment)
                 elif kind == "tool_result":
                     if fragment not in seen_tool_results:
+                        # AST-001 (fresh re-audit): the add was missing here,
+                        # so identical tool_results repeated across step
+                        # updates were never deduplicated or counted.
+                        seen_tool_results.add(fragment)
                         tool_results.append(fragment)
                     else:
                         duplicate_tool_results += 1

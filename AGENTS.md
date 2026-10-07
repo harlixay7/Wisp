@@ -26,7 +26,7 @@ critique has been ingested, reconciled, and resolved.
 | `tools/antigravity_bridge.py` | Binary resolution, env sanitization, containment, streaming capture, aggregation, retries, quota failover, CLI. |
 | `tools/antigravity_mcp_server.py` | MCP stdio server exposing `antigravity_review`, `antigravity_status`, `antigravity_skills`. |
 | `tools/antigravity_live.py` | Live event feed (stream parser, NDJSON sinks, retention) powering the viewer. |
-| `tools/antigravity_viewer.py` + `.html` + `.cmd` | Local animated live viewer (SSE, 4 modes, settings, replay); optional and read-only. |
+| `tools/antigravity_viewer.py` + `.html` + `.cmd` | Local animated live viewer (SSE, 6 modes, settings, replay); optional and read-only. |
 | `tools/viewer_assets/*.png` | Creature state art (black-background, screen-blended). |
 | `tools/skill_loader.py` | Registry discovery, metadata-contract validation, identifier resolution, prompt rendering. |
 | `Skills/*.{yaml,yml,md}` | Operator-authored adversarial skill definitions (YAML or Markdown with YAML front matter). |

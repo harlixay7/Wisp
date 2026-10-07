@@ -6,7 +6,7 @@ The dilemma it resolves is structural: an agent that wrote the code cannot neutr
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
-![tests](https://img.shields.io/badge/tests-310%20passing-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-311%20passing-brightgreen.svg)
 
 ---
 
@@ -253,7 +253,7 @@ tools/
   wisp_shell/                  Electron shell (npm install once; optional)
   capture/                     PowerShell capture helpers
 Skills/                        adversarial skill registry (12 skills)
-tests/                         deterministic suite (310 tests)
+tests/                         deterministic suite (311 tests)
 docs/                          skills repair provenance log
 images/                        creature art source masters
 AGENTS.md                      delegation gates and reconciliation rules

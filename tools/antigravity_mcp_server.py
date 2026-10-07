@@ -402,17 +402,6 @@ def _tool_review(arguments: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         limit=MAX_MODEL_CHARS,
         name="fallback_model",
     )
-    raw_skills = _bounded(arguments.get("skills"), kind="array", limit=MAX_SKILLS, name="skills")
-    raw_recommended = _bounded(
-        arguments.get("recommended_skills"), kind="array", limit=3, name="recommended_skills"
-    )
-    raw_claims = _bounded(
-        arguments.get("claims_to_falsify"), kind="array", limit=MAX_CLAIMS, name="claims_to_falsify"
-    )
-    raw_artifacts = _bounded(
-        arguments.get("artifacts"), kind="array", limit=MAX_ARTIFACTS, name="artifacts"
-    )
-
     raw_skills = _bounded(
         arguments.get("skills"),
         kind="array",
