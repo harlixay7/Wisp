@@ -718,7 +718,13 @@ class AttemptResult:
 
     @property
     def rate_limited(self) -> bool:
-        return is_rate_limited(self.combined_output)
+        """True when a failed attempt carries a quota-exhaustion signature.
+
+        stdout holds the whole critique, including tool results that may quote
+        files mentioning ``RESOURCE_EXHAUSTED`` or ``429``, so a successful
+        attempt is never classified as rate-limited.
+        """
+        return not attempt_succeeded(self) and is_rate_limited(self.combined_output)
 
 
 CONTAINMENT_LABELS: dict[str, str] = {
@@ -2005,10 +2011,10 @@ def run_bridge(config: BridgeConfig, launcher: LaunchFn | None = None) -> Bridge
                 )
                 if warning not in warnings:
                     warnings.append(warning)
-            if attempt.rate_limited and not attempt.timed_out:
-                return results, "RATE_LIMITED"
             if attempt_succeeded(attempt):
                 return results, "SUCCESS"
+            if attempt.rate_limited and not attempt.timed_out:
+                return results, "RATE_LIMITED"
             if attempt.timed_out or attempt.interrupted:
                 return results, "FATAL"
             if not is_transient_failure(attempt):
