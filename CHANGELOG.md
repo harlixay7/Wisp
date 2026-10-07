@@ -119,6 +119,15 @@ quality, and release engineering — no new features.
   `docs/skills-repair-report.md`; all documentation uses `<bridge-repo>`
   placeholders instead of machine paths.
 
+### Reconciliation round 2 (fresh-audit findings, same release)
+
+A stateless fresh-spawn audit of the fixes above returned 4 findings; all
+fixed with red/green pairs where applicable: tool_result dedupe seen-set add
+was missing in the step loop (duplicate results repeated unbounded);
+AGENTS.md viewer mode count 4 -> 6; a redundant double bounds pass removed
+from the MCP review tool; Electron shell package version parity 1.1.0.
+README tests badge is now governance-enforced against pytest collection.
+
 ### Reconciliation (pre-completion gate, same release)
 
 An Antigravity adversarial review of the fixes above returned
