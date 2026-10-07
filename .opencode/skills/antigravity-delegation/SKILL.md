@@ -91,7 +91,7 @@ Auxiliary tools: `antigravity_status` (binary/config/registry health) and
 The reviewer is an independent senior agent that reads the repo itself. Spending
 it only on "attack this plan" wastes a third of its value. Full guide:
 `DELEGATION_PLAYBOOK.md` in the bridge repo; worked example:
-`EXAMPLE_delegation_payload.json`. Core pattern:
+`examples/delegation-case-study.json`. Core pattern:
 
 - **Tier the scope, never lock it wholesale.** `<immutable_constraints>` holds
   only what is genuinely fixed (explicit user demands, test-pinned strings,

@@ -290,3 +290,5 @@ Reconciliation checklist before completion:
 - [ ] Every objection adjudicated with verdict + evidence.
 - [ ] Accepted fixes landed; deterministic suite re-run and green.
 - [ ] Bridge verdict is `SUCCESS`; any `FAILED` was escalated, not ignored.
+
+- **Child environment hygiene is a blocklist policy** — the exact stripped set is `tools/antigravity_bridge.py::BLOCKED_ENV_PREFIXES` / `BLOCKED_ENV_EXACT` (credential families plus NODE_OPTIONS/PYTHONPATH-class injection vectors); treat it as hygiene, not a sandbox.

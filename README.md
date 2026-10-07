@@ -2,11 +2,11 @@
 
 Wisp turns the Google Antigravity CLI (`agy`) into a delegated adversarial verification sub-agent for any coding harness — opencode, Claude Code, Codex, Cline, or a plain script. It packages the delegation as an MCP server and a CLI, normalizes Antigravity's machine-readable stream into an organized critique, keeps the complete forensic record on disk, and mirrors every run in a floating desktop widget with a chat channel for quick operator questions.
 
-The dilemma it resolves is structural: an agent that wrote the code cannot neutrally grade it, and Antigravity's raw output is hostile to consumers — a single 180-step review produced **426 KB** of `stream-json`, most of it lifecycle traffic, with the actual verdict buried at the end. Wisp holds the adversarial contract (envelope, skill selection, claims to falsify), extracts and organizes the real critique, and bounds the payload that crosses the wire while retaining every raw byte on disk.
+The dilemma it resolves is structural: an agent that wrote the code cannot neutrally grade it, and Antigravity's raw output is hostile to consumers — a single 180-step review produced **426 KB** of `stream-json`, most of it lifecycle traffic, with the actual verdict buried at the end. Wisp holds the adversarial contract (envelope, skill selection, claims to falsify), extracts and organizes the real critique — compacting the wire representation without imposing a hard output ceiling — while retaining every raw byte in the on-disk forensic record.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
-![tests](https://img.shields.io/badge/tests-171%20passing-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-300%2B%20passing-brightgreen.svg)
 
 ---
 
@@ -17,7 +17,7 @@ flowchart LR
     A[Calling agent or operator] -->|"MCP tool / CLI / chat"| B[tools/antigravity_bridge.py]
     B -->|"envelope + skills + registry manifest"| C["agy CLI (contained subprocess:<br/>Job Object / process group)"]
     C -->|"stream-json lines"| B
-    B -->|"organized critique, bounded payload"| A
+    B -->|"organized critique (compacted)"| A
     B -->|"full report: raw stdout/stderr in attempts[]"| D[".antigravity-reports/"]
     B -->|"live NDJSON run"| E[tools/antigravity_viewer.py]
     E -->|SSE| F["Wisp widget (Electron) or browser"]
@@ -102,7 +102,7 @@ For every delegation, the bridge persists a complete report under `<workspace>/.
 
 - **The organized critique** — the final `result.response` leads as `Findings & Response`; streamed per-step text is coalesced; tool names are tallied; lifecycle beacons collapse into a compact digest (step counts, session init, notable steps, result status).
 - **Complete raw streams** — the untouched `stdout` and `stderr` of every attempt live in `attempts[]`; nothing is discarded on disk.
-- **The MCP tool response** — the organized critique plus `stream_stats` (character counts per stream) and the report path, so callers get a bounded, readable payload and the raw record stays retrievable.
+- **The MCP tool response** — the organized critique plus `stream_stats` (character counts per stream) and the report path, so callers get a compacted, readable payload and the raw record stays retrievable.
 
 Observed on a real 180-step run: `426,063` characters of raw stdout became a `45,409`-character organized critique with the verdict intact; the pre-fix aggregator emitted `432,855` characters that were mostly raw-stream duplicate.
 
@@ -197,7 +197,7 @@ Deterministic suite — offline by design; no test invokes `agy`, no network, no
 
 | Check | Command | Observed |
 | --- | --- | --- |
-| Test suite | `python -m pytest tests/ -q` | `171 passed` in `~40 s` |
+| Test suite | `python -m pytest tests/ -q` | all green in `~90 s` |
 | Skill registry | `python -m tools.skill_loader --validate` | `12 skills`, `0 warnings` |
 | Bridge status | `python tools/antigravity_bridge.py --status` | resolves executable, workspace, registry, models |
 
@@ -219,9 +219,9 @@ Long runs reflect the underlying agent loop (dozens of tool steps per review), n
 - **Windows-first.** Selection/snip capture and the Electron widget are Windows implementations (Win32 clipboard, native window drag regions). The bridge, MCP server, skill loader, aggregation, and live feed are OS-agnostic; the viewer falls back to a browser where the shell is unavailable.
 - **Antigravity required.** `agy` must be installed and signed in; quota exhaustion fails over to the fallback model or fails loudly with the reset window preserved in the report. Wisp does not manage Google credentials.
 - **Aggregation is heuristic.** The final `result.response` is authoritative and leads the critique; streamed text is coalesced per step; lifecycle beacons are summarized, not reproduced. The complete raw streams are always retained in `attempts[]` — if the organized view ever misleads, the forensic record is one field away.
-- **No CI pipelines are included.** The suite is offline-deterministic and intended to run locally or in any runner with Python; repository automation is left to the adopter.
+- **CI included.** `.github/workflows/ci.yml` runs the deterministic suite (ruff, `compileall`, skill-registry validation, Node syntax check, pytest) on Windows + Ubuntu across Python 3.10/3.13; no run touches real `agy` or quota.
 - **The viewer is optional.** The delegation engine and MCP server work identically whether or not the viewer process is running.
-- **Not a sandbox for untrusted code.** The containment boundary governs the `agy` process tree (kill-on-close), not the model's outputs; treat reviews as advice, not execution.
+- **Not a sandbox for untrusted code.** The containment boundary governs the `agy` process tree (Windows: suspended start, Job Object assignment, and taskkill tree termination; POSIX: session process group), not the model's outputs or its granted authority; treat reviews as advice, not execution. Full trust model: `SECURITY.md`.
 
 ---
 
@@ -241,7 +241,7 @@ tools/
   wisp_shell/                  Electron shell (npm install once; optional)
   capture/                     PowerShell capture helpers
 Skills/                        adversarial skill registry (12 skills)
-tests/                         deterministic suite (171 tests)
+tests/                         deterministic suite (300+ tests)
 docs/                          skills repair provenance log
 images/                        creature art source masters
 AGENTS.md                      delegation gates and reconciliation rules

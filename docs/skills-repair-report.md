@@ -1,7 +1,12 @@
 # Skill Family Repair Report
 
+> **Note:** Keep this file OUT of `<bridge-repo>/Skills/`. The Antigravity bridge
+> (`agy`) scans that folder and requires every `.md` file there to carry YAML front
+> matter — a plain report dropped into `Skills\` breaks the entire skill registry
+> (see incident below, 2026-10-07).
+
 **Date:** 2026-10-07
-**Scope:** All 12 skills in the `Skills/` registry — repaired, completed, and hardened to v3.0.0 using a six-part prompt-engineering guide set.
+**Scope:** All 12 skills in `<bridge-repo>/Skills/` — repaired, completed, and hardened to v3.0.0 using the six prompt-engineering guides from the owner's prompting-skills collection (six guides).
 
 ---
 
@@ -17,7 +22,7 @@
 | 6 | Claimed "five core failure vectors" but listed only four | 01 | Added Vector 5: Dependency & Environment Assumptions |
 | 7 | Technical error: WAL prescribed for JSON config caches (WAL is a SQLite mode) | 05 | Corrected: WAL for SQLite; tempfile + `os.replace` + fsync for JSON/state files |
 | 8 | Statistically unsound "verifiable 0.0% hallucination rate" | 06 | Rewritten as "zero hallucination events on the golden set (0/N with Wilson confidence interval)" |
-| 9 | Author-environment leakage (local credential entries and machine-specific hardware presented as mandates) | 07, 03 | Generalized; worked examples relabeled as illustrative; datasheet grounding re-verified per-device |
+| 9 | Author-environment leakage (a machine-specific credential-manager entry name, RTX 3070/MiniMax specifics as mandates) | 07, 03 | Generalized; worked examples relabeled as illustrative; datasheet grounding re-verified per-device |
 | 10 | Pseudo-precise scoring rubric doubling as the release gate | 02 (pattern applied family-wide) | Rubric demoted to an overridable calibration default; release gate moved to binary, machine-checkable acceptance contracts |
 | 11 | Massive keyword collisions (`regression` ×4, `benchmark`/`latency` ×2, `schema`/`transaction` ×2, `mcp` ×2, etc.) | all | Curated discriminating keyword sets; added `do_not_use_when` routing to every skill; verified zero remaining cross-skill keyword overlap |
 | 12 | Dangling references ("Write-Select-Isolate protocol", "Agent 1") never defined | all | WSCI now defined canonically in the shared kernel; upstream-agent references generalized with compatibility note |
@@ -44,10 +49,17 @@
 - **Truncation:** every file terminates with its final deliverable section (verified programmatically).
 - **Keyword routing:** 0 overlapping keyword pairs across the 12 skills.
 - **Size uniformity:** all files 10.5–13.1 KB (previously 04/09 were conspicuously half-size at ~5 KB).
+- **Antigravity registry:** `agy` status loads all 12 skills with `warnings: []` and no `skill_error` (verified 2026-10-07 after the incident in section 4).
 
-## 4. Remaining Recommendations (not applied — orchestrator decisions)
+## 4. Incident: Registry Outage via Stray Report File (2026-10-07)
 
-1. **Runtime conformance:** if these target a ZCode/Claude-style skill loader rather than the existing orchestrator schema, each needs a `SKILL.md` rename with description-driven triggering. The current custom schema (task_modes/input_contract/output_contract) was preserved deliberately.
-2. **Optional shared-kernel file:** the kernel is intentionally inlined (standalone loadability). If the orchestrator supports includes, a canonical `00_SHARED_PROTOCOL` with per-skill references would eliminate the remaining inlined duplication.
+- The Antigravity bridge's skill registry is `<bridge-repo>/Skills`; it requires **every `.md` file in that folder to carry YAML front matter** and treats one malformed file as a whole-registry failure (`skills: []`).
+- A copy of this report ended up in `Skills\`, producing `skill_error: REPAIR_REPORT.md: Markdown skill files require YAML front matter delimited by '---'` — this emptied the skill manifest and broke skill-aware delegations from other agents (the MCP connection itself was never down).
+- Resolution: keep reports/documentation outside `Skills\`. After the stray file was removed, the registry loads all 12 skills cleanly.
+
+## 5. Remaining Recommendations (not applied — orchestrator decisions)
+
+1. **Runtime conformance:** if these target a ZCode/Claude-style skill loader rather than the existing orchestrator schema, each needs a `SKILL.md` rename with description-driven triggering. The current custom schema (task_modes/input_contract/output_contract) was preserved deliberately — and is confirmed compatible with the `agy` registry.
+2. **Optional shared-kernel file:** the kernel is intentionally inlined (standalone loadability). If the orchestrator supports includes, a canonical `00_SHARED_PROTOCOL` with per-skill references would eliminate the remaining inlined duplication — but note `00_*.md` would itself need valid front matter to coexist with the `agy` registry.
 3. **Pipeline manifest:** the implied lifecycle (01 plan → {02,03,05,07,08,11,12} audit → 04 implement → 09 release → 10 docs) is now documented in each `do_not_use_when` routing, but an explicit pipeline manifest for the orchestrator would make execution order first-class.
 4. **Ground-truth testing:** the acceptance contracts are now machine-checkable by design; a small harness asserting verdict-enum validity and registry well-formedness per skill would close the loop on the skills themselves.

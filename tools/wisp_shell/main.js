@@ -6,10 +6,20 @@ const path = require("path");
 const URL = process.env.WISP_URL || "http://127.0.0.1:48477/";
 const MARGIN = 18;
 const LOG = path.join(os.tmpdir(), "wisp-shell.log");
+const LOG_MAX_BYTES = 512 * 1024; // rotated in place; the shell log is diagnostics only
+// Security note: WISP_DEBUG_PORT opens a Chromium DevTools protocol port that
+// grants full renderer control. It exists for explicit debugging sessions only —
+// never enable it while untrusted content can reach the machine.
 const CANVAS_W = parseInt(process.env.WISP_CANVAS_W || "470", 10);
 const CANVAS_H = parseInt(process.env.WISP_CANVAS_H || "452", 10);
 const HOTKEY_ASK = process.env.WISP_HOTKEY_ASK || "Control+Alt+Q";
 const HOTKEY_ASK_PROMPT = process.env.WISP_HOTKEY_ASK_PROMPT || "Control+Alt+E";
+const ALLOWED_ORIGIN = (() => {
+  // `URL` above is the widget's http origin string; the global URL constructor
+  // is shadowed in this file, so parse with a regex instead.
+  const match = /^https?:\/\/[^/]+/i.exec(URL);
+  return match ? match[0] : "";
+})();
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
   app.quit();
@@ -54,6 +64,12 @@ const NUDGE = process.env.WISP_NUDGE === "1";
 
 function log(message) {
   try {
+    try {
+      const stat = fs.statSync(LOG);
+      if (stat.size > LOG_MAX_BYTES) fs.writeFileSync(LOG, "");
+    } catch (err) {
+      /* missing file is fine */
+    }
     fs.appendFileSync(LOG, new Date().toISOString() + " " + message + "\n");
   } catch (err) {
     /* logging is best effort */
@@ -122,7 +138,21 @@ function createWindow() {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
+      webviewTag: false,
     },
+  });
+  // Navigation policy: the widget is a view onto the local Wisp origin only.
+  // Any navigation attempt away from it (or any popup/window.open) is denied.
+  win.webContents.on("will-navigate", (event, target) => {
+    if (!ALLOWED_ORIGIN || !target.startsWith(ALLOWED_ORIGIN + "/")) {
+      log("navigation denied: " + target);
+      event.preventDefault();
+    }
+  });
+  win.webContents.setWindowOpenHandler(({ url: target }) => {
+    log("window-open denied: " + target);
+    return { action: "deny" };
   });
   log("window created " + URL);
   if (!OPAQUE) {
