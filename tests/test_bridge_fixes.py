@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from tools import antigravity_bridge as bridge
+from tools import antigravity_containment as containment
 
 
 def _kernel32_stub(pid: int, resume_result: int) -> types.SimpleNamespace:
@@ -64,23 +65,23 @@ class TestResumeThreadFailureDetection:
         # pointer-sized INVALID_HANDLE_VALUE is 0xFFFFFFFFFFFFFFFF, so the
         # failure must be recognized by its 32-bit value.
         stub = _kernel32_stub(pid=4242, resume_result=0xFFFFFFFF)
-        monkeypatch.setattr(bridge, "_get_kernel32", lambda: stub)
+        monkeypatch.setattr(containment, "_get_kernel32", lambda: stub)
 
         with pytest.raises(OSError, match="ResumeThread failed"):
-            bridge._resume_primary_thread(4242)
+            containment._resume_primary_thread(4242)
 
         assert stub.closed == [0x2000, 0x1000], "thread and snapshot handles must close"
 
     def test_previous_suspend_count_is_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
         stub = _kernel32_stub(pid=4242, resume_result=1)
-        monkeypatch.setattr(bridge, "_get_kernel32", lambda: stub)
+        monkeypatch.setattr(containment, "_get_kernel32", lambda: stub)
 
-        bridge._resume_primary_thread(4242)
+        containment._resume_primary_thread(4242)
 
     def test_sentinel_is_not_the_pointer_sized_handle_on_64_bit(self) -> None:
-        assert bridge._RESUME_THREAD_FAILED == 0xFFFFFFFF
+        assert containment._RESUME_THREAD_FAILED == 0xFFFFFFFF
         if ctypes.sizeof(ctypes.c_void_p) == 8:
-            assert bridge._RESUME_THREAD_FAILED != bridge._INVALID_WINDOWS_HANDLE
+            assert containment._RESUME_THREAD_FAILED != containment._INVALID_WINDOWS_HANDLE
 
 
 def _scripted(results: list[bridge.AttemptResult], calls: list[list[str]]):
