@@ -1,133 +1,156 @@
-# Wisp
+<p align="center">
+  <img src="docs/assets/wisp-hero.svg" width="100%" alt="Wisp. A second opinion for AI-written code. Your AI writes the code; Wisp checks it before you trust it. An owl cycles through moods as a review runs.">
+</p>
 
-![Wisp hero](docs/assets/wisp-hero.png)
+<p align="center">
+  <a href="https://github.com/harlixay7/Wisp/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/harlixay7/Wisp/ci.yml?branch=main&style=flat-square&label=tests&labelColor=0d1117&color=2ea043" alt="Test status"></a>
+  <img src="https://img.shields.io/badge/python-3.10%2B-0d1117?style=flat-square&labelColor=0d1117&color=3b82c4" alt="Python 3.10 or newer">
+  <img src="https://img.shields.io/badge/built_for-Windows-0d1117?style=flat-square&labelColor=0d1117&color=6e7681" alt="Built for Windows">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0d1117?style=flat-square&labelColor=0d1117&color=8957e5" alt="MIT license"></a>
+</p>
 
-An AI agent writes your code. **Wisp is the reviewer standing behind it.**
+<p align="center">
+  <a href="#get-started"><b>Get started</b></a>
+  &nbsp;&middot;&nbsp;
+  <a href="#how-it-works">How it works</a>
+  &nbsp;&middot;&nbsp;
+  <a href="#register-the-mcp-server">Connect your agent</a>
+  &nbsp;&middot;&nbsp;
+  <a href="#privacy-and-safety">Privacy</a>
+  &nbsp;&middot;&nbsp;
+  <a href="#documentation">Docs</a>
+</p>
 
-It watches your coding agent work in real time, stress-tests its plans before
-a line is written, and hands you a plain-language verdict when it's done —
-pass, fail, or "here's what to fix first." All of it runs on your machine,
-against your repository, with your keys.
+<br>
 
-![tests](https://img.shields.io/badge/tests-315%20passing-brightgreen.svg)
-![python](https://img.shields.io/badge/python-3.10%2B-blue.svg)
-![platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey.svg)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+AI coding assistants are fast, and they are usually confident. The catch is
+that the same assistant that wrote the code is also the one telling you it
+works. It is grading its own homework.
 
----
+**Wisp gives you a second opinion.** When your coding assistant has a plan or
+a finished change, Wisp hands it to a separate AI reviewer whose only job is
+to find what's wrong. The reviewer reads your actual code, runs checks, and
+has to point to the file and line behind every finding. While it works, a
+small owl on your desktop shows you what it's doing, and when it's done you
+get the whole critique, word for word.
 
-## Why Wisp exists
+<p align="center">
+  <img src="docs/assets/wisp-demo.webp" width="100%" alt="A review running in the Wisp widget. The left side lists each step as it happens: review started, thinking through the plan, opened a file, searched the code, ran the tests, wrote up the findings. The widget on the right streams the reviewer's work live, then shows the verdict and a celebrating owl.">
+</p>
+<p align="center"><sub>A full review in the real app. The task was scripted for this recording; the widget and engine are the shipping code.</sub></p>
 
-Here's the uncomfortable part of AI-assisted coding: the agent that wrote the
-code is the least qualified to judge it. It is optimistic by nature, it grades
-its own homework, and it moves fast enough that you can't check every step.
+## Why it helps
 
-Wisp fixes that with a second opinion that has no stake in the answer. It
-takes your agent's plans and finished work, hands them to an independent
-adversarial reviewer, and makes the reviewer *prove* its claims — with file
-paths, line numbers, and executed commands, not vibes.
+**Someone checks the work who didn't write it.** The reviewer runs as its own
+process with its own instructions. It isn't told the code is good and has no
+reason to agree with your assistant.
 
-You get one of three answers: **this is sound**, **this breaks under these
-conditions, here's the fix**, or **stop — this needs a different approach**.
-Every finding comes with evidence you can check yourself.
+**Answers come with receipts.** Wisp asks for evidence rather than opinions:
+file paths, line numbers, and the output of commands the reviewer actually
+ran. You can check any of it yourself in a minute.
 
-## See it work
+**You can see it working.** No spinner and no black box. Every thought, every
+file it opens and every command it runs streams into the widget as it happens,
+and nothing is cut short.
 
-The reviewer lives in a small desktop creature that reacts to what the agent
-is doing — thinking while it reasons, celebrating when the work holds up:
+**It stays on your machine.** The widget only listens on your own computer,
+your conversations and reports are saved inside your project, and Wisp never
+handles your passwords or API keys.
 
-![Wisp creature reacting to a live delegation](docs/assets/wisp-creature.gif)
+## What the owl is telling you
 
-While the agent works, the reasoning streams past live — thoughts, tool
-calls, results — nothing summarized away:
+The owl isn't decoration. It reacts to what the reviewer is doing right now,
+so a glance at the corner of your screen tells you whether it's thinking,
+reading, writing, stuck, or finished.
 
-![Live reasoning stream](docs/assets/wisp-stream.gif)
+<p align="center">
+  <img src="docs/assets/wisp-moods.svg" width="100%" alt="The eleven moods of the owl: dormant, nothing running; awakening, a review just started; deliberating, thinking it through; reaching, opening a file or running a command; absorbing, reading what came back; composing, writing up the answer; impatient, no news for 20 seconds; strained, hit a hiccup and retrying; shifting, switched to the backup model; triumph, finished successfully; withered, the review failed.">
+</p>
 
-And when it finishes, you get the verdict card with the numbers that matter,
-next to the live stream and your chat history:
+## A closer look
 
-![Stream, chat, and verdict views](docs/assets/wisp-modes.png)
+The widget has six views, and the tabs across its top switch between them.
+On the main **Wisp** view, the same six float around the owl as buttons.
 
-## Highlights
+<p align="center">
+  <img src="docs/assets/wisp-stream.webp" width="100%" alt="Stream view: the reviewer's findings appear line by line with the files and code it refers to.">
+</p>
 
-### Press a key, get an answer
+**Stream** is the full, live record of the review: what the reviewer thought,
+which files it opened, which commands it ran and what came back. **Focus**
+is a calmer version that only shows the latest thoughts.
 
-Select any text anywhere — an error message, a stack trace, a paragraph you
-don't understand — press **Ctrl+Alt+Q**, and Wisp captures it, asks the
-reviewer, and posts the answer straight into your chat. No window switching,
-no copy-paste. **Ctrl+Alt+E** does the same but lets you add your own
-question first.
+<p align="center">
+  <img src="docs/assets/wisp-chat.webp" width="100%" alt="Chat view: a question about a failing test and a plain-language answer with the cause and the fix.">
+</p>
 
-### The chat remembers the thread
+**Chat** is where you talk to it yourself. Highlight anything on your screen
+(an error, a log line, a confusing paragraph), press <kbd>Ctrl</kbd> +
+<kbd>Alt</kbd> + <kbd>Q</kbd>, and Wisp sends it off and posts the answer
+here. <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>E</kbd> does the same but lets
+you add your own question first. If nothing is selected, you get to snip part
+of the screen instead. You can paste screenshots straight into the message
+box, and every conversation is saved so follow-up questions keep their
+context. The capture hotkeys work on Windows.
 
-Every question and answer is kept in a persistent conversation, so follow-ups
-have context. Paste screenshots next to your question — Wisp attaches them to
-the delegation so the reviewer can look at what you're looking at.
+<p align="center">
+  <img src="docs/assets/wisp-verdict.webp" width="100%" alt="Verdict view: counters for thoughts, tools, retries and time, a PASS badge, and buttons to replay the run or copy its folder.">
+</p>
 
-### A reviewer with standards
+**Verdict** sums up the last run: whether the review finished, how long it
+took, how many thoughts and tool calls it made, and whether anything had to
+be retried. **Replay run** plays the whole thing back step by step.
 
-Delegations aren't vague "review my code" requests. Wisp ships twelve
-adversarial skills — plan hardening, wiring audits, claim falsification,
-security review, and more — that are injected into every review, along with
-*your* claims to falsify and the exact files to inspect. The reviewer must
-cite evidence; unverifiable praise is rejected, not passed along.
+<p align="center">
+  <img src="docs/assets/wisp-history.webp" width="100%" alt="History view: saved conversations, which can be pinned, and past runs, which can be replayed.">
+</p>
 
-### Works with your existing setup
+**History** keeps your past conversations and runs. Pin the ones you care
+about. Reviews started from any project on your machine show up here,
+labelled by project, so it doesn't matter where your assistant was working.
 
-Wisp speaks [Model Context Protocol](https://modelcontextprotocol.io), so any
-MCP-capable coding agent — Claude Code, opencode, Codex, Cline, Cursor,
-Aider — can call it as a tool. Register it once and your agent can delegate
-reviews whenever it needs a second opinion.
+## How it works
 
-### Local first, honest about limits
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/wisp-flow-dark.svg">
+    <img src="docs/assets/wisp-flow-light.svg" width="100%" alt="Your AI agent sends a plan, a claim and files to check to Wisp. Wisp packs the request and passes it to an independent reviewer, Google Antigravity, which reads your code. Everything the reviewer says comes back through Wisp to your agent as the full critique, appears live in the owl widget, and is saved as a report in .antigravity-reports.">
+  </picture>
+</p>
 
-Everything runs on your machine: the viewer binds to loopback, chat history
-and reports stay under your workspace, and the agent runs inside a
-process-containment boundary with a sanitized environment. It is *containment,
-not a sandbox* — the full trust model is in [SECURITY.md](SECURITY.md).
+1. **You or your assistant ask for a review.** A request is a short note: what
+   to look at, any claims you want tested ("this change doesn't touch
+   anything outside `src/config/`"), and which files matter.
+2. **Wisp prepares it.** It adds the relevant review playbooks (more on those
+   below), removes credentials from the environment the reviewer will run
+   in, and starts the reviewer in a contained process.
+3. **The reviewer does the work.** Wisp uses the
+   [Google Antigravity CLI](https://antigravity.google) (`agy`) as the
+   reviewer. It can read your project and run commands to check things for
+   itself.
+4. **Everything comes back.** The complete critique goes back to whoever
+   asked, streams live into the widget, and is saved as a report under
+   `.antigravity-reports/` in your project. Nothing is trimmed along the way.
 
-## How a delegation works
+A few things happen quietly in the background. If the connection drops or
+the reviewer returns nothing, Wisp retries. If you run out of quota on the
+main model (`gemini-3.8-flash-high`), it hands the same request to a backup
+model (`claude-opus-4-6-thinking`) and carries on. If the run is stopped, the
+reviewer and everything it started are shut down together.
 
-```
-You (or your agent) write a delegation envelope
-        │  prompt · context · claims to falsify · files to inspect · skills
-        ▼
-Wisp bridge ── builds the payload, picks the skills, sanitizes the environment
-        │
-        ▼
-Antigravity CLI ── an independent senior reviewer, spawned as a contained
-        │           subprocess with read access to your workspace
-        ▼
-Complete critique ── every raw byte captured, streamed live to the widget,
-        │            and persisted as a JSON forensic report
-        ▼
-You reconcile ── every objection gets a verdict: accepted (with a fix) or
-                 rejected (with counter-evidence). No silent dismissals.
-```
+## Get started
 
-Under the hood, the same flow looks like this:
+**You'll need:**
 
-```mermaid
-flowchart LR
-    A[Calling agent or operator] -->|"MCP tool / CLI / chat"| B[tools/antigravity_bridge.py]
-    B -->|"envelope + skills + registry manifest"| C["agy CLI (contained subprocess:<br/>Job Object / process group)"]
-    C -->|"stream-json lines"| B
-    B -->|"organized critique (compacted)"| A
-    B -->|"full report: raw stdout/stderr in attempts[]"| D[".antigravity-reports/"]
-    B -->|"live NDJSON run"| E[tools/antigravity_viewer.py]
-    E -->|SSE| F["Wisp widget (Electron) or browser"]
-    B -.->|"registers its live dir"| G["~/.antigravity-reports/live-registry.json"]
-    G -.->|"cross-workspace watch"| E
-```
+- **Windows 10 or 11.** The engine also runs on Linux; see the note below.
+- **Python 3.10 or newer.**
+- **The [Google Antigravity CLI](https://antigravity.google)**, installed and
+  signed in with your Google account. Wisp uses your existing sign-in and
+  never sees your password.
+- **Node.js** (optional). With it, the widget floats on your desktop as a
+  transparent overlay. Without it, the widget opens in a browser window.
 
-The bridge retries transient failures, fails over to a fallback model on
-quota exhaustion, and persists one complete JSON report per delegation. The
-MCP server is a thin stdio wrapper over the same engine; the viewer is
-optional and read-only with respect to the engine.
-
-## Quickstart
-
-**Windows**
+**Install and run on Windows:**
 
 ```bat
 git clone https://github.com/harlixay7/Wisp.git
@@ -136,131 +159,167 @@ setup.bat
 tools\antigravity_viewer.cmd
 ```
 
-`setup.bat` creates the virtual environment, installs dependencies, checks
-the Antigravity CLI, validates the skill registry, and runs the test suite.
-The viewer opens the desktop widget.
+`setup.bat` does the setup for you. It checks your Python version, creates a
+virtual environment, installs the dependencies, finds the Antigravity CLI,
+validates the review playbooks, runs the test suite, and installs the desktop
+widget if Node.js is available. The last line opens the owl.
 
-**macOS / Linux**
+The first time, open `agy` once in your project folder and accept its
+workspace-trust prompt, so the reviewer is allowed to read your code.
 
-```bash
-git clone https://github.com/harlixay7/Wisp.git
-cd Wisp
-python3 -m venv .venv && . .venv/bin/activate
-pip install -r requirements-dev.txt
-python -m tools.skill_loader --validate
-python -m pytest tests/ -q
-python tools/antigravity_bridge.py --status
+**Your first review:**
+
+```bat
+.venv\Scripts\python tools\antigravity_bridge.py --prompt "Review my plan to upgrade to pydantic v2" --skills all
 ```
 
-The desktop widget needs Windows (transparent overlay + global hotkeys); on
-macOS and Linux the viewer, bridge, and MCP server work headless.
+To sharpen it, add `--claim "..."` for each statement you want tested and
+`--artifact "path/to/file.py"` for each file the reviewer should read first.
 
-**Prerequisite:** the [Google Antigravity CLI](https://antigravity.google)
-(`agy`), installed and signed in. Wisp delegates to it and never handles your
-credentials itself.
+Watch the owl while it runs. The full critique prints in your terminal and a
+complete report is saved in `.antigravity-reports/`. Add `--dry-run` to see
+exactly what would be sent without sending it.
 
-### Your first delegation
+> [!NOTE]
+> **On Linux,** the engine, the MCP server and the viewer all run, and the
+> continuous-integration tests run on Ubuntu as well as Windows. The
+> screen-capture hotkeys are Windows-only, and the desktop overlay hasn't
+> been tested off Windows. macOS isn't tested at all yet.
+>
+> ```bash
+> python3 -m venv .venv && . .venv/bin/activate
+> pip install -r requirements-dev.txt
+> python tools/antigravity_bridge.py --status
+> ```
 
-```bash
-python tools/antigravity_bridge.py \
-  --prompt "Stress-test this plan: migrate the config loader to pydantic v2" \
-  --context "Python 3.11, 467 tests green, config lives in src/config/" \
-  --claim "The migration requires zero changes outside src/config/" \
-  --artifact "src/config/loader.py:40-110" \
-  --skills adversarial-plan-hardening-engine
-```
+## Register the MCP server
 
-You'll get the full critique on stdout and a complete JSON report on disk.
-If you'd rather look before running: add `--dry-run` to print the exact
-command, or `--list-skills` to see the registry.
+Wisp speaks the [Model Context Protocol](https://modelcontextprotocol.io), the
+standard way coding assistants call outside tools. Register it once and your
+assistant can ask for a review whenever it wants a second opinion.
 
-## Register it with your coding agent
+**Claude Code**
 
 ```bash
 claude mcp add antigravity -- python tools/antigravity_mcp_server.py
 ```
 
-Other harnesses (opencode, Codex, Cline, Cursor) are one config entry each —
-the exact snippets are in [AgentSkill.md](AgentSkill.md). Once registered,
-your agent can call `antigravity_review` with a prompt, the files to inspect,
-and the claims to falsify:
+**opencode** picks it up automatically from the `opencode.json` in this
+repository. Ready-made entries for **Codex**, **Cline**, **Cursor** and
+**Roo Code** are in [AgentSkill.md](AgentSkill.md#32-mcp-registration-per-harness).
+Assistants without MCP support, such as Aider, can call the command line
+shown above instead.
+
+Once it's registered, your assistant gets three tools:
+
+| Tool | What it does |
+| --- | --- |
+| `antigravity_review` | Runs a review and returns the complete critique. Only `prompt` is required. |
+| `antigravity_status` | Checks that the reviewer is installed and the playbooks are valid. |
+| `antigravity_skills` | Lists the available review playbooks. |
+
+A request from your assistant looks like this:
 
 ```json
 {
-  "prompt": "Harden this plan before execution: ...",
-  "claims_to_falsify": [
-    "Terminating the parent kills all descendants within 500ms"
-  ],
+  "prompt": "Harden this plan before we build it: ...",
+  "claims_to_falsify": ["Stopping the parent process stops every child within 500 ms"],
   "artifacts": ["src/supervisor.py:45-120"],
   "skills": ["adversarial-plan-hardening-engine"]
 }
 ```
 
-A worked, end-to-end example — including what the reviewer found — is in
-[examples/delegation-case-study.json](examples/delegation-case-study.json),
-and [docs/delegation-playbook.md](docs/delegation-playbook.md) explains how
-to write delegations that get sharp answers instead of polite nods.
+For a complete example, including what the reviewer found, see
+[examples/delegation-case-study.json](examples/delegation-case-study.json).
+[docs/delegation-playbook.md](docs/delegation-playbook.md) covers how to write
+requests that get sharp answers instead of polite agreement.
 
-## The skill registry
+## Review playbooks
 
-Twelve adversarial skills ship with the repository. Each one is a full
-operating procedure the reviewer must follow — evidence requirements,
-verdict formats, and hard prohibitions:
+Wisp ships with twelve playbooks, which the code calls *skills*. Each is a
+written procedure the reviewer has to follow, with its own rules about what
+counts as evidence and what a finished answer looks like. Pick the ones that
+fit the job, or pass `--skills all`.
 
-| Skill | Use it when |
+<details>
+<summary><b>See all twelve playbooks</b></summary>
+<br>
+
+| Playbook | Reach for it when |
 | --- | --- |
-| `adversarial-plan-hardening-engine` | Before implementing a plan or architecture |
-| `zero-trust-ast-wiring-verifier` | Auditing code wiring, stubs, and call graphs |
-| `empirical-claim-falsification-engine` | Recomputing performance and hardware claims |
-| `zero-regression-surgical-implementation` | Fixing bugs without breaking contracts |
-| `data-contract-state-integrity-engine` | Reviewing schemas, migrations, transactions |
-| `ai-eval-regression-engine` | Building eval suites for prompts and agents |
-| `runtime-security-vault-engine` | Auditing tool surfaces, secrets, injection |
-| `telemetry-hardware-profiling-gate` | Profiling stalls, memory, and contention |
-| `git-hygiene-portability-gate` | Checking packaging and clone portability |
-| `documentation-retraction-ledger-engine` | Keeping docs truthful to the code |
-| `hybrid-rag-retrieval-grounding-engine` | Reviewing RAG chunking and retrieval |
-| `agentic-tool-dag-orchestration-engine` | Auditing MCP tools and agent loops |
+| `adversarial-plan-hardening-engine` | You have a plan or design and want it attacked before anyone builds it |
+| `zero-trust-ast-wiring-verifier` | You want proof that the code is really connected the way it claims |
+| `empirical-claim-falsification-engine` | Someone made a speed, memory or hardware claim that needs re-checking |
+| `zero-regression-surgical-implementation` | You're fixing a bug and can't afford to break anything else |
+| `data-contract-state-integrity-engine` | Schemas, migrations, saved data or transactions are changing |
+| `ai-eval-regression-engine` | You're changing prompts or models and need tests to catch regressions |
+| `runtime-security-vault-engine` | Tools, secrets, file access or prompt injection are in play |
+| `telemetry-hardware-profiling-gate` | Something is slow, stalls, or eats memory |
+| `git-hygiene-portability-gate` | The project should work on someone else's machine, not just yours |
+| `documentation-retraction-ledger-engine` | The docs may no longer match what the code does |
+| `hybrid-rag-retrieval-grounding-engine` | You're building search or retrieval for an AI system |
+| `agentic-tool-dag-orchestration-engine` | You're designing tool calls or multi-step agent workflows |
 
-## Verification
+You can write your own: add a YAML or Markdown file to `Skills/` and check it
+with `python -m tools.skill_loader --validate`. The format is described in
+[AGENTS.md](AGENTS.md#6-skill-registry).
 
-The suite is deterministic and offline — no real API calls, no quota:
+</details>
+
+## Privacy and safety
+
+- **The widget is local.** It listens on `127.0.0.1` (port 48477) and
+  refuses to bind to any other address unless you set an access token.
+- **Your files stay put.** Conversations, screenshots and reports are saved
+  under `.antigravity-reports/` inside your project. The only thing that
+  leaves your machine is the review request sent to Google Antigravity.
+- **Credentials are left out.** Before starting the reviewer, Wisp removes
+  credential variables from its environment: cloud keys, GitHub and SSH
+  tokens, OpenAI, Anthropic and Hugging Face keys, and similar.
+- **Nothing is left running.** The reviewer runs inside a Windows Job Object
+  (a process group on Linux), so stopping a review stops everything it
+  started.
+
+Be clear about what this means, though. It's careful housekeeping, not a
+sandbox. The reviewer can read your project and run commands without asking
+first, because that's how it checks claims. Only point Wisp at projects whose
+code you'd be comfortable running yourself. [SECURITY.md](SECURITY.md) has
+the full details.
+
+## Good to know
+
+- **It's built for Windows first.** The screen-capture hotkeys are
+  Windows-only, and the desktop overlay is only tested there.
+- **Very large requests can hit a Windows limit.** The request travels on
+  the `agy` command line, which Windows caps at about 32,000 characters.
+  Long prompts combined with many playbooks can reach it, and Wisp stops with
+  a clear message when they do.
+- **It uses your Antigravity quota.** Every review counts against your Google
+  account's limits. When the main model runs out, Wisp switches to the backup
+  model and tells you so.
+
+## For contributors
+
+The test suite runs offline and never calls the real reviewer, so it costs no
+quota. Continuous integration runs it on Windows and Ubuntu with Python 3.10
+and 3.13.
 
 ```bash
-python -m pytest tests/ -q          # full suite
-ruff check tools tests              # lint
-python -m tools.skill_loader --validate
+python -m pytest tests/ -q                # 315 test cases
+ruff check tools tests                    # lint
+python -m tools.skill_loader --validate   # check the playbooks
 ```
-
-Continuous integration runs the same stack on Windows and Ubuntu across
-Python 3.10 and 3.13.
 
 ## Documentation
 
 | Document | What's inside |
 | --- | --- |
-| [AgentSkill.md](AgentSkill.md) | Master deployment guide: every harness, every flag |
-| [docs/delegation-playbook.md](docs/delegation-playbook.md) | How to write delegations that get sharp answers |
-| [AGENTS.md](AGENTS.md) | The delegation contract for coding agents |
-| [SECURITY.md](SECURITY.md) | Trust model: what's contained, what isn't |
-| [CHANGELOG.md](CHANGELOG.md) | Release history |
-| [examples/delegation-case-study.json](examples/delegation-case-study.json) | A real delegation envelope, end to end |
-
-## Known limitations
-
-- The desktop widget (transparent overlay, global hotkeys) is Windows-only.
-  On macOS and Linux the viewer runs in a normal browser tab and the bridge,
-  MCP server, and viewer work as usual.
-- The delegation payload travels on the `agy` command line, and Windows caps
-  command lines at ~32,767 characters. Rendered skill instructions count
-  toward that, so very long prompts combined with multiple active skills can
-  hit it — the bridge fails fast with an actionable message instead of a
-  cryptic OS error.
-- Wisp contains the reviewer's *process tree*, not its *authority*. The
-  reviewer can read your workspace and run commands within its grants. If
-  that worries you for a given repo, don't point Wisp at repos whose build
-  you wouldn't run yourself.
+| [AgentSkill.md](AgentSkill.md) | Setup for every supported assistant and every command-line option |
+| [docs/delegation-playbook.md](docs/delegation-playbook.md) | How to write requests that get useful answers |
+| [AGENTS.md](AGENTS.md) | The rules coding assistants follow when they delegate to Wisp |
+| [SECURITY.md](SECURITY.md) | What is contained, what isn't, and how to report a problem |
+| [CHANGELOG.md](CHANGELOG.md) | What changed in each release |
 
 ## License
 
-[MIT](LICENSE)
+Wisp is released under the [MIT License](LICENSE).
