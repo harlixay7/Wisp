@@ -35,15 +35,20 @@ REQUIRED_FRONTMATTER = (
     "output_contract",
 )
 SEMVER = re.compile(r"^\d+\.\d+\.\d+$")
-BANNED_PATTERNS = (
-    r"C:\\\\?[Uu]sers",
-    r"[A-Za-z]:\\\\?AgentReview",
-    r"helme",
-    r"gmail\.com",
-    r"OneDrive",
-    r"\[cite:",
-    r"&#x20;",
-)
+
+
+def _banned_patterns() -> tuple[str, ...]:
+    """Hygiene patterns for skill files; the local username is resolved at
+    runtime so this file itself stays free of machine-specific data."""
+    return (
+        r"C:\\\\?[Uu]sers",
+        r"[A-Za-z]:\\\\?AgentReview",
+        re.escape(Path.home().name),
+        r"gmail\.com",
+        r"OneDrive",
+        r"\[cite:",
+        r"&#x20;",
+    )
 REQUIRED_MACHINERY = (
     ("scratchpad", "every skill mandates a reasoning scratchpad block"),
     ("EARS", "every skill expresses remediations in EARS syntax"),
@@ -153,7 +158,7 @@ class TestRegistryHygiene:
             if path.suffix not in (".md", ".yaml", ".yml"):
                 continue
             text = path.read_text(encoding="utf-8")
-            for pattern in BANNED_PATTERNS:
+            for pattern in _banned_patterns():
                 assert not re.search(pattern, text), f"{path.name}: matches banned pattern {pattern}"
 
     def test_skill_files_reasonable_size(self) -> None:
