@@ -39,6 +39,7 @@ import re
 import secrets
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -124,6 +125,7 @@ LIVE_LATCH_IDLE_SECONDS = 15.0
 WATCH_REFRESH_SECONDS = 2.0
 MAX_LOG_TAIL_BYTES = 400_000
 RATE_LIMIT_WINDOW_SECONDS = 45 * 60
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 TOOLS_DIR = Path(__file__).resolve().parent
 ASSET_DIR = TOOLS_DIR / "viewer_assets"
@@ -325,6 +327,29 @@ def _host_from_header(host_header: str) -> str:
     if raw.startswith("[") and "]" in raw:
         return raw[1 : raw.index("]")]
     return raw.split(":")[0]
+
+
+def url_host(host: str) -> str:
+    """Formats ``host`` for a URL authority: IPv6 literals need brackets."""
+    bare = (host or "").strip()
+    if ":" in bare and not bare.startswith("["):
+        return f"[{bare}]"
+    return bare
+
+
+def allowed_origins(port: int) -> frozenset[str]:
+    """Browser origins permitted to POST: the loopback names on our port."""
+    return frozenset(f"http://{url_host(host)}:{port}" for host in LOOPBACK_HOSTS)
+
+
+def client_host(bind_host: str) -> str:
+    """Address a local client should dial to reach a server bound to ``bind_host``."""
+    bare = (bind_host or "").strip().strip("[]")
+    if bare in ("", "0.0.0.0"):
+        return "127.0.0.1"
+    if bare == "::":
+        return "::1"
+    return bare
 
 
 def newest_run(live_dir: Path) -> Path | None:
@@ -577,7 +602,6 @@ ASK_DEFAULT_PROMPT = (
 MAX_UPLOAD_BYTES = 12 * 1024 * 1024
 MAX_BODY_BYTES = 32 * 1024 * 1024
 CAPTURE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
-LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
 HANDSHAKE_TIMEOUT_SECONDS = 6.0
 
 
@@ -900,10 +924,11 @@ def existing_viewer(live_dir: Path) -> dict[str, Any] | None:
         return None
     if not port:
         return None
+    host = client_host(str(data.get("host") or "127.0.0.1"))
     try:
-        with _urlopen(f"http://127.0.0.1:{port}/health", timeout=2) as response:
+        with _urlopen(f"http://{url_host(host)}:{port}/health", timeout=2) as response:
             if response.status == 200:
-                info: dict[str, Any] = {"port": port, "pid": pid}
+                info: dict[str, Any] = {"port": port, "pid": pid, "host": host}
                 token = str(data.get("token") or "")
                 if token:
                     info["token"] = token
@@ -916,7 +941,9 @@ def existing_viewer(live_dir: Path) -> dict[str, Any] | None:
     return None
 
 
-def request_shutdown(port: int, instance_token: str, auth_token: str = "") -> bool:
+def request_shutdown(
+    port: int, instance_token: str, auth_token: str = "", host: str = "127.0.0.1"
+) -> bool:
     """Asks the viewer on ``port`` to shut down gracefully.
 
     Sends the instance secret in the dedicated ``X-Instance-Token`` header,
@@ -933,7 +960,7 @@ def request_shutdown(port: int, instance_token: str, auth_token: str = "") -> bo
     try:
         request = _urlopen(
             _build_request_with_headers(
-                f"http://127.0.0.1:{port}/api/shutdown", headers
+                f"http://{url_host(host)}:{port}/api/shutdown", headers
             ),
             timeout=HANDSHAKE_TIMEOUT_SECONDS,
         )
@@ -1117,7 +1144,7 @@ class ViewerHandler(BaseHTTPRequestHandler):
         host = _host_from_header(self.headers.get("Host") or "")
         if not host:
             return True
-        return host in {"127.0.0.1", "localhost", "::1"}
+        return host in LOOPBACK_HOSTS
 
     def _send_bytes(
         self, status: int, body: bytes, content_type: str, cache: str = "no-store"
@@ -1580,11 +1607,7 @@ class ViewerHandler(BaseHTTPRequestHandler):
             return False
         origin = self.headers.get("Origin")
         if origin:
-            allowed = {
-                f"http://127.0.0.1:{self.context.port}",
-                f"http://localhost:{self.context.port}",
-            }
-            if origin not in allowed:
+            if origin not in allowed_origins(self.context.port):
                 self._send_json(403, {"error": "origin not allowed"})
                 return False
         raw_length = (self.headers.get("Content-Length") or "").strip()
@@ -1762,6 +1785,7 @@ def bind_server(
     for candidate in range(preferred_port, preferred_port + max_attempts):
         try:
             probe = ViewerServer.__new__(ViewerServer)
+            probe.address_family = socket.AF_INET6 if ":" in host else socket.AF_INET
             ThreadingHTTPServer.__init__(probe, (host, candidate), ViewerHandler)
             probe.daemon_threads = True
             actual_port = int(probe.server_address[1])
@@ -2144,7 +2168,9 @@ def main(argv: list[str] | None = None) -> int:
     auth_token = str(args.auth_token or "").strip()
     if args.generate_token:
         auth_token = secrets.token_urlsafe(32)
-    non_loopback = args.host not in LOOPBACK_HOSTS
+    # Accept "[::1]" as well as "::1"; sockets want the bare literal.
+    host = str(args.host or "").strip().strip("[]")
+    non_loopback = host not in LOOPBACK_HOSTS
     if non_loopback and not auth_token:
         print(
             "[wisp-viewer] refusing to bind a non-loopback host without an auth "
@@ -2167,7 +2193,7 @@ def main(argv: list[str] | None = None) -> int:
         target_auth = str(existing.get("auth_token") or "") or auth_token
         replaced = False
         if instance and request_shutdown(
-            existing["port"], instance, auth_token=target_auth
+            existing["port"], instance, auth_token=target_auth, host=existing["host"]
         ):
             replaced = True
             print(
@@ -2200,7 +2226,7 @@ def main(argv: list[str] | None = None) -> int:
         return ViewerContext(workspace=workspace, live_dir=live_dir, port=port)
 
     try:
-        server, port = bind_server(args.host, args.port, context_factory)
+        server, port = bind_server(host, args.port, context_factory)
     except OSError as exc:
         print(f"[wisp-viewer] failed to bind: {exc}", file=sys.stderr)
         return 1
@@ -2209,8 +2235,9 @@ def main(argv: list[str] | None = None) -> int:
     server.context.auth_token = auth_token
     server.context.instance_token = instance_token
 
-    url = f"http://{args.host}:{port}/"
+    url = f"http://{url_host(host)}:{port}/"
     manifest_payload: dict[str, Any] = {
+        "host": host,
         "port": port,
         "url": url,
         "pid": os.getpid(),
