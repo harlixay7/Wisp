@@ -117,7 +117,7 @@ class TestSuccessIsNotRateLimited:
                             "step_index": 1,
                             "tool_result": {
                                 "path": "docs/quota.md",
-                                "content": "On RESOURCE_EXHAUSTED (code 429) the bridge fails over.",
+                                "content": "On RESOURCE_EXHAUSTED (code 429) we fail over.",
                             },
                         }
                     }
