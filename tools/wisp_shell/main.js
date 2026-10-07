@@ -1,25 +1,38 @@
-const { app, BrowserWindow, globalShortcut, ipcMain, screen } = require("electron");
+const { app, BrowserWindow, globalShortcut, ipcMain, screen, session } = require("electron");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const URL = process.env.WISP_URL || "http://127.0.0.1:48477/";
+const WIDGET_URL = process.env.WISP_URL || "http://127.0.0.1:48477/";
 const MARGIN = 18;
 const LOG = path.join(os.tmpdir(), "wisp-shell.log");
 const LOG_MAX_BYTES = 512 * 1024; // rotated in place; the shell log is diagnostics only
-// Security note: WISP_DEBUG_PORT opens a Chromium DevTools protocol port that
-// grants full renderer control. It exists for explicit debugging sessions only —
-// never enable it while untrusted content can reach the machine.
 const CANVAS_W = parseInt(process.env.WISP_CANVAS_W || "470", 10);
 const CANVAS_H = parseInt(process.env.WISP_CANVAS_H || "452", 10);
 const HOTKEY_ASK = process.env.WISP_HOTKEY_ASK || "Control+Alt+Q";
 const HOTKEY_ASK_PROMPT = process.env.WISP_HOTKEY_ASK_PROMPT || "Control+Alt+E";
+const CURSOR_FEED_MS = 33; // ~30 Hz is plenty for hover hit-testing
+const OPAQUE = process.env.WISP_OPAQUE === "1"; // debug: opaque, per-mode sized window
+const NUDGE = process.env.WISP_NUDGE === "1"; // debug: force repaints after load
 const ALLOWED_ORIGIN = (() => {
-  // `URL` above is the widget's http origin string; the global URL constructor
-  // is shadowed in this file, so parse with a regex instead.
-  const match = /^https?:\/\/[^/]+/i.exec(URL);
-  return match ? match[0] : "";
+  try {
+    return new URL(WIDGET_URL).origin;
+  } catch (err) {
+    return ""; // an invalid WISP_URL leaves every navigation and IPC call denied
+  }
 })();
+
+// True when `url` belongs to the local Wisp origin the widget is served from.
+function isWidgetUrl(url) {
+  return !!ALLOWED_ORIGIN && typeof url === "string" &&
+    (url === ALLOWED_ORIGIN || url.startsWith(ALLOWED_ORIGIN + "/"));
+}
+
+// IPC is honoured only for the widget page itself.
+function fromWidget(event) {
+  return !!(event && event.senderFrame && isWidgetUrl(event.senderFrame.url));
+}
+
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
   app.quit();
@@ -27,12 +40,17 @@ if (!gotSingleInstanceLock) {
 app.on("second-instance", () => {
   if (win) win.showInactive();
 });
+
+// WISP_DEBUG_PORT opens a Chromium DevTools protocol port that grants full
+// renderer control. It exists for explicit debugging sessions only; never
+// enable it while untrusted content can reach the machine.
 if (process.env.WISP_DEBUG_PORT) {
   app.commandLine.appendSwitch(
     "remote-debugging-port",
     String(process.env.WISP_DEBUG_PORT)
   );
 }
+
 const hotkeyStatus = { quick: HOTKEY_ASK, prompt: HOTKEY_ASK_PROMPT, quick_ok: false, prompt_ok: false };
 
 function registerHotkeys() {
@@ -58,9 +76,6 @@ app.on("will-quit", () => {
     /* best effort */
   }
 });
-
-const OPAQUE = process.env.WISP_OPAQUE === "1";
-const NUDGE = process.env.WISP_NUDGE === "1";
 
 function log(message) {
   try {
@@ -96,7 +111,7 @@ function startCursorFeed() {
     } catch (err) {
       /* cursor feed is best effort */
     }
-  }, 20);
+  }, CURSOR_FEED_MS);
 }
 
 function bottomRight(width, height) {
@@ -127,13 +142,11 @@ function createWindow() {
     transparent: !OPAQUE,
     resizable: false,
     hasShadow: false,
-    skipTaskbar: false,
     alwaysOnTop: true,
     backgroundColor: OPAQUE
       ? process.env.WISP_DEBUG_BG || "#0b0f1a"
       : "#00000000",
     show: true,
-    paintWhenInitiallyHidden: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -145,7 +158,7 @@ function createWindow() {
   // Navigation policy: the widget is a view onto the local Wisp origin only.
   // Any navigation attempt away from it (or any popup/window.open) is denied.
   win.webContents.on("will-navigate", (event, target) => {
-    if (!ALLOWED_ORIGIN || !target.startsWith(ALLOWED_ORIGIN + "/")) {
+    if (!isWidgetUrl(target)) {
       log("navigation denied: " + target);
       event.preventDefault();
     }
@@ -154,7 +167,7 @@ function createWindow() {
     log("window-open denied: " + target);
     return { action: "deny" };
   });
-  log("window created " + URL);
+  log("window created " + WIDGET_URL);
   if (!OPAQUE) {
     try {
       win.setIgnoreMouseEvents(true, { forward: true });
@@ -218,7 +231,7 @@ function createWindow() {
         : { level: rest[0], message: rest[1], line: rest[2], sourceId: rest[3] };
     log("console[" + details.level + "] " + details.message + " (" + (details.sourceId || "") + ":" + (details.line || 0) + ")");
   });
-  win.loadURL(URL).catch((err) => log("loadURL failed " + err));
+  win.loadURL(WIDGET_URL).catch((err) => log("loadURL failed " + err));
   win.on("closed", () => {
     log("window closed");
     win = null;
@@ -227,7 +240,7 @@ function createWindow() {
 }
 
 ipcMain.handle("wisp:set-view", (event, width, height) => {
-  if (!win) return false;
+  if (!win || !fromWidget(event)) return false;
   if (!Number.isFinite(Number(width)) || !Number.isFinite(Number(height))) {
     return false; // NaN from a misbehaving renderer must not reach setBounds
   }
@@ -256,10 +269,10 @@ ipcMain.handle("wisp:set-view", (event, width, height) => {
 });
 
 ipcMain.handle("wisp:move", (event, dx, dy) => {
-  if (!win) return [0, 0];
+  if (!win || !fromWidget(event)) return [0, 0];
   // Renderer-supplied deltas are coerced and the result is clamped to the
   // work area, so a misbehaving page cannot fling the always-on-top window
-  // off-screen (CAN-006).
+  // off-screen.
   const stepX = Number(dx);
   const stepY = Number(dy);
   if (!Number.isFinite(stepX) || !Number.isFinite(stepY)) return win.getPosition();
@@ -279,16 +292,16 @@ ipcMain.handle("wisp:move", (event, dx, dy) => {
   return win.getPosition();
 });
 
-ipcMain.handle("wisp:toggle-pin", () => {
-  if (!win) return false;
+ipcMain.handle("wisp:toggle-pin", (event) => {
+  if (!win || !fromWidget(event)) return false;
   win.setAlwaysOnTop(!win.isAlwaysOnTop());
   return win.isAlwaysOnTop();
 });
 
-ipcMain.handle("wisp:is-pinned", () => (win ? win.isAlwaysOnTop() : false));
+ipcMain.handle("wisp:is-pinned", (event) => (win && fromWidget(event) ? win.isAlwaysOnTop() : false));
 
 ipcMain.handle("wisp:set-interactive", (event, interactive) => {
-  if (!win) return false;
+  if (!win || !fromWidget(event)) return false;
   try {
     win.setIgnoreMouseEvents(!interactive, { forward: true });
     return true;
@@ -298,13 +311,14 @@ ipcMain.handle("wisp:set-interactive", (event, interactive) => {
   }
 });
 
-ipcMain.handle("wisp:minimize", () => {
-  if (win) win.minimize();
+ipcMain.handle("wisp:minimize", (event) => {
+  if (win && fromWidget(event)) win.minimize();
 });
 
-ipcMain.handle("wisp:hotkeys", () => hotkeyStatus);
+ipcMain.handle("wisp:hotkeys", (event) => (fromWidget(event) ? hotkeyStatus : null));
 
-ipcMain.handle("wisp:refresh", () => {
+ipcMain.handle("wisp:refresh", (event) => {
+  if (!fromWidget(event)) return false;
   if (win) {
     try {
       win.webContents.invalidate();
@@ -315,12 +329,18 @@ ipcMain.handle("wisp:refresh", () => {
   return true;
 });
 
-ipcMain.handle("wisp:close", () => {
-  if (win) win.close();
+ipcMain.handle("wisp:close", (event) => {
+  if (win && fromWidget(event)) win.close();
 });
 
 if (gotSingleInstanceLock) {
   app.whenReady().then(() => {
+    // The widget needs no permissions beyond writing to the clipboard
+    // ("COPY LIVE DIR"); deny everything else, from every origin.
+    session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
+      const requester = (details && details.requestingUrl) || contents.getURL();
+      callback(permission === "clipboard-sanitized-write" && isWidgetUrl(requester));
+    });
     createWindow();
     registerHotkeys();
   });
