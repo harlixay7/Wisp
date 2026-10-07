@@ -1862,19 +1862,25 @@ def open_native_window(url: str, width: int, height: int, transparent: bool = Fa
     x, y = bottom_right_position(width, height)
 
     class WindowApi:
+        """Methods exposed to the page as ``window.pywebview.api``.
+
+        pywebview publishes every public attribute of ``js_api``, so the window
+        handle and helpers stay underscore-prefixed.
+        """
+
         def __init__(self) -> None:
-            self.window: Any = None
+            self._window: Any = None
             self.user_positioned = False
             self.shape = _SHAPE_NONE
             self.applied_shape = None
-            self.window_size = (int(width), int(height))
+            self._window_size = (int(width), int(height))
 
-        def attach(self, window: Any) -> None:
-            self.window = window
+        def _attach(self, window: Any) -> None:
+            self._window = window
 
         def _handle(self) -> int | None:
             try:
-                native = getattr(self.window, "native", None)
+                native = getattr(self._window, "native", None)
                 if native is None:
                     return None
                 return int(native.Handle.ToInt64())
@@ -1882,48 +1888,48 @@ def open_native_window(url: str, width: int, height: int, transparent: bool = Fa
                 return None
 
         def close(self) -> None:
-            if self.window is not None:
-                self.window.destroy()
+            if self._window is not None:
+                self._window.destroy()
 
         def minimize(self) -> None:
-            if self.window is not None:
-                self.window.minimize()
+            if self._window is not None:
+                self._window.minimize()
 
         def toggle_pin(self) -> bool:
-            if self.window is None:
+            if self._window is None:
                 return False
-            self.window.on_top = not bool(self.window.on_top)
-            return bool(self.window.on_top)
+            self._window.on_top = not bool(self._window.on_top)
+            return bool(self._window.on_top)
 
         def move(self, dx: int, dy: int) -> list[int]:
-            if self.window is None:
+            if self._window is None:
                 return [0, 0]
             try:
-                self.window.x = int(self.window.x or 0) + int(dx)
-                self.window.y = int(self.window.y or 0) + int(dy)
+                self._window.x = int(self._window.x or 0) + int(dx)
+                self._window.y = int(self._window.y or 0) + int(dy)
                 self.user_positioned = True
-                return [self.window.x, self.window.y]
+                return [self._window.x, self._window.y]
             except Exception:
                 return [0, 0]
 
         def set_view(self, width: int, height: int) -> bool:
-            if self.window is None:
+            if self._window is None:
                 return False
             try:
                 w = max(int(width), 240)
                 h = max(int(height), 200)
                 left, top, right, bottom = work_area()
                 if self.user_positioned:
-                    x = int(self.window.x or 0)
-                    y = int(self.window.y or 0)
+                    x = int(self._window.x or 0)
+                    y = int(self._window.y or 0)
                     x = max(left, min(x, right - w))
                     y = max(top, min(y, bottom - h))
                 else:
                     x = max(left, right - w - 18)
                     y = max(top, bottom - h - 18)
-                self.window.resize(w, h)
-                self.window.move(x, y)
-                self.window_size = (w, h)
+                self._window.resize(w, h)
+                self._window.move(x, y)
+                self._window_size = (w, h)
                 self.applied_shape = None
                 return True
             except Exception:
@@ -1934,11 +1940,11 @@ def open_native_window(url: str, width: int, height: int, transparent: bool = Fa
             return True
 
     api = WindowApi()
+    closed = threading.Event()
 
     def region_keeper() -> None:
-        while True:
-            time.sleep(0.25)
-            if api.window is None:
+        while not closed.wait(0.25):
+            if api._window is None:
                 continue
             handle = api._handle()
             if handle is None:
@@ -1948,13 +1954,11 @@ def open_native_window(url: str, width: int, height: int, transparent: bool = Fa
                 _apply_window_region(handle, api.shape, w, h)
                 api.applied_shape = api.shape
 
-    watcher = threading.Thread(target=region_keeper, daemon=True)
-    watcher.start()
-
     try:
         window = webview.create_window(
             "Wisp",
             url,
+            js_api=api,
             width=width,
             height=height,
             x=x,
@@ -1962,14 +1966,19 @@ def open_native_window(url: str, width: int, height: int, transparent: bool = Fa
             frameless=True,
             easy_drag=False,
             on_top=False,
-            transparent=False,
+            transparent=transparent,
             background_color="#000000",
             resizable=False,
         )
     except Exception:
         return False
-    api.attach(window)
-    webview.start(debug=False)
+    api._attach(window)
+    watcher = threading.Thread(target=region_keeper, daemon=True)
+    watcher.start()
+    try:
+        webview.start(debug=False)
+    finally:
+        closed.set()
     return True
 
 
