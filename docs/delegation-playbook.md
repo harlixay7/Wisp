@@ -2,13 +2,12 @@
 
 How to construct review delegations that get the **most** out of the Antigravity
 bridge: independent second opinions on design decisions *alongside* adversarial
-verification of claims. Built with the six prompt-engineering guides from the
-owner's prompting-skills collection; see section 6 for the map.
+verification of claims.
 
 > **Privacy convention:** documents in this repo carry **no machine-specific
 > absolute paths, usernames, or system identifiers**. Real paths are injected at
 > delegation time by the requesting agent (`workspace` field); examples use
-> `<repo-root-absolute-path>` placeholders.
+> `<wisp-repo>` placeholders.
 
 ---
 
@@ -31,9 +30,8 @@ rates for a shell script.
 
 ## 2. The payload anatomy (apply in this order — cache-friendly)
 
-1. **`skills`** — name the registry skill(s) explicitly. The registry is
-   operational; never tell the reviewer to "ignore the skills registry" again
-   (that workaround is obsolete and was silently disabling every skill).
+1. **`skills`** — name the registry skill(s) explicitly. Never tell the
+   reviewer to ignore the registry; that silently disables every skill.
 2. **`workspace`** — the repo root the artifacts resolve against.
 3. **`context`** — machine-readable environment facts: OS, verification gates,
    event/render model, known landmines. Facts only, no instructions.
@@ -111,5 +109,5 @@ playbook: a plan to add retry backoff to a job queue, the context the reviewer
 needs, three falsifiable claims, the exact files to read, and an explicit skill
 selection.
 
-**Rule reminder:** never place non-skill files in `<bridge-repo>/Skills/` —
+**Rule reminder:** never place non-skill files in `<wisp-repo>/Skills/` —
 every `.md` there must carry YAML frontmatter or the whole registry empties.

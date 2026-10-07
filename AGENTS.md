@@ -1,6 +1,6 @@
 # AGENTS.md — Antigravity Delegation Charter
 
-Harness-agnostic governance for Agent 1 (any coding harness) delegating adversarial
+Harness-agnostic governance for the calling agent (any coding harness) delegating adversarial
 review to the Google Antigravity CLI (`agy`) through `tools/antigravity_bridge.py`.
 
 ---
@@ -9,9 +9,9 @@ review to the Google Antigravity CLI (`agy`) through `tools/antigravity_bridge.p
 
 | Axis | Definition |
 | --- | --- |
-| **WHAT** | A delegation bridge that spawns `agy` as a contained sub-process and returns its complete, untruncated critique to Agent 1. |
-| **WHY** | Agent 1 is optimistic by nature and writes the code it grades. Antigravity is an independent adversary: it stress-tests plans, audits ASTs and wiring on disk, hunts crash/concurrency failure modes, falsifies empirical claims, and produces fix lists. |
-| **HOW** | Agent 1 authors a JSON delegation envelope → the bridge assembles the payload (skills + context + claims + artifacts) → `agy` runs inside an OS containment boundary with a credential-hygienic environment → stdout/stderr are captured in full, aggregated into Markdown, and every raw line is surfaced back. |
+| **WHAT** | A delegation bridge that spawns `agy` as a contained sub-process and returns its complete, untruncated critique to the calling agent. |
+| **WHY** | The calling agent is optimistic by nature and writes the code it grades. Antigravity is an independent adversary: it stress-tests plans, audits ASTs and wiring on disk, hunts crash/concurrency failure modes, falsifies empirical claims, and produces fix lists. |
+| **HOW** | The calling agent authors a JSON delegation envelope → the bridge assembles the payload (skills + context + claims + artifacts) → `agy` runs inside an OS containment boundary with a credential-hygienic environment → stdout/stderr are captured in full, aggregated into Markdown, and every raw line is surfaced back. |
 
 A green test suite is necessary but not sufficient. **Process success ≠ task success.**
 Verification succeeds only when the deterministic gates pass AND the adversarial
@@ -23,17 +23,24 @@ critique has been ingested, reconciled, and resolved.
 
 | Path | Responsibility |
 | --- | --- |
-| `tools/antigravity_bridge.py` | Binary resolution, env sanitization, containment, streaming capture, aggregation, retries, quota failover, CLI. |
+| `tools/antigravity_bridge.py` | Envelope, payload and command building, env sanitization, retries, quota failover, reports, CLI. |
+| `tools/antigravity_containment.py` | Process containment: Windows Job Objects and descendant tree kill, POSIX process groups. |
+| `tools/antigravity_aggregate.py` | Turns the `stream-json` event stream into the organized critique. |
 | `tools/antigravity_mcp_server.py` | MCP stdio server exposing `antigravity_review`, `antigravity_status`, `antigravity_skills`. |
-| `tools/antigravity_live.py` | Live event feed (stream parser, NDJSON sinks, retention) powering the viewer. |
-| `tools/antigravity_viewer.py` + `.html` + `.cmd` | Local animated live viewer (SSE, 6 modes, settings, replay); optional and read-only. |
+| `tools/antigravity_live.py` | Live event feed (stream parser, NDJSON sinks, retention, cross-workspace registry). |
+| `tools/antigravity_viewer.py` + `.html` + `.cmd` | Local widget server and UI (SSE, 6 modes, chat, settings, replay); optional and read-only with respect to the engine. |
+| `tools/viewer_shell.py` | Widget window shells: Electron, pywebview and Chromium app windows. |
+| `tools/viewer_platform.py` | OS process helpers and account switching used by the widget server. |
+| `tools/wisp_chat.py` | Persistent chat threads for operator asks. |
+| `tools/wisp_capture.py`, `tools/capture/*.ps1` | Selection, snip and pasted-image capture (Windows). |
+| `tools/wisp_shell/` | Electron shell hosting the widget as a transparent desktop overlay. |
+| `tools/antigravity_mcp.cmd` | Canonical Windows launcher for the MCP server. |
 | `tools/viewer_assets/*.png` | Creature state art (black-background, screen-blended). |
 | `tools/skill_loader.py` | Registry discovery, metadata-contract validation, identifier resolution, prompt rendering. |
-| `Skills/*.{yaml,yml,md}` | Operator-authored adversarial skill definitions (YAML or Markdown with YAML front matter). |
-| `.opencode/skills/antigravity-delegation/SKILL.md` | Agent-1 delegation skill: MCP-first invocation, envelope fields, reconciliation rules. |
+| `Skills/NN_<name>.md` | Adversarial skill definitions (Markdown with YAML front matter; YAML also accepted). |
+| `.opencode/skills/antigravity-delegation/SKILL.md` | Delegation skill: MCP-first invocation, envelope fields, reconciliation rules. |
 | `opencode.json` | Registers the delegation MCP server with a long-running tool timeout. |
-| `tests/test_antigravity_bridge.py`, `tests/test_antigravity_mcp_server.py` | Deterministic suite covering every invariant below. |
-| `conftest.py` | Keeps the repository root importable under pytest. |
+| `tests/` | Deterministic, offline suite; no test invokes the real `agy`. |
 
 Hard rules for these modules:
 
@@ -46,7 +53,7 @@ Hard rules for these modules:
 
 ## 3. Mandatory Delegation Gates
 
-Agent 1 **MUST** invoke the bridge before proceeding when any gate fires:
+The calling agent **MUST** invoke the bridge before proceeding when any gate fires:
 
 1. **Plan generation gate** — before starting any multi-file feature, refactor, or
    architectural change. Delegate the plan itself, not its completion.
@@ -79,7 +86,7 @@ The standardized JSON prompt wrapper (`--envelope envelope.json`):
   "artifacts": [
     "src/scheduler.py:1-240",
     "tests/test_scheduler.py",
-    ".maco-evidence/screenshot-1.png"
+    "evidence/screenshot-1.png"
   ],
   "skills": ["adversarial-plan-hardening-engine"],
   "recommended_skills": ["zero-trust-ast-wiring-verifier"],
@@ -143,7 +150,7 @@ complete report under `.antigravity-reports/`.
 
 ## 5. Ingestion & Reconciliation Rules
 
-When Antigravity returns, Agent 1 MUST:
+When Antigravity returns, the calling agent MUST:
 
 1. **Display the complete raw critique** in its working context. Never truncate,
    summarize away, or elide the critique, stdout, or stderr. The bridge already
@@ -197,7 +204,7 @@ Core roster:
 | `hybrid-rag-retrieval-grounding-engine` | Chunking, hybrid retrieval, RRF, rerankers, grounding. |
 | `agentic-tool-dag-orchestration-engine` | MCP tool schemas, DAG task loops, cycles, execution ordering. |
 
-Authoring a new skill: create `Skills/NN_name.yaml` (or `.md` with front matter),
+Authoring a new skill: create `Skills/NN_<name>.md` with YAML front matter (or `.yaml`),
 fill every required field, and put the operating procedure in
 `instructions_payload`. Files marked `kind: template` are never auto-selected by
 `--skills all`.
@@ -287,7 +294,7 @@ python tools/antigravity_bridge.py --list-skills     # list skills
 python tools/antigravity_bridge.py --prompt "..." --skills all --dry-run   # inspect dispatch
 python tools/antigravity_bridge.py --prompt "..." --skills all            # delegate
 python tools/antigravity_bridge.py --envelope envelope.json --json        # machine-readable
-python -m pytest tests/ -q                           # deterministic suite (~90 s)
+python -m pytest tests/ -q                           # deterministic suite (~1 min)
 ```
 
 Reconciliation checklist before completion:
@@ -297,5 +304,3 @@ Reconciliation checklist before completion:
 - [ ] Every objection adjudicated with verdict + evidence.
 - [ ] Accepted fixes landed; deterministic suite re-run and green.
 - [ ] Bridge verdict is `SUCCESS`; any `FAILED` was escalated, not ignored.
-
-- **Child environment hygiene is a blocklist policy** — the exact stripped set is `tools/antigravity_bridge.py::BLOCKED_ENV_PREFIXES` / `BLOCKED_ENV_EXACT` (credential families plus NODE_OPTIONS/PYTHONPATH-class injection vectors); treat it as hygiene, not a sandbox.

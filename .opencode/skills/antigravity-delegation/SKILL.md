@@ -17,9 +17,9 @@ metadata:
   mcp_server: "tools/antigravity_mcp_server.py"
 ---
 
-# Antigravity Delegation — Agent 1 Operating Protocol
+# Antigravity Delegation — Operating Protocol
 
-You are **Agent 1** (Lead Builder / Orchestrator). Google Antigravity (`agy`) is your
+You are the **calling agent** (lead builder and orchestrator). Google Antigravity (`agy`) is your
 **independent adversarial verification lead** — a formal engineering contract, not
 optional advice.
 
@@ -123,14 +123,13 @@ it only on "attack this plan" wastes a third of its value. Full guide:
 - **Never place non-skill files there** — reports, notes, or documentation go in
   the workspace root or a `docs\` folder.
 - Before trusting skill-aware delegations, confirm `antigravity_status` shows a
-  non-empty `skills` list with empty `warnings`. Symptom of a stale workaround:
-  payloads saying "ignore the skills registry" — that note is obsolete; remove
-  it and pass the `skills` parameter again.
+  non-empty `skills` list with empty `warnings`. Never tell the reviewer to
+  ignore the registry; pass the `skills` parameter instead.
 - Runtime note: every delegation's full prompt is persisted in
   `<workspace>/.antigravity-reports/` — treat that directory as containing
   whatever the envelopes carried.
 
-## 3. Model policy (operator-mandated)
+## 3. Model policy
 
 - Primary: `gemini-3.8-flash-high` with automatic `--effort high`.
 - Quota failover: `claude-opus-4-6-thinking`.
@@ -239,11 +238,11 @@ automatically at startup and terminate them at exit — nothing to start manuall
   ```toml
   [mcp_servers.antigravity]
   command = "cmd.exe"
-  args = ["/c", "<repo-root>\\tools\\antigravity_mcp.cmd"]
+  args = ["/c", "<wisp-repo>\\tools\\antigravity_mcp.cmd"]
   ```
 - **Cline / Roo / Cursor** — add to their MCP JSON:
   ```json
-  { "mcpServers": { "antigravity": { "command": "cmd.exe", "args": ["/c", "<repo-root>\\tools\\antigravity_mcp.cmd"] } } }
+  { "mcpServers": { "antigravity": { "command": "cmd.exe", "args": ["/c", "<wisp-repo>\\tools\\antigravity_mcp.cmd"] } } }
   ```
 
 Optional persistent mode: a long-running HTTP server can be registered as a `remote`
