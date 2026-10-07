@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ctypes
 import json
+import os
 import types
 from pathlib import Path
 
@@ -141,3 +142,65 @@ class TestSuccessIsNotRateLimited:
 
         assert attempt.rate_limited
 
+
+class TestDryRunMatchesDispatch:
+    SKILLS = ("adversarial-plan-hardening-engine",)
+    RECOMMENDED = ("zero-trust-ast-wiring-verifier",)
+
+    def test_dry_run_prints_the_command_run_bridge_executes(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        # The shipped two-skill render exceeds the real Windows command line;
+        # this test is about parity, not the size preflight.
+        monkeypatch.setattr(bridge, "_WINDOWS_COMMAND_LINE_LIMIT", 10**9)
+        exit_code = bridge.main(
+            [
+                "--prompt",
+                "Review the plan",
+                "--workspace",
+                str(tmp_path),
+                "--skills",
+                ",".join(self.SKILLS),
+                "--recommended-skills",
+                ",".join(self.RECOMMENDED),
+                "--executable",
+                "agy-test",
+                "--dry-run",
+            ]
+        )
+        assert exit_code == 0
+        dry_run = json.loads(capsys.readouterr().out)
+
+        calls: list[list[str]] = []
+        success = bridge.AttemptResult(exit_code=0, stdout="CRITIQUE")
+        config = _config(
+            envelope=bridge.DelegationEnvelope(prompt="Review the plan"),
+            workspace=tmp_path,
+            skills=self.SKILLS,
+            recommended_skills=self.RECOMMENDED,
+        )
+        assert bridge.run_bridge(config, launcher=_scripted([success], calls)).success
+
+        dispatched = calls[0]
+        assert dry_run["command"] == dispatched
+        assert dry_run["payload"] == dispatched[dispatched.index("-p") + 1]
+        assert "## ADVERSARIAL SKILL REGISTRY MANIFEST" in dry_run["payload"]
+        # The workspace has no Skills/, so the shipped registry must be mounted.
+        assert dry_run["command"].count("--add-dir") == 2
+
+    @pytest.mark.skipif(os.name != "nt", reason="Windows CreateProcess argv limit")
+    def test_dry_run_applies_the_windows_argv_preflight(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.setattr(bridge, "_WINDOWS_COMMAND_LINE_LIMIT", 100)
+        exit_code = bridge.main(
+            ["--prompt", "x" * 200, "--workspace", str(tmp_path), "--dry-run"]
+        )
+        assert exit_code == 2
+        assert "command line" in capsys.readouterr().err

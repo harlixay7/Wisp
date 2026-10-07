@@ -1774,6 +1774,125 @@ def render_critique(
     return "\n".join(lines) + "\n"
 
 
+_ACTIVE_SKILLS_HEADING = "## ACTIVE ADVERSARIAL SKILLS (MANDATORY)"
+_ACTIVE_SKILLS_NOTE = (
+    "These skills are binding for this consultation; execute their operating "
+    "procedures exactly."
+)
+_RECOMMENDED_SKILLS_HEADING = "## RECOMMENDED ADVERSARIAL SKILLS (TASK-DEPENDENT)"
+_RECOMMENDED_SKILLS_NOTE = (
+    "Apply these when the task touches their domain; read their raw files for "
+    "exact procedures."
+)
+
+
+def _render_skill_blocks(loader: SkillLoader, config: BridgeConfig) -> list[str]:
+    """Renders the mandatory, recommended, and manifest blocks of the payload.
+
+    Recommended skills that are already active are dropped so no skill is
+    rendered twice. The registry manifest is always included so the reviewer
+    can discover and read any other skill in full.
+    """
+    blocks: list[str] = []
+    active = loader.select(list(config.skills)) if config.skills else []
+    if active:
+        blocks.append(
+            loader.render_prompt(active, heading=_ACTIVE_SKILLS_HEADING, note=_ACTIVE_SKILLS_NOTE)
+        )
+    if config.recommended_skills:
+        active_names = {skill.name for skill in active}
+        recommended = [
+            skill
+            for skill in loader.select(list(config.recommended_skills))
+            if skill.name not in active_names
+        ]
+        if recommended:
+            blocks.append(
+                loader.render_prompt(
+                    recommended,
+                    heading=_RECOMMENDED_SKILLS_HEADING,
+                    note=_RECOMMENDED_SKILLS_NOTE,
+                )
+            )
+    blocks.append(loader.render_manifest())
+    return blocks
+
+
+def _registry_add_dirs(registry_path: Path | None, workspace: Path) -> tuple[Path, ...]:
+    """Returns the extra ``--add-dir`` roots needed to expose the skill registry.
+
+    A registry inside the workspace is already readable through the workspace
+    mount; one outside it (the shipped fallback) must be mounted explicitly or
+    the child cannot open the skill files the payload points at.
+    """
+    if registry_path is None:
+        return ()
+    resolved = registry_path.resolve()
+    try:
+        resolved.relative_to(workspace)
+    except ValueError:
+        return (resolved,)
+    return ()
+
+
+def _check_windows_argv(command: Sequence[str]) -> str | None:
+    """Returns an actionable error when ``command`` exceeds the Windows limit."""
+    if os.name != "nt":
+        return None
+    command_chars = len(subprocess.list2cmdline(list(command)))
+    if command_chars <= _WINDOWS_COMMAND_LINE_LIMIT:
+        return None
+    return (
+        "Delegation payload too large for the Windows command line: "
+        f"{command_chars} chars (limit {_WINDOWS_COMMAND_LINE_LIMIT}). "
+        "Shorten the prompt/context or activate fewer skills - the "
+        "full payload includes rendered skill instructions."
+    )
+
+
+@dataclass(frozen=True)
+class _DispatchPlan:
+    """Everything resolved before the first launch; shared with ``--dry-run``."""
+
+    payload: str
+    registry_path: Path | None = None
+    extra_add_dirs: tuple[Path, ...] = ()
+    warnings: tuple[str, ...] = ()
+    skill_versions: tuple[dict[str, Any], ...] = ()
+
+
+def _plan_dispatch(config: BridgeConfig, workspace: Path) -> _DispatchPlan:
+    """Resolves the skill registry and builds the exact payload sent to ``agy``.
+
+    Raises ``SkillError`` when the registry cannot be resolved or loaded.
+    """
+    if not (config.skills or config.recommended_skills):
+        return _DispatchPlan(payload=build_prompt_payload(config))
+    registry_path, fell_back = resolve_skill_dir(workspace, config.skill_dir)
+    warnings: list[str] = []
+    if fell_back:
+        warnings.append(
+            f"Workspace '{workspace}' has no Skills directory; "
+            f"fell back to shipped registry at '{registry_path}'"
+        )
+    loader = SkillLoader(registry_path)
+    warnings.extend(loader.warnings)
+    blocks = _render_skill_blocks(loader, config)
+    return _DispatchPlan(
+        payload=build_prompt_payload(
+            config,
+            "\n\n".join(block for block in blocks if block.strip()),
+            registry_path,
+        ),
+        registry_path=registry_path,
+        extra_add_dirs=_registry_add_dirs(registry_path, workspace),
+        warnings=tuple(warnings),
+        skill_versions=tuple(
+            {"name": skill.name, "version": skill.version} for skill in loader.skills
+        ),
+    )
+
+
 def run_bridge(config: BridgeConfig, launcher: LaunchFn | None = None) -> BridgeResult:
     """Executes the delegation lifecycle with retries and quota controls.
 
@@ -1786,82 +1905,18 @@ def run_bridge(config: BridgeConfig, launcher: LaunchFn | None = None) -> Bridge
     workspace = config.resolved_workspace()
     executable = config.executable or resolve_agy_executable()
 
-    skill_blocks: list[str] = []
-    registry_path: Path | None = None
-    warnings: list[str] = []
-    skill_versions: list[dict[str, Any]] = []
-    if config.skills or config.recommended_skills:
-        try:
-            registry_path, fell_back = resolve_skill_dir(workspace, config.skill_dir)
-        except SkillError as exc:
-            return _failure_result(config, f"Skill registry error: {exc}", exit_code=2)
-        if fell_back:
-            warnings.append(
-                f"Workspace '{workspace}' has no Skills directory; "
-                f"fell back to shipped registry at '{registry_path}'"
-            )
-        try:
-            loader = SkillLoader(registry_path)
-            warnings.extend(loader.warnings)
-            skill_versions = [
-                {"name": skill.name, "version": skill.version} for skill in loader.skills
-            ]
-            active = loader.select(list(config.skills)) if config.skills else []
-            if active:
-                skill_blocks.append(
-                    loader.render_prompt(
-                        active,
-                        heading="## ACTIVE ADVERSARIAL SKILLS (MANDATORY)",
-                        note=(
-                            "These skills are binding for this consultation; execute "
-                            "their operating procedures exactly."
-                        ),
-                    )
-                )
-            if config.recommended_skills:
-                active_names = {skill.name for skill in active}
-                recommended = [
-                    skill
-                    for skill in loader.select(list(config.recommended_skills))
-                    if skill.name not in active_names
-                ]
-                if recommended:
-                    skill_blocks.append(
-                        loader.render_prompt(
-                            recommended,
-                            heading="## RECOMMENDED ADVERSARIAL SKILLS (TASK-DEPENDENT)",
-                            note=(
-                                "Apply these when the task touches their domain; read "
-                                "their raw files for exact procedures."
-                            ),
-                        )
-                    )
-            skill_blocks.append(loader.render_manifest())
-        except SkillError as exc:
-            return _failure_result(config, f"Skill registry error: {exc}", exit_code=2)
+    try:
+        plan = _plan_dispatch(config, workspace)
+    except SkillError as exc:
+        return _failure_result(config, f"Skill registry error: {exc}", exit_code=2)
+    payload = plan.payload
+    registry_path = plan.registry_path
+    extra_add_dirs = plan.extra_add_dirs
+    warnings = list(plan.warnings)
+    skill_versions = plan.skill_versions
 
-    extra_add_dirs: tuple[Path, ...] = ()
-    if registry_path is not None:
-        resolved_registry = registry_path.resolve()
-        try:
-            resolved_registry.relative_to(workspace)
-        except ValueError:
-            extra_add_dirs = (resolved_registry,)
-
-    payload = build_prompt_payload(
-        config,
-        "\n\n".join(block for block in skill_blocks if block.strip()),
-        registry_path if skill_blocks else None,
-    )
-    env = sanitize_environment()
-
-    # NEW-001 (convergence loop): Windows CreateProcess caps a single command
-    # line at 32,767 characters. A payload plus rendered skills can exceed
-    # that, and the OS error ("filename or extension is too long") surfaces as
-    # a misleading launch failure. Fail here, before spawning, with the
-    # actionable remedy instead.
-    if os.name == "nt":
-        probe_command = build_agy_command(
+    argv_error = _check_windows_argv(
+        build_agy_command(
             executable,
             payload,
             workspace,
@@ -1869,16 +1924,10 @@ def run_bridge(config: BridgeConfig, launcher: LaunchFn | None = None) -> Bridge
             config.print_timeout_seconds,
             extra_add_dirs=extra_add_dirs,
         )
-        command_chars = sum(len(part) + 3 for part in probe_command)
-        if command_chars > _WINDOWS_COMMAND_LINE_LIMIT:
-            return _failure_result(
-                config,
-                "Delegation payload too large for the Windows command line: "
-                f"~{command_chars} chars (limit {_WINDOWS_COMMAND_LINE_LIMIT}). "
-                "Shorten the prompt/context or activate fewer skills - the "
-                "full payload includes rendered skill instructions.",
-                exit_code=2,
-            )
+    )
+    if argv_error is not None:
+        return _failure_result(config, argv_error, exit_code=2)
+    env = sanitize_environment()
 
     attempts: list[AttemptResult] = []
     launch_errors: list[str] = []
@@ -2343,6 +2392,46 @@ def _build_config(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
     )
 
 
+def _cmd_dry_run(config: BridgeConfig) -> int:
+    """Prints the exact command and payload ``run_bridge`` would dispatch."""
+    workspace = config.resolved_workspace()
+    try:
+        plan = _plan_dispatch(config, workspace)
+    except SkillError as exc:
+        print(f"[SKILL REGISTRY ERROR] {exc}", file=sys.stderr)
+        return 2
+    for warning in plan.warnings:
+        print(f"[SKILL WARNING] {warning}", file=sys.stderr)
+    executable = config.executable or resolve_agy_executable()
+    command = build_agy_command(
+        executable,
+        plan.payload,
+        workspace,
+        config.model,
+        config.print_timeout_seconds,
+        extra_add_dirs=plan.extra_add_dirs,
+    )
+    argv_error = _check_windows_argv(command)
+    if argv_error is not None:
+        print(f"[BRIDGE ERROR] {argv_error}", file=sys.stderr)
+        return 2
+    print(
+        json.dumps(
+            {
+                "dry_run": True,
+                "executable": executable,
+                "workspace": str(workspace),
+                "command": command,
+                "payload": plan.payload,
+                "hard_timeout_seconds": config.hard_timeout_seconds(),
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="antigravity_bridge.py",
@@ -2461,76 +2550,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     config = _build_config(args, parser)
 
     if args.dry_run:
-        skill_block = ""
-        registry_path: Path | None = None
-        if config.skills or config.recommended_skills:
-            registry_path, fell_back, registry_error = _resolve_registry_for_cli(
-                config.resolved_workspace(), config.skill_dir
-            )
-            if registry_error is not None or registry_path is None:
-                print(f"[SKILL REGISTRY ERROR] {registry_error}", file=sys.stderr)
-                return 2
-            try:
-                loader = SkillLoader(registry_path)
-                if config.skills:
-                    skill_block = loader.render_prompt(
-                        loader.select(list(config.skills)),
-                        heading="## ACTIVE ADVERSARIAL SKILLS (MANDATORY)",
-                        note=(
-                            "These skills are binding for this consultation; execute "
-                            "their operating procedures exactly."
-                        ),
-                    )
-                if config.recommended_skills:
-                    active_names = {s.name for s in loader.select(list(config.skills))}
-                    recommended = [
-                        s
-                        for s in loader.select(list(config.recommended_skills))
-                        if s.name not in active_names
-                    ]
-                    if recommended:
-                        extra = loader.render_prompt(
-                            recommended,
-                            heading="## RECOMMENDED ADVERSARIAL SKILLS (TASK-DEPENDENT)",
-                            note=(
-                                "Apply these when the task touches their domain; read "
-                                "their raw files for exact procedures."
-                            ),
-                        )
-                        skill_block = f"{skill_block}\n\n{extra}".strip()
-            except SkillError as exc:
-                print(f"[SKILL REGISTRY ERROR] {exc}", file=sys.stderr)
-                return 2
-            for warning in loader.warnings:
-                print(f"[SKILL WARNING] {warning}", file=sys.stderr)
-        payload = build_prompt_payload(
-            config,
-            skill_block,
-            registry_path if skill_block else None,
-        )
-        executable = config.executable or resolve_agy_executable()
-        command = build_agy_command(
-            executable,
-            payload,
-            config.resolved_workspace(),
-            config.model,
-            config.print_timeout_seconds,
-        )
-        print(
-            json.dumps(
-                {
-                    "dry_run": True,
-                    "executable": executable,
-                    "workspace": str(config.resolved_workspace()),
-                    "command": command,
-                    "payload": payload,
-                    "hard_timeout_seconds": config.hard_timeout_seconds(),
-                },
-                indent=2,
-                ensure_ascii=False,
-            )
-        )
-        return 0
+        return _cmd_dry_run(config)
 
     result = run_bridge(config)
 
