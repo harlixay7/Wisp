@@ -735,6 +735,10 @@ _THREAD_SUSPEND_RESUME = 0x0002
 # Python, 0xFFFF_FFFF_FFFF_FFFF on 64-bit. Compute, never hardcode
 # (fresh audit AST-002: the 32-bit literal never matched on x64).
 _INVALID_WINDOWS_HANDLE = ctypes.c_void_p(-1).value
+# ResumeThread returns a DWORD, so its failure sentinel is 32 bits wide on
+# every architecture and must not be compared against the pointer-sized
+# INVALID_HANDLE_VALUE.
+_RESUME_THREAD_FAILED = 0xFFFFFFFF  # (DWORD)-1
 
 
 class _THREADENTRY32(ctypes.Structure):
@@ -790,7 +794,7 @@ def _resume_primary_thread(pid: int) -> None:
         if not thread:
             raise OSError(f"OpenThread failed for tid {thread_id} (pid {pid})")
         try:
-            if kernel32.ResumeThread(thread) == _INVALID_WINDOWS_HANDLE:
+            if kernel32.ResumeThread(thread) == _RESUME_THREAD_FAILED:
                 raise OSError(f"ResumeThread failed for tid {thread_id} (pid {pid})")
         finally:
             kernel32.CloseHandle(thread)
