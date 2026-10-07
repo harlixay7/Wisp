@@ -8,7 +8,17 @@ from typing import Any
 
 import pytest
 
-from tools.antigravity_viewer import open_native_window
+from tools import viewer_shell
+from tools.viewer_shell import open_native_window
+
+
+class _FakeHandle:
+    def ToInt64(self) -> int:  # noqa: N802 - mirrors the .NET IntPtr API
+        return 4242
+
+
+class _FakeNative:
+    Handle = _FakeHandle()
 
 
 class _FakeWindow:
@@ -16,7 +26,7 @@ class _FakeWindow:
         self.x = 10
         self.y = 20
         self.on_top = False
-        self.native = None
+        self.native: object | None = None
 
 
 @pytest.fixture()
@@ -66,3 +76,52 @@ class TestNativeWindow:
     ) -> None:
         open_native_window("http://127.0.0.1:1/", 240, 240, transparent=transparent)
         assert fake_webview["kwargs"]["transparent"] is transparent
+
+
+class TestWindowRegion:
+    def test_region_is_applied_while_the_window_is_open(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import threading
+
+        applied: list[tuple[int, str, int, int]] = []
+        region_set = threading.Event()
+
+        def record(hwnd: int, shape: str, width: int, height: int) -> None:
+            applied.append((hwnd, shape, width, height))
+            region_set.set()
+
+        module = types.ModuleType("webview")
+        created: dict[str, Any] = {}
+
+        def create_window(title: str, url: str, **kwargs: Any) -> _FakeWindow:
+            window = _FakeWindow()
+            window.native = _FakeNative()
+            created["api"] = kwargs["js_api"]
+            return window
+
+        def start(**kwargs: Any) -> None:
+            created["api"].set_shape(viewer_shell.SHAPE_CIRCLE)
+            region_set.wait(timeout=5)
+
+        module.create_window = create_window  # type: ignore[attr-defined]
+        module.start = start  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, "webview", module)
+        monkeypatch.setattr(viewer_shell, "_apply_window_region", record)
+
+        assert open_native_window("http://127.0.0.1:1/", 300, 280) is True
+        assert applied and applied[0] == (4242, viewer_shell.SHAPE_CIRCLE, 300, 280)
+
+
+class TestShellHelpers:
+    def test_bottom_right_position_stays_inside_the_work_area(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(viewer_shell, "work_area", lambda: (0, 0, 1000, 800))
+        assert viewer_shell.bottom_right_position(200, 100) == (782, 682)
+        assert viewer_shell.bottom_right_position(5000, 5000) == (0, 0)
+
+    def test_viewer_uses_the_shell_module(self) -> None:
+        from tools import antigravity_viewer
+
+        assert antigravity_viewer.open_native_window is viewer_shell.open_native_window

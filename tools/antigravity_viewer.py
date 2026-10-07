@@ -31,21 +31,17 @@ from __future__ import annotations
 
 import argparse
 import base64
-import ctypes
 import json
 import mimetypes
 import os
 import re
 import secrets
-import shutil
 import signal
 import socket
 import subprocess
 import sys
-import tempfile
 import threading
 import time
-import webbrowser
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -79,6 +75,18 @@ try:
         save_pasted_image,
     )
     from tools.wisp_chat import ChatStore, MAX_MESSAGE_CHARS, valid_thread_id
+    from tools.viewer_platform import (
+        looks_like_viewer_process,
+        pid_image_name,
+        switch_account,
+        terminate_process,
+    )
+    from tools.viewer_shell import (
+        BROWSER_WINDOW_SIZE,
+        open_app_window,
+        open_electron_window,
+        open_native_window,
+    )
 except ImportError:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from tools.antigravity_bridge import (  # type: ignore[no-redef]
@@ -112,6 +120,18 @@ except ImportError:
         ChatStore,
         valid_thread_id,
     )
+    from tools.viewer_platform import (  # type: ignore[no-redef]
+        looks_like_viewer_process,
+        pid_image_name,
+        switch_account,
+        terminate_process,
+    )
+    from tools.viewer_shell import (  # type: ignore[no-redef]
+        BROWSER_WINDOW_SIZE,
+        open_app_window,
+        open_electron_window,
+        open_native_window,
+    )
 
 SERVER_NAME = "wisp-viewer"
 SERVER_VERSION = WISP_VERSION
@@ -130,7 +150,6 @@ LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 TOOLS_DIR = Path(__file__).resolve().parent
 ASSET_DIR = TOOLS_DIR / "viewer_assets"
 HTML_PATH = TOOLS_DIR / "antigravity_viewer.html"
-SHELL_DIR = TOOLS_DIR / "wisp_shell"
 STATE_NAMES = (
     "dormant",
     "awakening",
@@ -585,43 +604,6 @@ def collect_status(context: "ViewerContext") -> dict[str, Any]:
     }
 
 
-def switch_account() -> dict[str, Any]:
-    """Clears the stored Google credential and opens an interactive agy sign-in.
-
-    The credential lives in the Windows Credential Manager and the sign-in
-    opens in a new console window, so this is Windows-only; elsewhere it
-    reports that nothing was done instead of claiming success.
-    """
-    if os.name != "nt":
-        return {"status": "unsupported", "output": "Account switching is Windows-only."}
-    output: list[str] = []
-    try:
-        result = subprocess.run(
-            ["cmdkey", "/delete:LegacyGeneric:target=gemini:antigravity"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=15,
-        )
-        message = (result.stdout or "").strip() or (result.stderr or "").strip()
-        if message:
-            output.append(message)
-    except (OSError, subprocess.SubprocessError) as exc:
-        output.append(f"credential clear failed: {exc}")
-    executable = resolve_agy_executable()
-    try:
-        # An argument list (no shell) keeps a path with spaces or shell
-        # metacharacters from being reinterpreted by cmd.exe.
-        subprocess.Popen(
-            ["cmd.exe", "/c", "start", "Antigravity Sign-In", "cmd.exe", "/k", executable]
-        )
-        output.append("Sign-in terminal launched — complete the browser OAuth flow.")
-    except OSError as exc:
-        output.append(f"sign-in terminal failed to launch: {exc}")
-    return {"status": "switching", "output": "\n".join(output)}
-
-
 ASK_DEFAULT_PROMPT = (
     "Review this quickly and flag anything important, risky, or broken. "
     "Lead with the bottom line, then the specifics."
@@ -1002,119 +984,6 @@ def _build_request_with_headers(url: str, headers: dict[str, str]) -> Any:
     from urllib.request import Request
 
     return Request(url, data=b"{}", headers=headers, method="POST")
-
-
-def _read_proc_file(pid: int, name: str) -> bytes | None:
-    try:
-        return (Path("/proc") / str(int(pid)) / name).read_bytes()
-    except OSError:
-        return None
-
-
-def _ps_field(pid: int, field_name: str) -> str | None:
-    """One ``ps`` column for ``pid``; the fallback where /proc is absent (macOS)."""
-    try:
-        result = subprocess.run(
-            ["ps", "-p", str(int(pid)), "-o", f"{field_name}="],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=15,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return (result.stdout or "").strip() or None
-
-
-def pid_image_name(pid: int) -> str | None:
-    """Best-effort image name of a live PID (None when the PID does not exist)."""
-    if os.name != "nt":
-        comm = _read_proc_file(pid, "comm")
-        if comm is not None:
-            return comm.decode("utf-8", errors="replace").strip().lower() or None
-        name = _ps_field(pid, "comm")
-        return Path(name).name.lower() if name else None
-    try:
-        result = subprocess.run(
-            ["tasklist", "/FI", f"PID eq {int(pid)}", "/FO", "CSV", "/NH"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=15,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    line = (result.stdout or "").strip().splitlines()
-    if not line or line[0].upper().startswith(("INFO", '"ERROR"')):
-        return None
-    return line[0].split(",")[0].strip('"').lower() or None
-
-
-def pid_command_line(pid: int) -> str | None:
-    """Best-effort command line of a live PID (None when absent or unknown)."""
-    if os.name != "nt":
-        raw = _read_proc_file(pid, "cmdline")
-        if raw is not None:
-            # /proc/<pid>/cmdline separates arguments with NUL bytes.
-            return raw.replace(b"\0", b" ").decode("utf-8", errors="replace").strip() or None
-        return _ps_field(pid, "command")
-    try:
-        result = subprocess.run(
-            [
-                "powershell",
-                "-NoProfile",
-                "-Command",
-                "(Get-CimInstance Win32_Process -Filter 'ProcessId = "
-                + str(int(pid))
-                + "').CommandLine",
-            ],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=20,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return (result.stdout or "").strip() or None
-
-
-def terminate_process(pid: int) -> bool:
-    """Forcefully stops ``pid`` (and, on Windows, its child tree)."""
-    if os.name != "nt":
-        try:
-            os.kill(int(pid), signal.SIGTERM)
-        except (OSError, ValueError):
-            return False
-        return True
-    try:
-        result = subprocess.run(
-            ["taskkill", "/PID", str(int(pid)), "/T", "/F"],
-            capture_output=True,
-            timeout=15,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return result.returncode == 0
-
-
-def looks_like_viewer_process(image_name: str | None, pid: int | None = None) -> bool:
-    """Conservative PID-reuse guard before any forced kill (GATE-4 FL-005).
-
-    A bare "this is some python process" match once allowed a recycled PID to
-    route an innocent interpreter into ``taskkill /F /T``; a forced kill now
-    additionally requires the process command line to name this viewer.
-    """
-    if not image_name:
-        return False
-    if not any(marker in image_name for marker in ("python", "electron", "wisp")):
-        return False
-    if pid is None:
-        return False
-    command_line = pid_command_line(pid) or ""
-    return "antigravity_viewer" in command_line
 
 
 class ViewerServer(ThreadingHTTPServer):
@@ -1838,308 +1707,6 @@ def bind_server(
     )
 
 
-def _browser_candidates() -> list[str]:
-    candidates: list[str] = []
-    for name in ("msedge", "chrome", "brave", "chromium"):
-        found = shutil.which(name)
-        if found:
-            candidates.append(found)
-    for path in (
-        Path(os.environ.get("PROGRAMFILES", "C:/Program Files"))
-        / "Microsoft"
-        / "Edge"
-        / "Application"
-        / "msedge.exe",
-        Path(os.environ.get("PROGRAMFILES(X86)", "C:/Program Files (x86)"))
-        / "Microsoft"
-        / "Edge"
-        / "Application"
-        / "msedge.exe",
-        Path(os.environ.get("PROGRAMFILES", "C:/Program Files"))
-        / "Google"
-        / "Chrome"
-        / "Application"
-        / "chrome.exe",
-        Path(os.environ.get("PROGRAMFILES(X86)", "C:/Program Files (x86)"))
-        / "Google"
-        / "Chrome"
-        / "Application"
-        / "chrome.exe",
-    ):
-        if path.is_file():
-            candidates.append(str(path))
-    return candidates
-
-
-class _RECT(ctypes.Structure):
-    _fields_ = [
-        ("left", ctypes.c_long),
-        ("top", ctypes.c_long),
-        ("right", ctypes.c_long),
-        ("bottom", ctypes.c_long),
-    ]
-
-
-def work_area() -> tuple[int, int, int, int]:
-    """Returns the desktop work area (excludes the taskbar) or a 1080p fallback."""
-    if os.name != "nt":
-        return 0, 0, 1920, 1080
-    try:
-        rect = _RECT()
-        if ctypes.windll.user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(rect), 0):
-            if rect.right > rect.left and rect.bottom > rect.top:
-                return rect.left, rect.top, rect.right, rect.bottom
-    except Exception:
-        pass
-    return 0, 0, 1920, 1080
-
-
-def bottom_right_position(width: int, height: int, margin: int = 18) -> tuple[int, int]:
-    left, top, right, bottom = work_area()
-    x = max(left, right - width - margin)
-    y = max(top, bottom - height - margin)
-    return x, y
-
-
-def open_app_window(url: str, width: int, height: int) -> bool:
-    x, y = bottom_right_position(width, height)
-    profile = Path(tempfile.gettempdir()) / "wisp-app-profile"
-    for executable in _browser_candidates():
-        try:
-            subprocess.Popen(
-                [
-                    executable,
-                    f"--app={url}",
-                    f"--window-size={width},{height}",
-                    f"--window-position={x},{y}",
-                    f"--user-data-dir={profile}",
-                    "--no-first-run",
-                    "--no-default-browser-check",
-                    "--disable-features=Translate,AutofillServerCommunication",
-                ]
-            )
-            return True
-        except OSError:
-            continue
-    try:
-        return webbrowser.open(url)
-    except Exception:
-        return False
-
-
-_SHAPE_CIRCLE = "circle"
-_SHAPE_CARD = "card"
-_SHAPE_NONE = "none"
-
-
-def _apply_window_region(hwnd: int, shape: str, width: int, height: int) -> None:
-    """Clips the window to an ellipse or rounded card; outside stays click-through."""
-    if os.name != "nt" or not hwnd:
-        return
-    try:
-        gdi32 = ctypes.windll.gdi32
-        user32 = ctypes.windll.user32
-        gdi32.CreateEllipticRgn.restype = ctypes.c_void_p
-        gdi32.CreateEllipticRgn.argtypes = [
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-        ]
-        gdi32.CreateRoundRectRgn.restype = ctypes.c_void_p
-        gdi32.CreateRoundRectRgn.argtypes = [
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-        ]
-        gdi32.DeleteObject.argtypes = [ctypes.c_void_p]
-        user32.SetWindowRgn.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_bool]
-        if shape == _SHAPE_CIRCLE:
-            region = gdi32.CreateEllipticRgn(0, 0, int(width) + 1, int(height) + 1)
-        elif shape == _SHAPE_CARD:
-            region = gdi32.CreateRoundRectRgn(
-                0, 0, int(width) + 1, int(height) + 1, 26, 26
-            )
-        else:
-            region = gdi32.CreateRoundRectRgn(
-                0, 0, int(width) + 1, int(height) + 1, 0, 0
-            )
-        if region:
-            user32.SetWindowRgn(hwnd, region, True)
-    except Exception:
-        pass
-
-
-def open_native_window(url: str, width: int, height: int, transparent: bool = False) -> bool:
-    """Opens a frameless desktop widget via pywebview.
-
-    Blocks until the window closes. Returns ``False`` when pywebview (or the
-    WebView2 runtime) is unavailable so the caller can fall back. The window is
-    clipped with a native region (ellipse for the aura, rounded card for panels)
-    so only Wisp and his glow are visible on the desktop.
-    """
-    try:
-        import webview
-    except ImportError:
-        return False
-
-    x, y = bottom_right_position(width, height)
-
-    class WindowApi:
-        """Methods exposed to the page as ``window.pywebview.api``.
-
-        pywebview publishes every public attribute of ``js_api``, so the window
-        handle and helpers stay underscore-prefixed.
-        """
-
-        def __init__(self) -> None:
-            self._window: Any = None
-            self.user_positioned = False
-            self.shape = _SHAPE_NONE
-            self.applied_shape = None
-            self._window_size = (int(width), int(height))
-
-        def _attach(self, window: Any) -> None:
-            self._window = window
-
-        def _handle(self) -> int | None:
-            try:
-                native = getattr(self._window, "native", None)
-                if native is None:
-                    return None
-                return int(native.Handle.ToInt64())
-            except Exception:
-                return None
-
-        def close(self) -> None:
-            if self._window is not None:
-                self._window.destroy()
-
-        def minimize(self) -> None:
-            if self._window is not None:
-                self._window.minimize()
-
-        def toggle_pin(self) -> bool:
-            if self._window is None:
-                return False
-            self._window.on_top = not bool(self._window.on_top)
-            return bool(self._window.on_top)
-
-        def move(self, dx: int, dy: int) -> list[int]:
-            if self._window is None:
-                return [0, 0]
-            try:
-                self._window.x = int(self._window.x or 0) + int(dx)
-                self._window.y = int(self._window.y or 0) + int(dy)
-                self.user_positioned = True
-                return [self._window.x, self._window.y]
-            except Exception:
-                return [0, 0]
-
-        def set_view(self, width: int, height: int) -> bool:
-            if self._window is None:
-                return False
-            try:
-                w = max(int(width), 240)
-                h = max(int(height), 200)
-                left, top, right, bottom = work_area()
-                if self.user_positioned:
-                    x = int(self._window.x or 0)
-                    y = int(self._window.y or 0)
-                    x = max(left, min(x, right - w))
-                    y = max(top, min(y, bottom - h))
-                else:
-                    x = max(left, right - w - 18)
-                    y = max(top, bottom - h - 18)
-                self._window.resize(w, h)
-                self._window.move(x, y)
-                self._window_size = (w, h)
-                self.applied_shape = None
-                return True
-            except Exception:
-                return False
-
-        def set_shape(self, shape: str) -> bool:
-            self.shape = str(shape or _SHAPE_NONE)
-            return True
-
-    api = WindowApi()
-    closed = threading.Event()
-
-    def region_keeper() -> None:
-        while not closed.wait(0.25):
-            if api._window is None:
-                continue
-            handle = api._handle()
-            if handle is None:
-                continue
-            if api.applied_shape != api.shape:
-                w, h = api.window_size
-                _apply_window_region(handle, api.shape, w, h)
-                api.applied_shape = api.shape
-
-    try:
-        window = webview.create_window(
-            "Wisp",
-            url,
-            js_api=api,
-            width=width,
-            height=height,
-            x=x,
-            y=y,
-            frameless=True,
-            easy_drag=False,
-            on_top=False,
-            transparent=transparent,
-            background_color="#000000",
-            resizable=False,
-        )
-    except Exception:
-        return False
-    api._attach(window)
-    watcher = threading.Thread(target=region_keeper, daemon=True)
-    watcher.start()
-    try:
-        webview.start(debug=False)
-    finally:
-        closed.set()
-    return True
-
-
-def electron_executable() -> Path | None:
-    if os.name == "nt":
-        candidate = SHELL_DIR / "node_modules" / "electron" / "dist" / "electron.exe"
-    else:
-        candidate = SHELL_DIR / "node_modules" / "electron" / "dist" / "electron"
-    return candidate if candidate.exists() else None
-
-
-def open_electron_window(url: str) -> subprocess.Popen | None:
-    """Spawns the frameless transparent Electron shell for the widget.
-
-    True per-pixel transparency and always-on-top control are only reliable in
-    Chromium-based shells on Windows; pywebview/WinForms cannot composite the
-    page over the desktop. Returns the Electron process, or ``None`` when the
-    shell is not installed so the caller can fall back.
-    """
-    executable = electron_executable()
-    if executable is None:
-        return None
-    env = os.environ.copy()
-    env["WISP_URL"] = url + ("&" if "?" in url else "?") + "transparent=1"
-    try:
-        return subprocess.Popen(
-            [str(executable), str(SHELL_DIR)],
-            cwd=str(SHELL_DIR),
-            env=env,
-        )
-    except OSError:
-        return None
-
-
 def _write_viewer_manifest(live_dir: Path, payload: dict[str, Any]) -> None:
     try:
         live_dir.mkdir(parents=True, exist_ok=True)
@@ -2340,7 +1907,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[wisp-viewer] native shell failed: {exc}", file=sys.stderr)
 
     if args.open:
-        opened = open_app_window(url, 470, 452)
+        opened = open_app_window(url, *BROWSER_WINDOW_SIZE)
         if not opened:
             print(f"[wisp-viewer] open {url} in your browser", file=sys.stderr)
 
