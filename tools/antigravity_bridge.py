@@ -896,7 +896,14 @@ class BridgeResult:
         return data
 
 
-LaunchFn = Callable[[Sequence[str], Path, Mapping[str, str], int], AttemptResult]
+RawLineSink = Callable[[str, str], None]
+"""Receives ``(stream_name, line)`` for every raw line as it is read."""
+
+LaunchFn = Callable[
+    [Sequence[str], Path, Mapping[str, str], int, RawLineSink | None],
+    AttemptResult,
+]
+"""Launcher contract: ``(command, cwd, env, hard_timeout_seconds, raw_line_sink)``."""
 
 
 def launch_contained(
@@ -904,7 +911,7 @@ def launch_contained(
     cwd: Path,
     env: Mapping[str, str],
     hard_timeout_seconds: int,
-    raw_line_sink: Callable[[str, str], None] | None = None,
+    raw_line_sink: RawLineSink | None = None,
 ) -> AttemptResult:
     """Spawns ``command`` inside an OS containment boundary and captures everything.
 

@@ -8,10 +8,12 @@ platform.
 from __future__ import annotations
 
 import ctypes
+import inspect
 import json
 import os
 import sys
 import types
+import typing
 from pathlib import Path
 
 import pytest
@@ -248,3 +250,15 @@ class TestQuotaHookScope:
         assert result.success
         assert result.quota_hook_used
         assert len(calls) == 3
+
+
+class TestLaunchFnContract:
+    def test_launch_fn_declares_the_raw_line_sink_parameter(self) -> None:
+        # run_bridge calls the launcher with five positional arguments; the
+        # type must describe the same contract launch_contained implements.
+        parameters, returns = typing.get_args(bridge.LaunchFn)
+        assert len(parameters) == 5
+        assert parameters[4] == (bridge.RawLineSink | None)
+        assert returns is bridge.AttemptResult
+        signature = inspect.signature(bridge.launch_contained)
+        assert len(signature.parameters) == len(parameters)
