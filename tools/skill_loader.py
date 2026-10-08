@@ -6,8 +6,13 @@ YAML front-matter block; Markdown bodies become the ``instructions_payload`` whe
 the front matter does not declare one. Rich-text export artifacts (escaped
 markdown, HTML non-breaking spaces) are normalized automatically. This module
 discovers the registry, enforces the metadata contract, resolves skill
-identifiers, and renders the selected skills into a single unabridged prompt
-payload for the Antigravity CLI.
+identifiers, and renders skills for the Antigravity payload.
+
+The bridge passes its whole payload on the ``agy`` command line, which Windows
+caps near 32K characters, so it never inlines full skill bodies. It sends each
+selected skill's short ``brief`` plus the absolute path of the full file (see
+:func:`render_skill_block`) and a one-line-per-skill registry index
+(:func:`render_registry_index`); the reviewer reads the full files from disk.
 
 Run ``python -m tools.skill_loader --validate`` to validate a registry.
 """
@@ -16,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from collections.abc import Mapping, Sequence
@@ -41,6 +47,14 @@ MARKDOWN_SKILL_SUFFIXES = (".md", ".markdown")
 SKILL_SUFFIXES = YAML_SKILL_SUFFIXES + MARKDOWN_SKILL_SUFFIXES
 ALL_SELECTOR = "all"
 _NAME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
+# Index lines stay one short line per skill so the index of a large registry
+# costs a few thousand characters of the command-line budget, not tens of
+# thousands.
+INDEX_PURPOSE_MAX_CHARS = 160
+SKILL_ROLE_MANDATORY = "mandatory"
+SKILL_ROLE_RECOMMENDED = "recommended"
+_SKILL_ROLES = (SKILL_ROLE_MANDATORY, SKILL_ROLE_RECOMMENDED)
+_SENTENCE_END_PATTERN = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9`(\"'])")
 
 
 class SkillError(Exception):
@@ -139,6 +153,49 @@ def _collect_trigger_strings(value: Any) -> list[str]:
     return unique
 
 
+def first_sentence(text: str) -> str:
+    """Returns the first sentence of ``text`` collapsed onto one line.
+
+    A sentence ends at ``.``/``!``/``?`` followed by whitespace and an
+    upper-case letter, digit, quote or bracket, so abbreviations such as
+    "e.g. foo" do not cut it short.
+    """
+    flat = " ".join(str(text or "").split())
+    if not flat:
+        return ""
+    return _SENTENCE_END_PATTERN.split(flat, maxsplit=1)[0].strip()
+
+
+def clip_line(text: str, limit: int) -> str:
+    """Shortens one line to at most ``limit`` characters at a word boundary.
+
+    Used only for skill index summaries the bridge composes itself; reviewer
+    output is never shortened.
+    """
+    flat = " ".join(str(text or "").split())
+    if len(flat) <= limit:
+        return flat
+    cut = flat[: max(limit - 1, 1)]
+    space = cut.rfind(" ")
+    if space > limit // 2:
+        cut = cut[:space]
+    return cut.rstrip(" ,;:") + "\u2026"
+
+
+def _mapping_requires_write(value: Any) -> bool:
+    """True when a contract mapping declares ``write_access: required`` at any depth."""
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if str(key).strip().lower() == "write_access" and isinstance(item, str):
+                if item.strip().lower() == "required":
+                    return True
+            if _mapping_requires_write(item):
+                return True
+    elif isinstance(value, (list, tuple)):
+        return any(_mapping_requires_write(item) for item in value)
+    return False
+
+
 def render_payload(value: Any, level: int = 0) -> str:
     """Renders an arbitrary YAML payload into deterministic Markdown text."""
     if value is None:
@@ -175,6 +232,9 @@ class Skill:
     instructions_payload: str = field(repr=False)
     source_path: Path = field(repr=False)
     kind: str = "skill"
+    # Optional: third-party registries predate the field, so it is not part of
+    # REQUIRED_FIELDS and an absent value falls back to the description.
+    brief: str = field(default="", repr=False)
 
     @property
     def stem(self) -> str:
@@ -183,6 +243,31 @@ class Skill:
     @property
     def is_template(self) -> bool:
         return self.kind.lower() == "template"
+
+    @property
+    def absolute_path(self) -> Path:
+        """The skill file as an absolute path the reviewer can open.
+
+        ``os.path.abspath`` rather than ``resolve()``: a registry symlinked
+        into the workspace must keep its in-workspace path, which is the one
+        mounted for the reviewer.
+        """
+        return Path(os.path.abspath(self.source_path))
+
+    @property
+    def effective_brief(self) -> str:
+        """The inline operating summary: ``brief``, else the description's first sentence."""
+        return self.brief or first_sentence(self.description)
+
+    @property
+    def purpose(self) -> str:
+        """One-line purpose for the registry index (first sentence, clipped)."""
+        return clip_line(first_sentence(self.description), INDEX_PURPOSE_MAX_CHARS)
+
+    @property
+    def requires_write_access(self) -> bool:
+        """True when ``input_contract`` declares ``write_access: required``."""
+        return _mapping_requires_write(self.input_contract)
 
 
 def parse_skill_document(document: object, source_path: Path) -> Skill:
@@ -239,6 +324,10 @@ def parse_skill_document(document: object, source_path: Path) -> Skill:
         raise SkillValidationError(f"{source_path}: 'instructions_payload' rendered empty")
 
     kind = str(document.get("kind", "skill")).strip() or "skill"
+    raw_brief = document.get("brief")
+    if raw_brief is not None and not isinstance(raw_brief, str):
+        raise SkillValidationError(f"{source_path}: 'brief' must be text")
+    brief = (raw_brief or "").strip()
 
     return Skill(
         name=name,
@@ -250,6 +339,7 @@ def parse_skill_document(document: object, source_path: Path) -> Skill:
         instructions_payload=rendered_payload,
         source_path=source_path,
         kind=kind,
+        brief=brief,
     )
 
 
@@ -408,7 +498,12 @@ class SkillLoader:
         heading: str | None = None,
         note: str | None = None,
     ) -> str:
-        """Renders selected skills into a single unabridged prompt block."""
+        """Renders selected skills with their full instruction bodies.
+
+        Kept for tooling that wants a self-contained document (it is not
+        size-bounded). The bridge does not use it: full bodies overflow the
+        Windows command line, so it sends :func:`render_skill_block` instead.
+        """
         if not skills:
             return ""
         blocks = [
@@ -435,7 +530,11 @@ class SkillLoader:
         return self.render_prompt(self.select(selector))
 
     def render_manifest(self, skills: Sequence[Skill] | None = None) -> str:
-        """Metadata-only manifest of the registry (no instruction bodies)."""
+        """Full-metadata manifest of the registry (no instruction bodies).
+
+        Not used by the bridge, whose payload carries the much smaller
+        :func:`render_registry_index` instead.
+        """
         entries = list(skills if skills is not None else self.skills)
         if not entries:
             return ""
@@ -454,6 +553,44 @@ class SkillLoader:
             lines.append(f"  - triggers: {triggers}")
             lines.append(f"  - file: `{skill.source_path}`")
         return "\n".join(lines)
+
+
+def _check_role(role: str) -> str:
+    if role not in _SKILL_ROLES:
+        raise ValueError(f"Skill role must be one of {', '.join(_SKILL_ROLES)}; got {role!r}")
+    return role
+
+
+def render_skill_block(skill: Skill, role: str) -> str:
+    """Inline active-skill block: heading, binding pointer to the full file, brief.
+
+    The brief must let the reviewer work well on its own; the pointer makes
+    the full procedure binding without spending command-line budget on it.
+    """
+    _check_role(role)
+    return (
+        f"### {skill.name} (v{skill.version}) \u2014 {role}\n"
+        f"Full procedure: {skill.absolute_path} \u2014 read it in full before starting; "
+        "it is binding.\n\n"
+        f"{skill.effective_brief}"
+    ).rstrip()
+
+
+def render_skill_pointer(skill: Skill, role: str) -> str:
+    """Path-only line for an active skill whose brief did not fit the inline budget."""
+    _check_role(role)
+    return (
+        f"- **{skill.name}** (v{skill.version}) \u2014 {role} \u00b7 read this file in full "
+        f"before starting; it is binding: {skill.absolute_path}"
+    )
+
+
+def render_registry_index(skills: Sequence[Skill]) -> str:
+    """Compact registry index: one line per skill with its purpose and absolute path."""
+    return "\n".join(
+        f"- **{skill.name}** \u2014 {skill.purpose} \u00b7 {skill.absolute_path}"
+        for skill in skills
+    )
 
 
 def _main(argv: Sequence[str] | None = None) -> int:
