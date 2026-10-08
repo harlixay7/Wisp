@@ -78,8 +78,8 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "Delegate an adversarial review to Google Antigravity (agy). Use BEFORE implementing "
             "multi-file plans or high-risk changes (concurrency, persistence, process spawning, IPC) "
             "and BEFORE declaring work complete. Pass the necessary skill in 'skills' and up to 3 "
-            "task-dependent skills in 'recommended_skills'; the payload also carries the full "
-            "registry manifest. Returns the organized critique plus stream stats; the complete "
+            "task-dependent skills in 'recommended_skills'; the payload also carries a compact "
+            "index of every registry skill. Returns the organized critique plus stream stats; the complete "
             "forensic report (including raw streams) is saved under .antigravity-reports/."
         ),
         "inputSchema": {

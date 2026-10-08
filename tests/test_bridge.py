@@ -315,8 +315,8 @@ class TestRecommendedSkillsContract:
         )
         assert exit_code == 0
         payload = json.loads(capsys.readouterr().out)
-        assert "EMPIRICAL CLAIM FALSIFICATION" in payload["payload"].upper()
-        assert "RECOMMENDED ADVERSARIAL SKILLS" in payload["payload"]
+        assert "### empirical-claim-falsification-engine (v" in payload["payload"]
+        assert "\u2014 recommended\nFull procedure: " in payload["payload"]
 
     def test_cli_flag_reaches_config(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
@@ -337,7 +337,7 @@ class TestRecommendedSkillsContract:
         )
         assert exit_code == 0
         payload = json.loads(capsys.readouterr().out)
-        assert "ZERO-TRUST AST" in payload["payload"].upper()
+        assert "### zero-trust-ast-wiring-verifier (v" in payload["payload"]
 
 
 class TestWorkspaceTrustFraming:
@@ -435,9 +435,13 @@ class TestBridgeOrchestration:
 
         assert result.success
         payload = launcher.calls[0][launcher.calls[0].index("-p") + 1]
-        assert "CRASH_OPS_INSTRUCTIONS" in payload
-        assert "AST_AUDIT_INSTRUCTIONS" in payload
-        assert "TEMPLATE_ONLY_INSTRUCTIONS" not in payload
+        active = payload.split("## Active skills", 1)[1].split("## Skill registry", 1)[0]
+        assert "### crash_ops (v1.2.3) \u2014 mandatory" in active
+        assert "### ast_audit (v1.2.3) \u2014 mandatory" in active
+        assert str(registry / "01_crash_ops.yaml") in active
+        assert "template_custom_skill" not in active
+        # Full bodies stay on disk; the reviewer is told to read them.
+        assert "CRASH_OPS_INSTRUCTIONS" not in payload
 
     def test_missing_skill_registry_fails_before_spawning(self) -> None:
         launcher = ScriptedLauncher([successful_attempt()])
@@ -919,14 +923,7 @@ class TestRegistryMounting:
         assert str(tmp_path) in dirs
         assert str(registry) in dirs
 
-    def test_foreign_workspace_falls_back_and_mounts_registry(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        # This test verifies fallback + mounting logic, not payload size; the
-        # shipped registry's two-skill render exceeds the real Windows command
-        # line, so neutralize the preflight (its behavior has dedicated tests
-        # in tests/test_bridge.py::TestCommandLineLimit).
-        monkeypatch.setattr("tools.antigravity_bridge._WINDOWS_COMMAND_LINE_LIMIT", 10**9)
+    def test_foreign_workspace_falls_back_and_mounts_registry(self, tmp_path: Path) -> None:
         launcher = ScriptedLauncher([successful_attempt("CRITIQUE")])
         config = BridgeConfig(
             envelope=envelope(),
@@ -944,19 +941,25 @@ class TestRegistryMounting:
         assert len(add_dirs) == 2
         assert str(SHIPPED_SKILL_DIR) in add_dirs
         payload = command[command.index("-p") + 1]
-        assert "## ACTIVE ADVERSARIAL SKILLS (MANDATORY)" in payload
-        assert "## RECOMMENDED ADVERSARIAL SKILLS (TASK-DEPENDENT)" in payload
-        assert "## ADVERSARIAL SKILL REGISTRY MANIFEST" in payload
+        assert "### adversarial-plan-hardening-engine (v" in payload
+        assert "\u2014 mandatory\nFull procedure: " in payload
+        assert "### zero-trust-ast-wiring-verifier (v" in payload
+        assert "\u2014 recommended\nFull procedure: " in payload
+        assert f"## Skill registry\nEvery registered skill under `{SHIPPED_SKILL_DIR}`" in payload
 
     def test_payload_points_antigravity_at_registry_on_disk(self) -> None:
         registry = Path("C:/ws/Skills")
         config = BridgeConfig(envelope=envelope())
 
-        payload = build_prompt_payload(config, "SKILL BLOCK", registry)
+        payload = build_prompt_payload(
+            config,
+            bridge.SkillSections(active="SKILL BLOCK", index="- INDEX LINE", registry_path=registry),
+        )
 
-        assert "SKILL REGISTRY ON DISK" in payload
-        assert str(registry) in payload
+        assert "## Skill registry" in payload
+        assert f"under `{registry}`" in payload
         assert "SKILL BLOCK" in payload
+        assert "- INDEX LINE" in payload
 
     def test_default_registry_is_workspace_skills_directory(self, tmp_path: Path) -> None:
         skill_dir = tmp_path / "Skills"
@@ -972,8 +975,8 @@ class TestRegistryMounting:
 
         assert result.success
         payload = launcher.calls[0][launcher.calls[0].index("-p") + 1]
-        assert "DEFAULT_REGISTRY_INSTRUCTIONS" in payload
-        assert "SKILL REGISTRY ON DISK" in payload
+        assert f"Full procedure: {skill_dir.resolve() / 'plan.yaml'}" in payload
+        assert f"under `{skill_dir.resolve()}`" in payload
 
     def test_critique_renders_warnings(self, tmp_path: Path) -> None:
         config = BridgeConfig(envelope=envelope(), workspace=tmp_path)
@@ -1115,7 +1118,8 @@ class TestRegistryResolutionParity:
         )
         assert exit_code == 0
         payload = json.loads(capsys.readouterr().out)
-        assert "ADVERSARIAL ARCHITECTURAL STRESS-TESTING" in payload["payload"].upper()
+        assert f"Full procedure: {SHIPPED_SKILL_DIR}" in payload["payload"]
+        assert "### adversarial-plan-hardening-engine (v" in payload["payload"]
 
 
 class TestDryRunMatchesDispatch:
@@ -1123,14 +1127,8 @@ class TestDryRunMatchesDispatch:
     RECOMMENDED = ("zero-trust-ast-wiring-verifier",)
 
     def test_dry_run_prints_the_command_run_bridge_executes(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-        capsys: pytest.CaptureFixture[str],
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        # The shipped two-skill render exceeds the real Windows command line;
-        # this test is about parity, not the size preflight.
-        monkeypatch.setattr(bridge, "_WINDOWS_COMMAND_LINE_LIMIT", 10**9)
         exit_code = bridge.main(
             [
                 "--prompt",
@@ -1162,7 +1160,7 @@ class TestDryRunMatchesDispatch:
         dispatched = launcher.calls[0]
         assert dry_run["command"] == dispatched
         assert dry_run["payload"] == dispatched[dispatched.index("-p") + 1]
-        assert "## ADVERSARIAL SKILL REGISTRY MANIFEST" in dry_run["payload"]
+        assert "## Skill registry" in dry_run["payload"]
         # The workspace has no Skills/, so the shipped registry must be mounted.
         assert dry_run["command"].count("--add-dir") == 2
 
