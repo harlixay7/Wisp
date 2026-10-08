@@ -1,4 +1,10 @@
-"""Aggregation of ``agy`` stream-json output into a Markdown critique."""
+"""Aggregation of ``agy`` stream-json output into a Markdown critique.
+
+Also parses the reviewer's machine-readable verdict block
+(``<<<WISP_VERDICT ... WISP_VERDICT>>>``, defined by the bridge's review
+protocol) so callers get PASS / PASS_WITH_FIXES / BLOCK, severity counts and
+the must-fix list without re-reading the whole critique.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +12,7 @@ import io
 import json
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 from typing import Any
 
 from tools.antigravity_live import _beacon_label
@@ -291,6 +298,25 @@ def _render_sections(
     return "\n\n".join(sections)
 
 
+@dataclass
+class StreamAnalysis:
+    """Everything ``aggregate_stream_json`` renders, kept structured for reuse.
+
+    ``final_response`` is the authoritative (or inferred) answer text; the
+    verdict parser reads it so a block quoted inside a tool result can never
+    be mistaken for the reviewer's verdict.
+    """
+
+    final_response: str = ""
+    inferred_final: bool = False
+    notes: list[str] = field(default_factory=list)
+    reasoning: list[str] = field(default_factory=list)
+    actions: list[str] = field(default_factory=list)
+    tool_results: list[str] = field(default_factory=list)
+    lifecycle: list[str] = field(default_factory=list)
+    unparsed: list[str] = field(default_factory=list)
+
+
 def aggregate_stream_json(raw: str) -> str:
     """Aggregates raw ``stream-json`` output into a cohesive Markdown critique.
 
@@ -309,6 +335,26 @@ def aggregate_stream_json(raw: str) -> str:
     """
     if not raw or not raw.strip():
         return "_Antigravity produced no stdout._"
+    analysis = analyze_stream_json(raw)
+    return _render_sections(
+        analysis.final_response,
+        analysis.inferred_final,
+        analysis.notes,
+        analysis.reasoning,
+        analysis.actions,
+        analysis.tool_results,
+        analysis.lifecycle,
+        analysis.unparsed,
+    )
+
+
+def analyze_stream_json(raw: str) -> StreamAnalysis:
+    """Parses raw ``stream-json`` output into a :class:`StreamAnalysis`.
+
+    See :func:`aggregate_stream_json` for how the final response is chosen.
+    """
+    if not raw or not raw.strip():
+        return StreamAnalysis()
 
     reasoning = _FragmentSet()
     actions = _FragmentSet()
@@ -471,13 +517,136 @@ def aggregate_stream_json(raw: str) -> str:
         + len(other_texts.text())
     )
     lifecycle = _render_lifecycle(init_labels, step_meta, final_status, text_chars)
-    return _render_sections(
-        final_response,
-        inferred_final,
-        notes,
-        reasoning.items,
-        action_lines,
-        tool_result_lines,
-        lifecycle,
-        unparsed,
+    return StreamAnalysis(
+        final_response=final_response,
+        inferred_final=inferred_final,
+        notes=notes,
+        reasoning=reasoning.items,
+        actions=action_lines,
+        tool_results=tool_result_lines,
+        lifecycle=lifecycle,
+        unparsed=unparsed,
     )
+
+
+VERDICT_VALUES: tuple[str, ...] = ("PASS", "PASS_WITH_FIXES", "BLOCK")
+CONFIDENCE_VALUES: tuple[str, ...] = ("high", "medium", "low")
+SEVERITY_KEYS: tuple[str, ...] = ("P0", "P1", "P2", "P3")
+
+_VERDICT_BLOCK_PATTERN = re.compile(
+    r"<<<\s*WISP_VERDICT\b(.*?)\bWISP_VERDICT\s*>>>", re.IGNORECASE | re.DOTALL
+)
+# "key: value" with optional list markers, blockquotes or emphasis around the key.
+_VERDICT_FIELD_PATTERN = re.compile(r"^[\s>*_`#-]*([A-Za-z][A-Za-z _-]*?)[\s*_`]*[:=]\s*(.*)$")
+_COUNT_PATTERN = re.compile(r"\bP\s*([0-3])\s*[=:]\s*(\d+)", re.IGNORECASE)
+_FINDING_ID_PATTERN = re.compile(r"\b[A-Za-z][A-Za-z0-9]*-\d+\b")
+_NO_IDS = frozenset({"", "none", "n/a", "na", "nil", "-", "\u2014", "null", "[]"})
+_VERDICT_KEYS = frozenset({"verdict", "confidence", "summary", "counts", "must_fix"})
+
+
+def _clean_value(value: str) -> str:
+    return value.strip().strip("*_`").strip()
+
+
+def _parse_must_fix(value: str) -> list[str]:
+    text = _clean_value(value)
+    if text.lower() in _NO_IDS:
+        return []
+    ids = _FINDING_ID_PATTERN.findall(text)
+    if not ids:
+        ids = [part.strip("`*[]().'\"") for part in re.split(r"[,;\s]+", text)]
+    unique: list[str] = []
+    for item in ids:
+        if item and item.lower() not in _NO_IDS and item not in unique:
+            unique.append(item)
+    return unique
+
+
+def parse_review_verdict(text: str | None) -> dict[str, Any] | None:
+    """Parses the LAST ``<<<WISP_VERDICT ... WISP_VERDICT>>>`` block in ``text``.
+
+    Returns ``None`` when no block exists. Otherwise returns ``{verdict,
+    confidence, summary, counts: {P0..P3}, must_fix: [ids]}``. The parser is
+    lenient about presentation (code fences, emphasis, list markers, key case,
+    ``must fix`` vs ``must_fix``) and strict about values: a verdict or
+    confidence outside the protocol's enum becomes ``None`` and an unreadable
+    count stays 0, so a sloppy block degrades instead of raising. The last
+    block wins because the protocol puts the verdict at the very end; earlier
+    blocks are usually quotes or drafts.
+    """
+    if not text:
+        return None
+    blocks = _VERDICT_BLOCK_PATTERN.findall(text)
+    if not blocks:
+        return None
+    verdict: dict[str, Any] = {
+        "verdict": None,
+        "confidence": None,
+        "summary": None,
+        "counts": {key: 0 for key in SEVERITY_KEYS},
+        "must_fix": [],
+    }
+    summary_lines: list[str] = []
+    current: str | None = None
+    for raw_line in blocks[-1].splitlines():
+        line = raw_line.strip()
+        if not line or set(line) <= set("`~"):
+            continue
+        match = _VERDICT_FIELD_PATTERN.match(line)
+        key = (
+            re.sub(r"[\s-]+", "_", match.group(1).strip().lower()) if match else None
+        )
+        if match is None or key not in _VERDICT_KEYS:
+            # Only the summary may wrap onto continuation lines.
+            if current == "summary":
+                summary_lines.append(_clean_value(line))
+            continue
+        current = key
+        value = match.group(2)
+        if key == "verdict":
+            candidate = re.sub(r"[\s-]+", "_", _clean_value(value).upper())
+            verdict["verdict"] = candidate if candidate in VERDICT_VALUES else None
+        elif key == "confidence":
+            candidate = _clean_value(value).lower()
+            verdict["confidence"] = candidate if candidate in CONFIDENCE_VALUES else None
+        elif key == "summary":
+            summary_lines = [_clean_value(value)]
+        elif key == "counts":
+            for severity, number in _COUNT_PATTERN.findall(value):
+                verdict["counts"][f"P{severity}"] = int(number)
+        elif key == "must_fix":
+            verdict["must_fix"] = _parse_must_fix(value)
+    summary = " ".join(part for part in summary_lines if part).strip()
+    verdict["summary"] = summary or None
+    return verdict
+
+
+def extract_review_verdict(raw: str) -> dict[str, Any] | None:
+    """Finds the reviewer's verdict in a raw ``stream-json`` stdout.
+
+    The final response is authoritative. Lines that are not JSON (plain-text
+    output) are searched only when the final response carries no block.
+    """
+    analysis = analyze_stream_json(raw)
+    verdict = parse_review_verdict(analysis.final_response)
+    if verdict is None and analysis.unparsed:
+        verdict = parse_review_verdict("\n".join(analysis.unparsed))
+    return verdict
+
+
+def render_review_verdict(verdict: Mapping[str, Any]) -> str:
+    """Short Markdown section that leads the critique with the parsed verdict."""
+    label = verdict.get("verdict") or "not stated (missing or invalid value)"
+    confidence = verdict.get("confidence") or "not stated"
+    counts = verdict.get("counts") or {}
+    must_fix = verdict.get("must_fix") or []
+    lines = [
+        "## Review verdict",
+        "",
+        f"- **Verdict**: {label} (confidence: {confidence})",
+        f"- **Summary**: {verdict.get('summary') or 'not stated'}",
+        "- **Findings**: "
+        + " \u00b7 ".join(f"{key}={counts.get(key, 0)}" for key in SEVERITY_KEYS),
+        f"- **Must fix**: {', '.join(must_fix) if must_fix else 'none'}",
+    ]
+    return "\n".join(lines)

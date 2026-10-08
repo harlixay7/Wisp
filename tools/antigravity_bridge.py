@@ -51,6 +51,8 @@ if __package__ in (None, ""):
 from tools.antigravity_aggregate import (
     _DeltaBuffer as _DeltaBuffer,
     aggregate_stream_json,
+    extract_review_verdict,
+    render_review_verdict,
 )
 from tools.antigravity_containment import (
     _CREATE_SUSPENDED,
@@ -96,7 +98,8 @@ DEFAULT_RETRIES = 2
 DEFAULT_RETRY_BACKOFF_SECONDS = 5.0
 
 WISP_VERSION = "1.1.0"
-REPORT_SCHEMA_VERSION = 1
+# 2: reports carry ``review_verdict`` (the parsed WISP_VERDICT block).
+REPORT_SCHEMA_VERSION = 2
 DEFAULT_KEEP_REPORTS = 50
 
 # CreateProcess caps the command line at 32,767 characters. An oversized
@@ -581,6 +584,10 @@ class BridgeResult:
     reset_seconds: int | None = None
     containment: str = ""
     provenance: dict[str, Any] = field(default_factory=dict)
+    # Parsed WISP_VERDICT block of a successful run (see
+    # tools.antigravity_aggregate.parse_review_verdict); None when the run
+    # failed or the reviewer emitted no block.
+    review_verdict: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -600,6 +607,7 @@ class BridgeResult:
             "reset_seconds": self.reset_seconds,
             "containment": self.containment,
             "provenance": dict(self.provenance),
+            "review_verdict": _copy_verdict(self.review_verdict),
             "critique_markdown": self.critique_markdown,
             "attempts": [
                 {
@@ -640,6 +648,16 @@ class BridgeResult:
             for attempt in self.attempts
         ]
         return data
+
+
+def _copy_verdict(verdict: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """Copies a verdict so serialized results never alias the live object."""
+    if verdict is None:
+        return None
+    copied = dict(verdict)
+    copied["counts"] = dict(verdict.get("counts") or {})
+    copied["must_fix"] = list(verdict.get("must_fix") or [])
+    return copied
 
 
 RawLineSink = Callable[[str, str], None]
@@ -1134,8 +1152,13 @@ def render_critique(
     error: str | None,
     warnings: Sequence[str] = (),
     provenance: Mapping[str, Any] | None = None,
+    review_verdict: Mapping[str, Any] | None = None,
 ) -> str:
-    """Builds the complete report Agent 1 ingests; raw streams live in attempts[]."""
+    """Builds the complete report Agent 1 ingests; raw streams live in attempts[].
+
+    A parsed verdict leads the report (right under the title) so the calling
+    agent sees PASS / PASS_WITH_FIXES / BLOCK before the full critique.
+    """
     final = attempts[-1]
     containment = CONTAINMENT_LABELS.get(final.containment, final.containment or "unknown")
     lines: list[str] = [
@@ -1168,6 +1191,8 @@ def render_critique(
     if warnings:
         lines += ["", "> **Warnings**:"]
         lines += [f"> - {warning}" for warning in warnings]
+    if review_verdict is not None:
+        lines[1:1] = ["", render_review_verdict(review_verdict)]
     for index, attempt in enumerate(attempts):
         label = "PRIMARY" if index == 0 else f"ATTEMPT {index + 1}"
         lines += [
@@ -1641,6 +1666,19 @@ def run_bridge(config: BridgeConfig, launcher: LaunchFn | None = None) -> Bridge
         reset_text = extract_reset_text(final.combined_output)
         reset_seconds = parse_reset_seconds(final.combined_output)
     error = None if success else _failure_message(config, final, status, attempts, reset_text)
+    review_verdict: dict[str, Any] | None = None
+    if success:
+        review_verdict = extract_review_verdict(final.stdout)
+        if review_verdict is None:
+            warnings.append(
+                "Review verdict missing: the reviewer did not emit a verdict block "
+                "(<<<WISP_VERDICT ... WISP_VERDICT>>>)."
+            )
+        elif review_verdict["verdict"] is None:
+            warnings.append(
+                "Review verdict invalid: the verdict block has no PASS, "
+                "PASS_WITH_FIXES or BLOCK value."
+            )
 
     _finish(success, error)
     provenance = collect_provenance(executable, plan.registry_path, plan.skill_versions)
@@ -1653,6 +1691,7 @@ def run_bridge(config: BridgeConfig, launcher: LaunchFn | None = None) -> Bridge
         error,
         warnings,
         provenance=provenance,
+        review_verdict=review_verdict,
     )
     return BridgeResult(
         success=success,
@@ -1671,6 +1710,7 @@ def run_bridge(config: BridgeConfig, launcher: LaunchFn | None = None) -> Bridge
         reset_seconds=reset_seconds,
         containment=final.containment,
         provenance=provenance,
+        review_verdict=review_verdict,
     )
 
 
