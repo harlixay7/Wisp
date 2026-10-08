@@ -401,6 +401,38 @@ class TestBridgeIntegration:
         assert kinds[-1] == "run_end"
         assert all(event.run_id for event in collected)
 
+    def test_task_event_shows_the_prompt_right_after_run_start(self, tmp_path: Path) -> None:
+        collected: list = []
+        config = BridgeConfig(
+            envelope=DelegationEnvelope(prompt="Review the retry plan"),
+            workspace=tmp_path,
+            live_callback=collected.append,
+            retry_backoff_seconds=0.0,
+        )
+
+        run_bridge(config, launcher=StreamingLauncher([], success()))
+
+        assert [event.kind for event in collected[:2]] == ["run_start", "task"]
+        assert collected[1].text == "Review the retry plan"
+
+    def test_task_event_preview_is_capped(self, tmp_path: Path) -> None:
+        from tools.antigravity_bridge import LIVE_TASK_PREVIEW_CHARS
+
+        collected: list = []
+        long_prompt = "x" * (LIVE_TASK_PREVIEW_CHARS + 50)
+        config = BridgeConfig(
+            envelope=DelegationEnvelope(prompt=long_prompt),
+            workspace=tmp_path,
+            live_callback=collected.append,
+            retry_backoff_seconds=0.0,
+        )
+
+        run_bridge(config, launcher=StreamingLauncher([], success()))
+
+        task = next(event for event in collected if event.kind == "task")
+        assert task.text.startswith("x" * LIVE_TASK_PREVIEW_CHARS)
+        assert "full prompt is in the report" in task.text
+
 
 class TestBridgeRegistersLiveDir:
     def test_live_run_registers_its_directory(self, tmp_path: Path, monkeypatch) -> None:

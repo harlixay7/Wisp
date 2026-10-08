@@ -498,6 +498,8 @@ button:focus-visible{outline:1px solid var(--hair-strong);outline-offset:2px;bor
 .e-kind.done{color:#6fae8f}
 .e-kind.text{color:#c9a86a}
 .e-kind.sys{color:#8a7fae}
+.e-kind.task{color:#7fc4a2;font-weight:700}
+.entry.task-entry .e-body{color:var(--text);white-space:pre-wrap}
 .e-body{font-family:var(--mono);font-size:10.5px;line-height:1.6;color:var(--dim);word-break:break-word}
 .e-tool-name{font-family:var(--mono);font-size:9px;color:var(--text);margin-right:6px}
 
@@ -1113,8 +1115,8 @@ const LIMITS = {
 // Mirrors MAX_UPLOAD_BYTES in antigravity_viewer.py; the server enforces it too.
 const MAX_UPLOAD_BYTES = 12 * 1024 * 1024;
 const REQUEST_HEADERS = { 'X-Wisp-Request': '1', 'Content-Type': 'application/json' };
-const KIND_LABEL = { think: 'THINK', tool: 'TOOL', result: 'DONE', text: 'TEXT', stderr: 'WARN', raw: 'RAW', sys: 'SYS' };
-const KIND_CLASS = { think: 'think', tool: 'tool', result: 'done', text: 'text', stderr: 'sys', raw: 'sys', sys: 'sys' };
+const KIND_LABEL = { task: 'TASK', think: 'THINK', tool: 'TOOL', result: 'DONE', text: 'TEXT', stderr: 'WARN', raw: 'RAW', sys: 'SYS' };
+const KIND_CLASS = { task: 'task', think: 'think', tool: 'tool', result: 'done', text: 'text', stderr: 'sys', raw: 'sys', sys: 'sys' };
 const WISP_THEMES = ['ember', 'aurora', 'moss'];
 const ASK_HARNESS = 'wisp-hotkey';
 // Sections the bridge appends after the answer; chat folds them behind a toggle.
@@ -1661,7 +1663,7 @@ function addEntry(kind, text, ts, meta) {
   }
   $('streamEmpty').style.display = 'none';
   const entry = document.createElement('div');
-  entry.className = 'entry';
+  entry.className = 'entry' + (KIND_CLASS[kind] ? ' ' + KIND_CLASS[kind] + '-entry' : '');
   const metaRow = document.createElement('div');
   metaRow.className = 'e-meta';
   const time = document.createElement('span');
@@ -1816,6 +1818,10 @@ function handleEvent(ev) {
       setState('deliberating');
       S.counters.thoughts++; renderCounters();
       pushActivity('think', ev.text, undefined, ev.ts);
+      break;
+    case 'task':
+      setState('deliberating');
+      addEntry('task', ev.text, ev.ts);
       break;
     case 'tool_call':
       setState('reaching');

@@ -97,6 +97,8 @@ DEFAULT_KEEP_REPORTS = 50
 # payload otherwise fails with a confusing "filename or extension is too long"
 # launch error, so fail early with an actionable message. The limit below
 # leaves headroom for argument quoting.
+# Longest prompt shown in the live feed's task entry; reports keep it whole.
+LIVE_TASK_PREVIEW_CHARS = 4000
 _WINDOWS_COMMAND_LINE_LIMIT = 30_000
 
 RATE_LIMIT_PATTERN = re.compile(
@@ -1348,6 +1350,16 @@ def run_bridge(config: BridgeConfig, launcher: LaunchFn | None = None) -> Bridge
         harness=config.envelope.harness,
         prompt_chars=len(config.envelope.prompt),
     )
+    # Show what was asked in the live feed, not only the reviewer's reactions.
+    # The preview is capped so a very large prompt cannot bloat the run file or
+    # the widget; the report always carries the full prompt.
+    task_preview = config.envelope.prompt
+    if len(task_preview) > LIVE_TASK_PREVIEW_CHARS:
+        task_preview = (
+            task_preview[:LIVE_TASK_PREVIEW_CHARS]
+            + "\n\u2026 (preview shortened; the full prompt is in the report)"
+        )
+    _emit("task", task_preview, model=config.model, harness=config.envelope.harness)
 
     status = _run_model_chain(config.model)
 
