@@ -66,6 +66,8 @@ from tools.antigravity_bridge import (
     AttemptResult,
     BridgeConfig,
     DelegationEnvelope,
+    extract_reset_text,
+    is_rate_limited,
     resolve_agy_executable,
     run_bridge,
     write_report,
@@ -168,8 +170,6 @@ _RUN_FILE_PATTERN = re.compile(r"run-[A-Za-z0-9\-_]+\.jsonl")
 # --------------------------------------------------------------------------
 # Account and quota detection (agy logs)
 
-_RATE_LIMIT_MARKERS = ("RESOURCE_EXHAUSTED", "code 429", "Individual quota reached")
-_RESET_PATTERN = re.compile(r"Resets in ([0-9]+\s*[smhdw][0-9]*\s*[smhdw]*)", re.IGNORECASE)
 _EMAIL_PATTERN = re.compile(
     r"authenticated successfully as ([A-Za-z0-9_.+-]+@[A-Za-z0-9-]+\.[A-Za-z0-9-.]+)"
 )
@@ -627,16 +627,14 @@ def collect_auth_state() -> dict[str, Any]:
                 newest_log_age = round(now - path.stat().st_mtime)
             except OSError:
                 newest_log_age = None
-        if any(marker in content for marker in _RATE_LIMIT_MARKERS):
+        if is_rate_limited(content):
             try:
                 age = now - path.stat().st_mtime
             except OSError:
                 age = RATE_LIMIT_WINDOW_SECONDS + 1
             if age < RATE_LIMIT_WINDOW_SECONDS:
                 rate_limited = True
-                matches = _RESET_PATTERN.findall(content)
-                if matches:
-                    resets_in = " ".join(matches[-1].split())
+                resets_in = extract_reset_text(content, last=True) or resets_in
     return {
         "account": mask_email(account),
         "account_source": "log-heuristic" if account else None,

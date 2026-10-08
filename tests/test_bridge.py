@@ -487,6 +487,10 @@ class TestRetriesAndQuotaControls:
         assert parse_reset_seconds("Resets in 45s") == 45
         assert parse_reset_seconds("no reset info here") is None
         assert extract_reset_text("Resets in 1h 30m.") == "1h 30m"
+        two_notices = "Resets in 2h 5m. Later: resets in 1h 30m."
+        assert extract_reset_text(two_notices) == "2h 5m"
+        assert extract_reset_text(two_notices, last=True) == "1h 30m"
+        assert extract_reset_text("no notice", last=True) is None
 
     def test_transient_classification(self) -> None:
         assert is_transient_failure(transient_attempt())

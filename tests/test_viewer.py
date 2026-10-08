@@ -437,6 +437,25 @@ class TestStatRaceSafety:
         assert state["account"] is None or isinstance(state["account"], str)
 
 
+class TestAuthStateQuota:
+    def test_recent_quota_notice_reports_the_full_reset_window(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        log_dir = tmp_path / "logdir"
+        log_dir.mkdir()
+        (log_dir / "agy.log").write_text(
+            "RESOURCE_EXHAUSTED: Individual quota reached. Resets in 2h 5m\n"
+            "RESOURCE_EXHAUSTED: Individual quota reached. Resets in 1h 30m\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(antigravity_viewer, "_AUTH_LOG_DIRS", (log_dir,))
+
+        state = antigravity_viewer.collect_auth_state()
+
+        assert state["rate_limited"] is True
+        assert state["resets_in"] == "1h 30m"
+
+
 class TestForeignWorkspaceVisibility:
     def test_runs_merge_and_foreign_replay(self, tmp_path: Path) -> None:
         registry = tmp_path / "registry.json"

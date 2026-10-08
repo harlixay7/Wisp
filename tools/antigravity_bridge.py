@@ -327,11 +327,16 @@ def parse_reset_seconds(text: str | None) -> int | None:
     return total
 
 
-def extract_reset_text(text: str | None) -> str | None:
-    """Returns the human-readable reset fragment (e.g. ``1h 30m``) or ``None``."""
+def extract_reset_text(text: str | None, *, last: bool = False) -> str | None:
+    """Returns the human-readable reset fragment (e.g. ``1h 30m``) or ``None``.
+
+    The first notice wins by default; ``last=True`` picks the final one, which
+    is the most recent in an append-only log.
+    """
     if not text:
         return None
-    match = _RESET_PATTERN.search(text)
+    matches = list(_RESET_PATTERN.finditer(text)) if last else [_RESET_PATTERN.search(text)]
+    match = matches[-1] if matches else None
     if not match:
         return None
     return " ".join(match.group(1).split())
