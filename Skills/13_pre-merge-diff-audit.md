@@ -19,7 +19,7 @@ brief: |
   - Run the repository's own tests, linters and type checker; do not accept the author's word that they pass.
   - Test adequacy: a new test counts only if it fails without the production change (check against the base revision in a throwaway copy). Flag weakened assertions, new skips and tests that are never collected.
   - Report only defects with a specific input or state leading to a wrong outcome; put suspicious-but-fine areas under "Checked and cleared". No style nits.
-  Output, before the findings: Change map, Acceptance coverage (criterion, implemented at, verified by, status), Test adequacy, Verification runs.
+  Output, before the findings: Change map, Acceptance coverage matrix (criterion, implemented at, verified by, status), Test adequacy, Verification runs.
   PASS = every criterion MET with evidence, suite green, no P0/P1. PASS_WITH_FIXES = no P0, P1 fixes are local and clear. BLOCK = any P0, a criterion claimed met that is not, a red suite, or a change that breaks an existing caller.
 activation_triggers:
   task_modes:
@@ -53,7 +53,7 @@ input_contract:
 output_contract:
   sections:
     - Change map
-    - Acceptance coverage
+    - Acceptance coverage matrix
     - Test adequacy
     - Verification runs
   findings: shared format
@@ -225,7 +225,7 @@ Change map
 | File | Kind | Criterion or collateral | Consumers checked | Risk note |
 | --- | --- | --- | --- | --- |
 
-Acceptance coverage
+Acceptance coverage matrix
 
 | Criterion | Implemented at (path:line) | Verified by (test id or command) | Status |
 | --- | --- | --- | --- |

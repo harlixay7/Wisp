@@ -19,7 +19,7 @@ brief: |
   - Run discriminating experiments cheapest first, one variable at a time, with the prediction written down before running. Use git bisect when a known-good revision exists, and differential diagnosis when it works in one place and fails in another.
   - Shrink to a minimal reproduction. Confirmed means you can switch the failure on and off by changing the suspected cause alone.
   - Reject symptom fixes: retries, longer timeouts, sleeps, broad excepts, skipped tests.
-  Output, before the findings: Evidence intake, Attempts ledger, Hypotheses, Experiment log, Causal chain, Fix direction and regression test, Residual uncertainty.
+  Output, before the findings: Evidence intake, Attempts ledger, Hypothesis matrix, Experiment log, Causal chain, Fix direction and regression test, Residual uncertainty.
   PASS = root cause confirmed and the proposed fix targets it. PASS_WITH_FIXES = probable cause with the next experiment or fix clearly defined. BLOCK = the current fix only masks the symptom, or the cause is still unknown and further patching is unsound.
 activation_triggers:
   task_modes:
@@ -54,7 +54,7 @@ output_contract:
   sections:
     - Evidence intake
     - Attempts ledger
-    - Hypotheses
+    - Hypothesis matrix
     - Experiment log
     - Causal chain
     - Fix direction and regression test
@@ -212,7 +212,7 @@ Attempts ledger
 | # | Change made | Implied hypothesis | Exercised? | Result | Rules in or out |
 | --- | --- | --- | --- | --- | --- |
 
-Hypotheses
+Hypothesis matrix
 
 | ID | Mechanism | Predicts | Prior | Test cost | Status |
 | --- | --- | --- | --- | --- | --- |
