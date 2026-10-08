@@ -4,6 +4,10 @@
 #   ./setup.sh            set up .venv, dependencies and checks
 #   ./setup.sh --check    report on the setup without changing anything
 #   ./setup.sh --dev      also install the test tools and run the suite
+#   ./setup.sh --widget   also install the Electron desktop overlay (untested
+#                         off Windows); --no-widget never installs it
+#   ./setup.sh --recreate-venv   delete and rebuild .venv first
+# It never uses sudo and only writes .venv/ and tools/wisp_shell/node_modules/.
 set -eu
 
 cd "$(dirname "$0")"
