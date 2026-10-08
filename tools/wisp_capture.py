@@ -5,7 +5,7 @@ Two capture modes:
 * **selection** — simulate Ctrl+C, read the newly copied text, then restore
   the previous *text* clipboard content. If the clipboard held non-text
   content (an image, files), the target app's copy replaces it and only text
-  can be restored: non-text clipboard state is NOT preserved.
+  can be restored: non-text clipboard state is not preserved.
 * **snip** — launch the native Windows snip overlay (``ms-screenclip:``) and
   wait for the resulting image to appear on the clipboard, saving it as PNG.
 
@@ -34,6 +34,8 @@ SAVE_CLIPBOARD_SCRIPT = SCRIPTS_DIR / "save_clipboard_png.ps1"
 CAPTURE_DIR_NAME = "captures"
 DEFAULT_KEEP_CAPTURES = 50
 SELECTION_TIMEOUT_MS = 750
+# How long to wait for the operator to let go of the hotkey modifiers.
+MODIFIER_RELEASE_TIMEOUT_MS = 900
 SNIP_TIMEOUT_SECONDS = 60
 CREATE_NO_WINDOW = 0x08000000
 
@@ -160,7 +162,7 @@ def _set_clipboard_text_with(user32: Any, kernel32: Any, text: str) -> None:
                 pass
 
 
-def _wait_for_modifier_release(timeout_ms: int = 900) -> None:
+def _wait_for_modifier_release(timeout_ms: int = MODIFIER_RELEASE_TIMEOUT_MS) -> None:
     """Waits until the hotkey modifiers are physically released.
 
     The global hotkey fires on key-down; synthesizing Ctrl+C while the operator
@@ -174,7 +176,7 @@ def _wait_for_modifier_release(timeout_ms: int = 900) -> None:
         time.sleep(0.02)
 
 
-def _native_selection_capture(timeout_ms: int = 650) -> str | None:
+def _native_selection_capture(timeout_ms: int = SELECTION_TIMEOUT_MS) -> str | None:
     """Ctrl+C round-trip implemented with Win32 APIs (no PowerShell startup)."""
     user32 = ctypes.windll.user32
     _wait_for_modifier_release()
@@ -219,7 +221,13 @@ def capture_selection(timeout_ms: int = SELECTION_TIMEOUT_MS) -> dict[str, Any]:
 
     script = COPY_SELECTION_SCRIPT
     if not script.is_file():
-        return {"kind": "none", "reason": "Selection capture helper is missing."}
+        return {
+            "kind": "none",
+            "reason": (
+                f"Selection capture helper is missing: {script}. "
+                "Restore it from the repository."
+            ),
+        }
     try:
         result = _run_powershell(
             ["-ExecutionPolicy", "Bypass", "-File", str(script), "-TimeoutMs", str(timeout_ms)],
@@ -228,7 +236,14 @@ def capture_selection(timeout_ms: int = SELECTION_TIMEOUT_MS) -> dict[str, Any]:
     except (subprocess.TimeoutExpired, OSError) as exc:
         return {"kind": "none", "reason": f"Selection capture failed: {exc}"}
     if result.returncode != 0:
-        return {"kind": "none", "reason": "Selection capture helper failed."}
+        detail = (result.stderr or b"").decode("utf-8", errors="replace").strip()
+        return {
+            "kind": "none",
+            "reason": (
+                f"Selection capture helper exited with code {result.returncode}"
+                + (f": {detail}" if detail else ".")
+            ),
+        }
     text = (result.stdout or b"").decode("utf-8", errors="replace").strip()
     if not text:
         return {"kind": "none", "reason": "No text selection detected."}
@@ -335,6 +350,7 @@ def save_pasted_image(live_dir: Path, blob: bytes) -> Path | None:
 
 
 def prune_captures(live_dir: Path, keep: int = DEFAULT_KEEP_CAPTURES) -> None:
+    """Deletes all but the newest ``keep`` snips and pasted images (at least one stays)."""
     directory = capture_dir(live_dir)
     try:
         files = sorted(
