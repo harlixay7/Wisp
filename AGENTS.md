@@ -34,7 +34,8 @@ critique has been ingested, reconciled, and resolved.
 | `tools/wisp_chat.py` | Persistent chat threads for operator asks. |
 | `tools/wisp_capture.py`, `tools/capture/*.ps1` | Selection, snip and pasted-image capture (Windows). |
 | `tools/wisp_shell/` | Electron shell hosting the widget as a transparent desktop overlay. |
-| `tools/antigravity_mcp.cmd` | Canonical Windows launcher for the MCP server. |
+| `tools/antigravity_mcp.cmd` | Windows launcher for the MCP server. |
+| `setup.bat`, `setup.sh`, `tools/wisp_setup.py` | Cross-platform setup and environment check (standard library only; `--check` changes nothing). |
 | `tools/viewer_assets/*.png` | Creature state art (black-background, screen-blended). |
 | `tools/skill_loader.py` | Registry discovery, metadata-contract validation, identifier resolution, prompt rendering. |
 | `Skills/NN_<name>.md` | Adversarial skill definitions (Markdown with YAML front matter; YAML also accepted). |
@@ -147,11 +148,16 @@ Useful flags:
 
 ### Hosting the MCP server in any harness
 
-`tools/antigravity_mcp.cmd` is the canonical launcher (resolves the repo root,
-pins the top-tier model chain, starts the stdio server). Register it as a local
-stdio MCP server in each harness you use — opencode: `opencode.json`; Codex:
-`~/.codex/config.toml`; Claude Code: `claude mcp add`; Cline: its MCP settings
-JSON. Harnesses spawn registered servers automatically at startup and terminate
+Register `<wisp>/.venv/bin/python` (Windows: `<wisp>\.venv\Scripts\python.exe`)
+running `<wisp>/tools/antigravity_mcp_server.py` as a local stdio MCP server, by
+absolute path, in each harness you use — opencode: `opencode.json`; Codex:
+`~/.codex/config.toml`; Claude Code: `claude mcp add --scope user`; Cline: its MCP
+settings JSON. `setup.bat` / `./setup.sh` print these entries with the machine's
+real paths. The server reviews its working directory unless `ANTIGRAVITY_WORKSPACE`
+is set or the call passes `workspace`. On Windows, `tools/antigravity_mcp.cmd`
+(run via `cmd.exe /c`) also works; it pins the top-tier model chain and defaults
+`ANTIGRAVITY_WORKSPACE` to the Wisp repo. The repo's `opencode.json` uses that
+launcher, so it is Windows-only. Harnesses spawn registered servers automatically at startup and terminate
 them at exit; there is nothing to start manually and no background service.
 Harnesses without MCP support use the CLI fallback, which also persists the
 complete report under `.antigravity-reports/`.
@@ -312,6 +318,7 @@ python tools/antigravity_bridge.py --list-skills
 ## 8. Quick Reference
 
 ```bash
+./setup.sh --check                                   # environment report (Windows: setup.bat --check)
 python -m tools.skill_loader --validate              # validate registry
 python tools/antigravity_bridge.py --list-skills     # list skills
 python tools/antigravity_bridge.py --prompt "..." --skills all --dry-run   # inspect dispatch
