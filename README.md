@@ -469,7 +469,7 @@ python -m tools.skill_loader --validate   # check the playbooks
 Use the Python inside `.venv`, or activate it first. [CONTRIBUTING.md](CONTRIBUTING.md)
 covers the rest, and everyone taking part is expected to follow the
 [code of conduct](CODE_OF_CONDUCT.md). Please report security problems
-privately, as described in [SECURITY.md](SECURITY.md#reporting).
+privately, as described in [SECURITY.md](SECURITY.md#reporting-a-vulnerability).
 
 ## Documentation
 
