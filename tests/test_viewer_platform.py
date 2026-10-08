@@ -1,4 +1,4 @@
-"""Process and account helpers behave honestly on every operating system."""
+"""Viewer platform helpers: process inspection, the forced-kill guard, and account switching."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ from typing import Any
 import pytest
 
 from tools import viewer_platform as platform_helpers
-from tools.viewer_shell import work_area
 
 POSIX_ONLY = pytest.mark.skipif(os.name == "nt", reason="POSIX process inspection")
 WINDOWS_ONLY = pytest.mark.skipif(os.name != "nt", reason="Windows account switching")
@@ -62,9 +61,18 @@ class TestPosixProcessHelpers:
         proc.wait(timeout=10)
         assert platform_helpers.pid_command_line(proc.pid) is None
 
-    def test_work_area_has_a_sane_default(self) -> None:
-        left, top, right, bottom = work_area()
-        assert right > left and bottom > top
+
+class TestForcedKillGuard:
+    @pytest.mark.skipif(os.name != "nt", reason="tasklist/PowerShell PID inspection")
+    def test_non_viewer_python_process_is_refused(self) -> None:
+        proc = _sleeper()
+        try:
+            # A "python" image alone is not enough: a recycled PID must also
+            # carry a command line naming this viewer before it is killed.
+            assert platform_helpers.looks_like_viewer_process("python.exe", pid=proc.pid) is False
+        finally:
+            proc.kill()
+            proc.wait(timeout=10)
 
 
 class TestAccountSwitch:
@@ -96,7 +104,9 @@ class TestAccountSwitch:
 
         monkeypatch.setattr(subprocess, "run", fake_run)
         monkeypatch.setattr(subprocess, "Popen", fake_popen)
-        monkeypatch.setattr(platform_helpers, "resolve_agy_executable", lambda: r"C:\a b\agy & x.exe")
+        monkeypatch.setattr(
+            platform_helpers, "resolve_agy_executable", lambda: r"C:\a b\agy & x.exe"
+        )
         result = platform_helpers.switch_account()
         assert result["status"] == "switching"
         assert launched["args"] == [

@@ -445,7 +445,7 @@ def newest_run_across(dirs: Sequence[Path]) -> Path | None:
 
 def _read_first_event(path: Path) -> dict[str, Any] | None:
     try:
-        with open(path, "r", encoding="utf-8", errors="replace") as handle:
+        with open(path, encoding="utf-8", errors="replace") as handle:
             for line in handle:
                 stripped = line.strip()
                 if not stripped:
@@ -539,7 +539,7 @@ def mask_email(address: str | None) -> str | None:
 def _read_log_tail(path: Path) -> str:
     try:
         size = path.stat().st_size
-        with open(path, "r", encoding="utf-8", errors="ignore") as handle:
+        with open(path, encoding="utf-8", errors="ignore") as handle:
             if size > MAX_LOG_TAIL_BYTES:
                 handle.seek(size - MAX_LOG_TAIL_BYTES)
             return handle.read()
@@ -1602,7 +1602,7 @@ class ViewerHandler(BaseHTTPRequestHandler):
 
     def _send_event(self, event: str, data: str) -> bool:
         try:
-            self.wfile.write(f"event: {event}\ndata: {data}\n\n".encode("utf-8"))
+            self.wfile.write(f"event: {event}\ndata: {data}\n\n".encode())
             self.wfile.flush()
         except OSError:
             return False
@@ -1654,7 +1654,7 @@ class ViewerHandler(BaseHTTPRequestHandler):
         if not send("reset", json.dumps({"file": safe, "replay": True})):
             return
         try:
-            with open(path, "r", encoding="utf-8", errors="replace") as handle:
+            with open(path, encoding="utf-8", errors="replace") as handle:
                 for line in handle:
                     stripped = line.strip()
                     if not stripped:

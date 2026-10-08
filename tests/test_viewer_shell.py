@@ -1,19 +1,20 @@
-"""Widget shell tests: the pywebview window wiring (no real GUI is opened)."""
+"""Widget shell: the pywebview window wiring and screen helpers (no real GUI is opened)."""
 
 from __future__ import annotations
 
 import sys
+import threading
 import types
 from typing import Any
 
 import pytest
 
-from tools import viewer_shell
-from tools.viewer_shell import open_native_window
+from tools import antigravity_viewer, viewer_shell
+from tools.viewer_shell import open_native_window, work_area
 
 
 class _FakeHandle:
-    def ToInt64(self) -> int:  # noqa: N802 - mirrors the .NET IntPtr API
+    def ToInt64(self) -> int:  # mirrors the .NET IntPtr API
         return 4242
 
 
@@ -62,9 +63,7 @@ class TestNativeWindow:
         assert fake_webview["window"].on_top is True
         assert api.move(5, 5) == [15, 25]
 
-    def test_window_handle_is_not_published_to_the_page(
-        self, fake_webview: dict[str, Any]
-    ) -> None:
+    def test_window_handle_is_not_published_to_the_page(self, fake_webview: dict[str, Any]) -> None:
         open_native_window("http://127.0.0.1:1/", 240, 240)
         api = fake_webview["kwargs"]["js_api"]
         public = [name for name in vars(api) if not name.startswith("_")]
@@ -82,8 +81,6 @@ class TestWindowRegion:
     def test_region_is_applied_while_the_window_is_open(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import threading
-
         applied: list[tuple[int, str, int, int]] = []
         region_set = threading.Event()
 
@@ -121,7 +118,9 @@ class TestShellHelpers:
         assert viewer_shell.bottom_right_position(200, 100) == (782, 682)
         assert viewer_shell.bottom_right_position(5000, 5000) == (0, 0)
 
-    def test_viewer_uses_the_shell_module(self) -> None:
-        from tools import antigravity_viewer
+    def test_work_area_has_a_sane_default(self) -> None:
+        left, top, right, bottom = work_area()
+        assert right > left and bottom > top
 
+    def test_viewer_uses_the_shell_module(self) -> None:
         assert antigravity_viewer.open_native_window is viewer_shell.open_native_window
