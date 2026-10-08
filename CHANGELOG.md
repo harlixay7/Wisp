@@ -54,6 +54,15 @@ independently; the Electron shell versions with the viewer.
 - Tests are organized by subject with shared helpers; `pyproject.toml`
   replaces `ruff.toml` and the lint rule set is wider.
 - README rewritten; the example delegation is now synthetic.
+- Setup and MCP registration docs cover Windows, macOS and Linux, with a
+  table of what works and what is tested on each. MCP registrations use
+  absolute paths; the old `claude mcp add antigravity -- python
+  tools/antigravity_mcp_server.py` only worked from inside the Wisp folder.
+  The docs say that the repository's `opencode.json` is Windows-only and give
+  the macOS/Linux entry. `SECURITY.md` and the delegation playbook are
+  rewritten in plain language, and stale facts are corrected (skill counts,
+  retired verdict names, what a malformed skill file does, and that
+  `.antigravity-reports/` must be ignored in your own project).
 - Skill registry v4: all twelve playbooks rewritten to one authoring contract
   (Mission, Method, Checklist, Evidence standard, Severity guide,
   Skill-specific output, Anti-patterns, Done when), each with a standalone
@@ -68,6 +77,18 @@ independently; the Electron shell versions with the viewer.
   instead of the review protocol, so a quick question gets a direct answer.
 
 ### Added
+- One setup for every OS: `setup.bat` (Windows) and `./setup.sh` (macOS and
+  Linux) find Python 3.10+ and run `tools/wisp_setup.py`. It creates `.venv`,
+  installs the pinned dependencies, validates the playbooks, finds `agy` (on
+  `PATH` or in `~/.gemini/bin`) and reports its version, installs the
+  Electron overlay with `npm ci` when Node.js 18+ is present (by default only
+  on Windows), and prints ready-to-paste MCP registrations for Claude Code,
+  Codex and `mcpServers` clients with the machine's absolute paths. Options:
+  `--check` (report only), `--dev` (test tools plus the suite), `--widget` /
+  `--no-widget`, `--recreate-venv`. It never elevates, installs nothing
+  globally and only writes `.venv/` and `tools/wisp_shell/node_modules/`.
+  CI runs it from a clean checkout on Windows, Ubuntu and macOS.
+- `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1).
 - `CONTRIBUTING.md`, issue and pull request templates, Dependabot, and
   `.editorconfig`.
 - Five new playbooks: `pre-merge-diff-audit`,
