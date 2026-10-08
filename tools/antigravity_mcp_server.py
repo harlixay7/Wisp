@@ -4,7 +4,7 @@ Speaks Model Context Protocol v1 over stdio: newline-delimited JSON-RPC 2.0.
 stdout is reserved exclusively for protocol frames; all diagnostics go to
 stderr. Tools:
 
-* ``antigravity_review`` — delegate an adversarial review to Google Antigravity
+* ``antigravity_review`` — delegate an adversarial review to the Google Antigravity CLI
   (``agy``) and return the complete untruncated critique plus raw streams.
 * ``antigravity_status`` — resolved executable, workspace, registry, config.
 * ``antigravity_skills`` — adversarial skill registry listing.
@@ -81,7 +81,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "name": "antigravity_review",
         "description": (
-            "Delegate an adversarial review to Google Antigravity (agy). Use BEFORE "
+            "Delegate an adversarial review to the Google Antigravity CLI (agy). Use BEFORE "
             "implementing multi-file plans or high-risk changes (concurrency, persistence, "
             "process spawning, IPC) "
             "and BEFORE declaring work complete. Pass the necessary skill in 'skills' and up to 3 "

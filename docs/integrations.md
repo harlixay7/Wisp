@@ -18,11 +18,11 @@ get sharp answers, see [delegation-playbook.md](delegation-playbook.md).
 
 ## Before you start
 
-- Run setup (`setup.bat` on Windows, `./setup.sh` on macOS and Linux). At the
-  end it prints the registrations below with the absolute paths on your
-  machine already filled in, plus the command that installs the skill for
-  Claude Code. Run it again with `--check` to print them again without
-  changing anything.
+- Run setup (`setup.bat` on Windows, `./setup.sh` on macOS and Linux) to
+  install Wisp. To connect an assistant, run it again with `--connect`: it
+  finds Claude Code and Codex, asks before connecting each one, and prints the
+  entries below for every other assistant with the absolute paths on your
+  machine already filled in. The rest of this page is for doing it by hand.
 - Sign in by running `agy` once. Then run `agy` inside each project you want
   reviewed and accept its workspace-trust prompt, or add the project to
   `trustedWorkspaces` in `~/.gemini/antigravity-cli/settings.json`.
@@ -44,7 +44,7 @@ get sharp answers, see [delegation-playbook.md](delegation-playbook.md).
 Register the server for every project (`--scope user`):
 
 ```bash
-claude mcp add --scope user -e ANTIGRAVITY_HARNESS=claude-code antigravity -- \
+claude mcp add --scope user antigravity -e ANTIGRAVITY_HARNESS=claude-code -- \
   <wisp>/.venv/bin/python <wisp>/tools/antigravity_mcp_server.py
 ```
 

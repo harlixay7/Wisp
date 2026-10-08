@@ -24,3 +24,6 @@ Thumbs.db
 
 # Local agent worktrees
 .claude/worktrees/
+
+# Setup log (tools/wisp_setup.py)
+.wisp-setup.log

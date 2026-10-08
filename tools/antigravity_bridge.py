@@ -1,4 +1,4 @@
-"""Harness-agnostic bridge for delegating adversarial review to Google Antigravity (agy).
+"""Harness-agnostic bridge for delegating adversarial review to the Google Antigravity CLI (agy).
 
 The calling agent (any coding harness) uses this module to spawn the
 Antigravity CLI as an independent reviewer. The bridge provides:
@@ -94,7 +94,7 @@ DEFAULT_GRACE_SECONDS = 60
 DEFAULT_RETRIES = 2
 DEFAULT_RETRY_BACKOFF_SECONDS = 5.0
 
-WISP_VERSION = "1.1.0"
+WISP_VERSION = "1.0.0"
 # 2: reports carry ``review_verdict`` (the parsed WISP_VERDICT block).
 REPORT_SCHEMA_VERSION = 2
 DEFAULT_KEEP_REPORTS = 50
@@ -1972,7 +1972,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="antigravity_bridge.py",
         description=(
-            "Spawn Google Antigravity (agy) as an independent reviewer and return "
+            "Run the Google Antigravity CLI (agy) as an independent reviewer and return "
             "its complete, untruncated critique."
         ),
     )

@@ -1,0 +1,70 @@
+name: Release
+
+# Publishes a GitHub release with a source zip, a tarball, their SHA-256
+# checksums, and the matching CHANGELOG section as the release notes. Runs
+# when a version tag (for example v1.0.0) is pushed, or from the Actions tab,
+# where it tags the current commit with the version in pyproject.toml.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Publish the release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Work out the version and tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          declared="$(sed -n 's/^version = "\(.*\)".*/\1/p' pyproject.toml)"
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            tag="$GITHUB_REF_NAME"
+            if [ "${tag#v}" != "$declared" ]; then
+              echo "::error::Tag $tag does not match pyproject.toml version $declared"
+              exit 1
+            fi
+          else
+            tag="v$declared"
+            if gh release view "$tag" >/dev/null 2>&1; then
+              echo "::error::Release $tag already exists; bump the version first"
+              exit 1
+            fi
+          fi
+          echo "VERSION=$declared" >> "$GITHUB_ENV"
+          echo "TAG=$tag" >> "$GITHUB_ENV"
+
+      - name: Build the archives
+        run: |
+          mkdir dist
+          git archive --format=zip --prefix="wisp-$VERSION/" -o "dist/wisp-$VERSION.zip" "$GITHUB_SHA"
+          git archive --format=tar.gz --prefix="wisp-$VERSION/" -o "dist/wisp-$VERSION.tar.gz" "$GITHUB_SHA"
+          (cd dist && sha256sum "wisp-$VERSION.zip" "wisp-$VERSION.tar.gz" > SHA256SUMS.txt)
+
+      - name: Extract the release notes
+        run: |
+          awk -v header="## [$VERSION]" '
+            index($0, header) == 1 { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "::error::CHANGELOG.md has no section for $VERSION"
+            exit 1
+          fi
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" dist/* \
+            --target "$GITHUB_SHA" \
+            --title "Wisp $VERSION" \
+            --notes-file notes.md

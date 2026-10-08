@@ -1,7 +1,7 @@
 [project]
 name = "wisp"
-version = "1.1.0"  # keep in sync with tools/antigravity_bridge.py::WISP_VERSION
-description = "A second opinion for AI-written code: delegates adversarial review to the Antigravity CLI."
+version = "1.0.0"  # keep in sync with tools/antigravity_bridge.py::WISP_VERSION
+description = "A second set of eyes for AI coding agents: reviews their plans, claims and changes with the Google Antigravity CLI."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"

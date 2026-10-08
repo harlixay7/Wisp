@@ -1,11 +1,15 @@
 <p align="center">
-  <img src="docs/assets/wisp-hero.svg" width="100%" alt="Wisp. A second opinion for AI-written code. Your AI writes the code; Wisp checks it before you trust it. An owl cycles through moods as a review runs.">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/wisp-hero-dark.svg">
+    <img src="docs/assets/wisp-hero-light.svg" width="100%" alt="Wisp: a second set of eyes for every AI coding workflow. It reviews your coding agent's plans before it builds and checks its work afterwards, using the Google Antigravity CLI as an independent reviewer. The owl beside the title changes mood as a review runs.">
+  </picture>
 </p>
 
 <p align="center">
-  <a href="https://github.com/harlixay7/Wisp/actions/workflows/test.yml"><img src="https://img.shields.io/github/actions/workflow/status/harlixay7/Wisp/test.yml?branch=main&style=flat-square&label=tests&labelColor=0d1117&color=2ea043" alt="Test status"></a>
+  <a href="https://github.com/harlixay7/Wisp/actions/workflows/verify.yml"><img src="https://img.shields.io/github/actions/workflow/status/harlixay7/Wisp/verify.yml?branch=main&style=flat-square&label=tests&labelColor=0d1117&color=2ea043" alt="Test status"></a>
   <img src="https://img.shields.io/badge/python-3.10%2B-0d1117?style=flat-square&labelColor=0d1117&color=3b82c4" alt="Python 3.10 or newer">
   <img src="https://img.shields.io/badge/runs_on-Windows%20%7C%20Linux%20%7C%20macOS-0d1117?style=flat-square&labelColor=0d1117&color=6e7681" alt="Runs on Windows, Linux and macOS">
+  <a href="https://github.com/harlixay7/Wisp/releases/latest"><img src="https://img.shields.io/github/v/release/harlixay7/Wisp?style=flat-square&label=release&labelColor=0d1117&color=d29922" alt="Latest release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0d1117?style=flat-square&labelColor=0d1117&color=8957e5" alt="MIT license"></a>
 </p>
 
@@ -23,27 +27,51 @@
 
 <br>
 
-AI coding assistants are fast, and they are usually confident. The catch is
-that the same assistant that wrote the code is also the one telling you it
-works. It is grading its own homework.
+Coding agents are capable, but they slip in familiar ways. Deep into a long
+session they lose the thread: they call a helper that was never written,
+rewrite a function that already existed, leave a `TODO` where the logic should
+be, or get a calculation quietly wrong. Ask them for a fresh approach and they
+often circle back to the first idea they had.
 
-**Wisp gives you a second opinion.** When your coding assistant has a plan or
-a finished change, Wisp hands it to a separate AI reviewer whose only job is
-to find what's wrong. The reviewer reads your actual code, runs checks, and
-has to point to the file and line behind every finding. While it works, a
-small owl on your desktop shows you what it's doing, and when it's done you
-get the whole critique, word for word.
+**Wisp is a second set of eyes for your agent.** At the points where those
+slips cost the most, it hands the work to an independent reviewer, the
+[Google Antigravity CLI](https://antigravity.google), which reads your actual
+code and checks it:
+
+- **Plans, before anything is built.** Missing steps, wrong assumptions and
+  simpler routes come up while they are still cheap to fix, so the build
+  starts from the strongest plan.
+- **Claims, against the code.** "This helper already handles empty input",
+  "nothing else calls this", "the totals add up": each one is checked against
+  the code and the numbers are worked out again, so you know which hold.
+- **Changes, before you merge.** It looks for stubs and leftover `TODO`s,
+  calls to code that doesn't exist, work that was overwritten, and edge cases
+  nobody tested.
+- **Ideas, when the agent is stuck.** A second opinion on a design brings
+  real alternatives instead of the same answer reworded.
+
+Every finding points to the file and line behind it. Wisp doesn't replace
+your own review and tests; it means they start from work that has already
+been checked once. While the reviewer works, a small owl on your desktop shows
+you what it's doing, and when it's done you get the whole critique, word for
+word.
+
+Wisp works with the assistant you already use: Claude Code, Codex, Cursor,
+Cline or any other tool that speaks MCP, or straight from the command line.
 
 <p align="center">
-  <img src="docs/assets/wisp-demo.webp" width="100%" alt="A review running in the Wisp widget. The left side lists each step as it happens: review started, thinking through the plan, opened a file, searched the code, ran the tests, wrote up the findings. The widget on the right streams the reviewer's work live, then shows the verdict and a celebrating owl.">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/wisp-demo-dark.webp">
+    <img src="docs/assets/wisp-demo-light.webp" width="100%" alt="A review running in the Wisp widget. The left side lists each step as it happens: review started, thinking through the plan, opened a file, searched the code, ran the tests, wrote up the findings. The widget on the right streams the reviewer's work live, then shows the verdict and a celebrating owl.">
+  </picture>
 </p>
 <p align="center"><sub>A full review in the real app. The task was scripted for this recording; the widget and engine are the shipping code.</sub></p>
 
 ## Why it helps
 
-**Someone checks the work who didn't write it.** The reviewer runs as its own
-process with its own instructions. It isn't told the code is good and has no
-reason to agree with your assistant.
+**A reviewer with no stake in the answer.** The reviewer runs as its own
+process with its own instructions and a fresh view of your code. It isn't
+told the work is good, and it has no reason to agree with your agent.
 
 **Answers come with receipts.** Wisp asks for evidence rather than opinions:
 file paths, line numbers, and the output of commands the reviewer actually
@@ -64,7 +92,10 @@ so a glance at the corner of your screen tells you whether it's thinking,
 reading, writing, stuck, or finished.
 
 <p align="center">
-  <img src="docs/assets/wisp-moods.svg" width="100%" alt="The eleven moods of the owl: dormant, nothing running; awakening, a review just started; deliberating, thinking it through; reaching, opening a file or running a command; absorbing, reading what came back; composing, writing up the answer; impatient, no news for 20 seconds; strained, hit a hiccup and retrying; shifting, switched to the backup model; triumph, finished successfully; withered, the review failed.">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/wisp-moods-dark.svg">
+    <img src="docs/assets/wisp-moods-light.svg" width="100%" alt="The eleven moods of the owl: dormant, nothing running; awakening, a review just started; deliberating, thinking it through; reaching, opening a file or running a command; absorbing, reading what came back; composing, writing up the answer; impatient, no news for 20 seconds; strained, hit a hiccup and retrying; shifting, switched to the backup model; triumph, finished successfully; withered, the review failed.">
+  </picture>
 </p>
 
 ## A closer look
@@ -73,7 +104,10 @@ The widget has six views. Switch between them from the dock under the panel,
 or press <kbd>Ctrl</kbd> + <kbd>K</kbd> to search every action by name.
 
 <p align="center">
-  <img src="docs/assets/wisp-stream.webp" width="100%" alt="Stream view: the task pinned at the top, filters for thoughts, tools and output, and each step of the review as a card.">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/wisp-stream-dark.webp">
+    <img src="docs/assets/wisp-stream-light.webp" width="100%" alt="Stream view: the task pinned at the top, filters for thoughts, tools and output, and each step of the review as a card.">
+  </picture>
 </p>
 
 **Stream** is the full, live record of the review: what the reviewer thought,
@@ -82,7 +116,10 @@ down to thoughts, tool calls or the final answer, and copy any step. **Focus**
 is a calmer version that only shows the latest thoughts.
 
 <p align="center">
-  <img src="docs/assets/wisp-chat.webp" width="100%" alt="Chat view: a question about a failing test and a plain-language answer with the cause and the fix.">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/wisp-chat-dark.webp">
+    <img src="docs/assets/wisp-chat-light.webp" width="100%" alt="Chat view: a question about a failing test and a plain-language answer with the cause and the fix.">
+  </picture>
 </p>
 
 **Chat** is where you talk to it yourself. Highlight anything on your screen
@@ -96,7 +133,10 @@ context. The capture hotkeys need Windows and the desktop overlay; on other
 systems you type or paste into the chat instead.
 
 <p align="center">
-  <img src="docs/assets/wisp-verdict.webp" width="100%" alt="Verdict view: a Review complete banner, counters for thoughts, tool calls and retries, a summary of the answer, and buttons to ask a follow-up, copy the answer or replay the run.">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/wisp-verdict-dark.webp">
+    <img src="docs/assets/wisp-verdict-light.webp" width="100%" alt="Verdict view: a Review complete banner, counters for thoughts, tool calls and retries, a summary of the answer, and buttons to ask a follow-up, copy the answer or replay the run.">
+  </picture>
 </p>
 
 **Verdict** sums up the last run: whether the review finished, how long it
@@ -105,19 +145,23 @@ took, how many thoughts and tool calls it made, and a summary of the answer.
 plays the whole run back step by step.
 
 <p align="center">
-  <img src="docs/assets/wisp-history.webp" width="100%" alt="History view: a search field, saved conversations that can be pinned or deleted, and past reviews labelled by what was asked.">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/wisp-history-dark.webp">
+    <img src="docs/assets/wisp-history-light.webp" width="100%" alt="History view: a search field, saved conversations that can be pinned or deleted, and past reviews labelled by what was asked.">
+  </picture>
 </p>
 
 **History** keeps your past conversations and reviews, each labelled by what
-was asked. Search them, pin the ones you care about, or delete the rest. Reviews started from any project on your machine show up here,
-labelled by project, so it doesn't matter where your assistant was working.
+was asked. Search them, pin the ones you care about, or delete the rest.
+Reviews started from any project on your machine show up here, labelled by
+project, so it doesn't matter where your assistant was working.
 
 ## How it works
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/wisp-flow-dark.svg">
-    <img src="docs/assets/wisp-flow-light.svg" width="100%" alt="Your AI agent sends a plan, a claim and files to check to Wisp. Wisp packs the request and passes it to an independent reviewer, Google Antigravity, which reads your code. Everything the reviewer says comes back through Wisp to your agent as the full critique, appears live in the owl widget, and is saved as a report in .antigravity-reports.">
+    <img src="docs/assets/wisp-flow-light.svg" width="100%" alt="Your AI agent sends a plan, a claim and files to check to Wisp. Wisp packs the request and hands it to the reviewer, the Google Antigravity CLI, which reads your code. Everything the reviewer says comes back through Wisp to your agent as the full critique, appears live in the owl widget, and is saved as a report in .antigravity-reports.">
   </picture>
 </p>
 
@@ -177,20 +221,31 @@ cd Wisp
 ./setup.sh
 ```
 
-Setup finds a suitable Python, creates a virtual environment in `.venv`,
-installs the pinned dependencies, checks the review playbooks, and looks for
-the Antigravity CLI. On Windows it also installs the desktop overlay if
-Node.js is available. Each step prints `[ok]`, or a short note that says what
-is missing and how to fix it. At the end it prints your next steps, with the
-paths on your machine already filled in.
+Prefer not to use Git? Download the zip from the
+[latest release](https://github.com/harlixay7/Wisp/releases/latest), unzip
+it, and run the same setup command inside the folder (on macOS or Linux,
+`sh setup.sh` works even if the file lost its executable flag).
 
-Setup never asks for administrator rights, installs nothing globally, and
-doesn't touch your Antigravity sign-in. It only writes inside the Wisp
-folder: `.venv/` and, for the overlay, `tools/wisp_shell/node_modules/`. You
-can run it again whenever you like.
+Setup gets Wisp installed and proves it works. It finds Python (and offers
+to install it if there is none), creates a virtual environment in `.venv`,
+installs the pinned dependencies, checks the review playbooks and looks for
+the Antigravity CLI. If the CLI is missing, it opens the download page and
+waits while you install it. Then it runs a self-test that starts the engine
+and the MCP server the way your assistant will. On Windows it also installs
+the desktop overlay, offering to install Node.js first if needed.
+
+Each step prints `[ok]` or a short note that says what is missing and how to
+fix it. If something fails, setup ends with a summary of what went wrong and
+what to try, and the full log is in `.wisp-setup.log`.
+
+Setup asks before it installs anything or changes anything outside the Wisp
+folder, and it never touches your Antigravity sign-in or your coding
+assistant. You can run it again whenever you like.
 
 | Option | What it does |
 | --- | --- |
+| `--connect` | Connects Claude Code or Codex (asks for each one). See [Connect your coding assistant](#connect-your-coding-assistant). |
+| `--yes` | Accepts every offer without asking. |
 | `--check` | Reports on your setup without changing anything. |
 | `--dev` | Also installs pytest and ruff, then runs the test suite. |
 | `--widget` | Installs the desktop overlay on macOS or Linux too (untested there). |
@@ -274,10 +329,12 @@ takes two steps: register Wisp's MCP server, which gives the assistant the
 review tools, and install the delegation skill, which tells it when to ask for
 a review and how to act on the answer.
 
-The easiest way is to copy what setup printed at the end. It shows the exact
-commands for Claude Code (server and skill), Codex and other MCP clients, with
-the full paths on your machine filled in. Run `./setup.sh --check` (or `setup.bat --check`) to
-print them again. Restart your assistant afterwards, because assistants only
+The easiest way is `setup.bat --connect` (or `./setup.sh --connect`). It finds
+Claude Code and Codex if you have them and asks before connecting each one:
+it registers the MCP server, installs the delegation skill for Claude Code,
+and adds the Codex entry (keeping a backup of your Codex config). For any
+other assistant it prints the entry to paste, with the full paths on your
+machine filled in. Restart your assistant afterwards, because assistants only
 load MCP servers when they start.
 
 The paths have to be absolute. Your assistant starts the server from whatever
@@ -288,7 +345,7 @@ examples below, `<wisp>` stands for the folder you cloned Wisp into.
 **Claude Code.** Register the server for every project:
 
 ```bash
-claude mcp add --scope user -e ANTIGRAVITY_HARNESS=claude-code antigravity -- \
+claude mcp add --scope user antigravity -e ANTIGRAVITY_HARNESS=claude-code -- \
   <wisp>/.venv/bin/python <wisp>/tools/antigravity_mcp_server.py
 ```
 
@@ -305,9 +362,8 @@ version and the per-project location.
 
 **Codex, Cline, Cursor, Roo Code, opencode and others** each take a short
 config entry. [docs/integrations.md](docs/integrations.md) has the entry and
-the skill location for each one. Assistants
-without MCP support, such as Aider, can run the command from
-[step 4](#4-run-your-first-review) instead.
+the skill location for each one. Assistants without MCP support, such as
+Aider, can run the command from [step 4](#4-run-your-first-review) instead.
 
 The server reviews the folder your assistant is working in. Your assistant
 can name a different folder in the `workspace` field of a request, or you can
@@ -403,6 +459,9 @@ full details.
 
 ## Good to know
 
+- **Wisp is an independent project.** It isn't made by or affiliated with
+  Google. It runs the Google Antigravity CLI that you install and sign in to
+  yourself, and works with whichever models your Antigravity account offers.
 - **Very large requests can hit a Windows limit.** The request travels on
   the `agy` command line, which Windows caps at 32,767 characters. Wisp stops
   a little before that, with a message saying what to shorten. Moving long
@@ -423,13 +482,13 @@ Python 3.10 and 3.13.
 the suite. After that:
 
 ```bash
-python -m pytest tests/ -q                # 464 test cases
+python -m pytest tests/ -q                # 475 test cases
 ruff check .                              # lint
 python -m tools.skill_loader --validate   # check the playbooks
 ```
 
-Use the Python inside `.venv`, or activate it first. [CONTRIBUTING.md](CONTRIBUTING.md)
-covers the rest, and everyone taking part is expected to follow the
+Use the Python inside `.venv`, or activate it first.
+[CONTRIBUTING.md](CONTRIBUTING.md) covers the rest, and everyone taking part is expected to follow the
 [code of conduct](CODE_OF_CONDUCT.md). Please report security problems
 privately, as described in [SECURITY.md](SECURITY.md#reporting-a-vulnerability).
 

@@ -25,7 +25,7 @@ project, follow
 | `tools/wisp_shell/` | Electron shell that hosts the widget as a transparent overlay. |
 | `tools/viewer_assets/*.png` | Owl artwork (black background, screen-blended). |
 | `tools/skill_loader.py` | Playbook discovery, metadata validation, name and alias resolution, prompt rendering. |
-| `tools/wisp_setup.py`, `setup.bat`, `setup.sh` | Cross-platform setup and `--check`. Standard library only. |
+| `tools/wisp_setup.py`, `setup.bat`, `setup.sh` | Cross-platform setup, self-test, `--connect` and `--check`. Standard library only; asks before every install or outside change. |
 | `Skills/NN_<name>.md` | Review playbooks (Markdown with YAML front matter). |
 | `integrations/antigravity-delegation/SKILL.md` | The delegation skill assistants install. Single source for the request format, skill routing and reconciliation rules. |
 | `docs/integrations.md` | Human setup guide for each assistant, server settings, CLI options, troubleshooting. |

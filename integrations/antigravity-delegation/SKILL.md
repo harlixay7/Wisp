@@ -1,8 +1,8 @@
 ---
 name: antigravity-delegation
 description: >-
-  Use when work should be checked by an independent reviewer before you trust
-  it: before building a multi-file plan, before touching a high-risk seam
+  Use when a plan, a change or a claim should be checked by an independent
+  reviewer: before building a multi-file plan, before touching a high-risk seam
   (concurrency, persistence, process spawning, IPC, caching, destructive file
   operations), before declaring a task done, after two failed fixes for the same
   problem, or when the user asks for a second opinion, an audit, or to have

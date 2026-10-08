@@ -92,12 +92,20 @@ from, and how to report a problem.
 
 ## Setup
 
-`setup.bat` and `setup.sh` only look for Python and then run
-`tools/wisp_setup.py`, which:
+`setup.bat` and `setup.sh` look for Python (offering to install it with
+winget, Homebrew or your Linux package manager when there is none) and then
+run `tools/wisp_setup.py`, which:
 
-- never asks for administrator rights and installs nothing globally;
-- writes only inside the Wisp folder: `.venv/` and, for the desktop overlay,
-  `tools/wisp_shell/node_modules/`;
+- asks before every install and every change outside the Wisp folder. The
+  offers are: Python, Node.js (for the desktop overlay), `agy install` to put
+  the Antigravity CLI on your PATH, and, with `--connect` only, registering
+  Wisp with Claude Code or Codex and copying the delegation skill. Installers
+  such as winget may show their own permission prompt. Without a terminal,
+  or with `--no-input`, it asks nothing and installs nothing;
+- otherwise writes only inside the Wisp folder: `.venv/`,
+  `tools/wisp_shell/node_modules/` for the desktop overlay, and its log,
+  `.wisp-setup.log`;
+- keeps a backup (`config.toml.wisp-backup`) before it edits a Codex config;
 - installs the exact versions pinned in `requirements.txt` (or
   `requirements-dev.txt`) from PyPI, and the Electron shell with `npm ci`,
   which installs exactly what `package-lock.json` lists;
