@@ -3124,7 +3124,7 @@ function openPalette() {
   $('palette').classList.add('on');
   updateInteractive();
   syncShape();
-  setTimeout(() => $('paletteInput').focus(), 10);
+  $('paletteInput').focus({ preventScroll: true });
 }
 
 function closePalette(keepFocus) {
