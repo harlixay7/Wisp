@@ -56,7 +56,7 @@ Full JSON report → <workspace>/.antigravity-reports/antigravity-report-<timest
 | `tools/antigravity_containment.py` | Process-tree containment (Windows Job Objects, POSIX process groups). |
 | `tools/antigravity_aggregate.py` | `stream-json` aggregation into the organized critique. |
 | `tools/antigravity_mcp_server.py` | MCP stdio server: `antigravity_review`, `antigravity_status`, `antigravity_skills`. |
-| `tools/antigravity_mcp.cmd` | Windows launcher (resolves repo root, pins models, defaults `ANTIGRAVITY_WORKSPACE` to the Wisp repo, starts the server). |
+| `tools/antigravity_mcp.cmd` | Windows launcher (resolves repo root, pins models, starts the server in the assistant's working folder). |
 | `setup.bat`, `setup.sh`, `tools/wisp_setup.py` | Cross-platform setup and environment check (`--check`, `--dev`, `--widget`, `--no-widget`, `--recreate-venv`). |
 | `tools/skill_loader.py` | `Skills/` registry discovery, metadata validation, prompt rendering. |
 | `Skills/NN_<name>.md` | 17 adversarial skills; selected ones travel as brief + path, and every payload carries a one-line index of all of them. |
@@ -355,9 +355,9 @@ passes `workspace`.
   }
   ```
 - **Windows launcher** — `tools/antigravity_mcp.cmd` (run as `cmd.exe /c <path>`) uses
-  the venv Python, pins the top-tier models, and sets `ANTIGRAVITY_WORKSPACE` to the
-  Wisp repo when it is unset, so reviews default to the Wisp repo itself unless the
-  call passes `workspace`.
+  the venv Python and pins the top-tier models. Like the direct entry, it reviews the
+  harness's working directory unless `ANTIGRAVITY_WORKSPACE` is set or the call passes
+  `workspace`.
 
 Optional persistent mode: a long-running HTTP server can be registered as a `remote`
 MCP server (opencode: `{"type": "remote", "url": "...", "headers": {...}}`), but this
@@ -419,8 +419,7 @@ is `<wisp>/.venv/bin/python` (macOS/Linux) or `<wisp>\.venv\Scripts\python.exe`
 Workspace: the server reviews its working directory (normally the harness's
 project). Set `ANTIGRAVITY_WORKSPACE` in the entry's environment to pin one, or pass
 `workspace` per call. On Windows, `cmd.exe /c <wisp>\tools\antigravity_mcp.cmd` also
-works as the command, but that launcher defaults `ANTIGRAVITY_WORKSPACE` to the Wisp
-repo, so calls must pass `workspace` to review another project.
+works as the command and behaves the same way.
 
 **Invariant:** the harness must be **restarted** after registration — MCP servers are
 read once at startup in every harness.
@@ -555,7 +554,7 @@ python tools/antigravity_bridge.py \
 | MCP tool not listed | Harness not restarted; wrong config section (opencode requires `"mcp"`, not `"mcpServers"`); relative or wrong server path (use the absolute paths setup prints); `opencode.json` from this repo used on macOS/Linux (it calls `cmd.exe`). |
 | opencode refuses to start | Invalid config key — compare against §2 §7 snippet or the official schema. |
 | `Skill registry directory not found` | Wrong workspace; pass `--workspace` / `--skill-dir`; the registry lives in `Skills/`. |
-| Reviews look at the Wisp repo instead of your project | The server was started via `antigravity_mcp.cmd`, or with `ANTIGRAVITY_WORKSPACE` set to the Wisp repo; register the venv Python directly (§3.2) or pass `workspace`. |
+| Reviews look at the Wisp repo instead of your project | `ANTIGRAVITY_WORKSPACE` is set to the Wisp repo, or the harness starts servers in the Wisp folder; remove the variable or pass `workspace`. |
 | Setup cannot create `.venv` on Debian/Ubuntu | Install `python3-venv`, then rerun setup. |
 | Rate-limit failures | Wait `resets_in`; rotate account (§4.3); optionally configure `--quota-hook`. |
 | Timeout | Raise `--print-timeout`; hard kill happens at print-timeout + `--grace-seconds`. |

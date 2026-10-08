@@ -468,6 +468,9 @@ def check_engine(report: Report, python: Path) -> None:
         "playbooks"
     )
     for warning in status.get("warnings", []):
+        # A missing agy is already explained in the Antigravity CLI section.
+        if status.get("executable_found") is False and "was not found" in str(warning):
+            continue
         report.warn(str(warning))
 
 

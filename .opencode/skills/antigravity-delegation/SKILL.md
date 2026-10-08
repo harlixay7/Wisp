@@ -272,9 +272,9 @@ passes `workspace`.
   }
   ```
 - **Windows launcher** — `tools/antigravity_mcp.cmd` (run as `cmd.exe /c <path>`) uses
-  the venv Python, pins the top-tier models, and sets `ANTIGRAVITY_WORKSPACE` to the
-  Wisp repo when it is unset, so reviews default to the Wisp repo itself unless the
-  call passes `workspace`.
+  the venv Python and pins the top-tier models. Like the direct entry, it reviews the
+  harness's working directory unless `ANTIGRAVITY_WORKSPACE` is set or the call passes
+  `workspace`.
 
 Optional persistent mode: a long-running HTTP server can be registered as a `remote`
 MCP server (opencode: `{"type": "remote", "url": "...", "headers": {...}}`), but this

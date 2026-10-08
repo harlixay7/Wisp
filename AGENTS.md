@@ -155,9 +155,8 @@ absolute path, in each harness you use — opencode: `opencode.json`; Codex:
 settings JSON. `setup.bat` / `./setup.sh` print these entries with the machine's
 real paths. The server reviews its working directory unless `ANTIGRAVITY_WORKSPACE`
 is set or the call passes `workspace`. On Windows, `tools/antigravity_mcp.cmd`
-(run via `cmd.exe /c`) also works; it pins the top-tier model chain and defaults
-`ANTIGRAVITY_WORKSPACE` to the Wisp repo. The repo's `opencode.json` uses that
-launcher, so it is Windows-only. Harnesses spawn registered servers automatically at startup and terminate
+(run via `cmd.exe /c`) also works; it uses the venv Python and pins the top-tier
+model chain. The repo's `opencode.json` uses that launcher, so it is Windows-only. Harnesses spawn registered servers automatically at startup and terminate
 them at exit; there is nothing to start manually and no background service.
 Harnesses without MCP support use the CLI fallback, which also persists the
 complete report under `.antigravity-reports/`.

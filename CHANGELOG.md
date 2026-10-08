@@ -13,6 +13,9 @@ independently; the Electron shell versions with the viewer.
 ## [Unreleased]
 
 ### Fixed
+- `tools/antigravity_mcp.cmd` no longer points every review at the Wisp
+  folder; like the direct entry, it reviews the assistant's working folder
+  unless `ANTIGRAVITY_WORKSPACE` is set.
 - A clean review that quotes text such as `RESOURCE_EXHAUSTED` is no longer
   misclassified as rate-limited; a clean exit whose only output is a quota
   message still fails over.
