@@ -37,6 +37,7 @@ from tools.antigravity_viewer import (
     existing_viewer,
     extract_chat_answer,
     list_runs,
+    main as viewer_main,
     newest_run,
     newest_run_across,
     parse_model_list,
@@ -44,7 +45,6 @@ from tools.antigravity_viewer import (
     url_host,
     write_viewer_settings,
 )
-from tools.antigravity_viewer import main as viewer_main
 from tools.wisp_chat import MAX_MESSAGE_CHARS
 
 PNG_BLOB = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64

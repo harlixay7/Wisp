@@ -12,8 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.helpers.win32 import pid_alive as windows_pid_alive
-from tests.helpers.win32 import terminate_pids
+from tests.helpers.win32 import pid_alive as windows_pid_alive, terminate_pids
 from tools import antigravity_containment as containment
 from tools.antigravity_bridge import _descendant_pids, launch_contained, sanitize_environment
 

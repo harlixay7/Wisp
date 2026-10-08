@@ -48,25 +48,23 @@ if __package__ in (None, ""):
     # root on sys.path so the absolute ``tools.`` imports below resolve.
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from tools.antigravity_aggregate import (  # noqa: E402
+from tools.antigravity_aggregate import (
     _DeltaBuffer as _DeltaBuffer,
     aggregate_stream_json,
 )
-from tools.antigravity_containment import (  # noqa: E402
+from tools.antigravity_containment import (
     _CREATE_SUSPENDED,
+    _INVALID_WINDOWS_HANDLE as _INVALID_WINDOWS_HANDLE,
     CONTAINMENT_LABELS,
     _assign_to_job_object,
     _close_job_object,
     _create_job_object,
+    _descendant_pids as _descendant_pids,
     _resume_primary_thread,
     _signal_process_group,
     _terminate_process_tree,
 )
-from tools.antigravity_containment import (  # noqa: E402
-    _descendant_pids as _descendant_pids,
-    _INVALID_WINDOWS_HANDLE as _INVALID_WINDOWS_HANDLE,
-)
-from tools.antigravity_live import (  # noqa: E402
+from tools.antigravity_live import (
     DEFAULT_KEEP_RUNS,
     LIVE_DIR_NAME,
     CallbackSink,
@@ -77,7 +75,7 @@ from tools.antigravity_live import (  # noqa: E402
     parse_stream_line,
     register_live_dir,
 )
-from tools.skill_loader import (  # noqa: E402
+from tools.skill_loader import (
     DEFAULT_SKILL_DIR,
     SkillError,
     SkillLoader,
@@ -313,7 +311,7 @@ def _has_review_text(stdout: str) -> bool:
     )
 
 
-def attempt_succeeded(attempt: "AttemptResult") -> bool:
+def attempt_succeeded(attempt: AttemptResult) -> bool:
     """A run is successful only when it exits cleanly with a real review.
 
     stdout is the stream that carries the ``stream-json`` critique; a clean
@@ -333,7 +331,7 @@ def attempt_succeeded(attempt: "AttemptResult") -> bool:
     return True
 
 
-def is_transient_failure(attempt: "AttemptResult") -> bool:
+def is_transient_failure(attempt: AttemptResult) -> bool:
     """Classifies retryable failures (network resets, 5xx, empty responses)."""
     if attempt.exit_code == 0:
         return not attempt_succeeded(attempt)
@@ -432,7 +430,7 @@ class DelegationEnvelope:
     notes: str = ""
 
     @classmethod
-    def from_mapping(cls, data: Mapping[str, Any]) -> "DelegationEnvelope":
+    def from_mapping(cls, data: Mapping[str, Any]) -> DelegationEnvelope:
         if not isinstance(data, Mapping):
             raise ValueError("Delegation envelope must be a JSON object")
         prompt = str(data.get("prompt") or "").strip()

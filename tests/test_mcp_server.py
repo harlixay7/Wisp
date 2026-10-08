@@ -12,8 +12,7 @@ import pytest
 from tests.helpers import ROOT
 from tests.helpers.mcp import request, serve
 from tools import antigravity_mcp_server as server
-from tools.antigravity_bridge import AttemptResult, BridgeResult
-from tools.antigravity_bridge import run_bridge as real_run_bridge
+from tools.antigravity_bridge import AttemptResult, BridgeResult, run_bridge as real_run_bridge
 from tools.antigravity_mcp_server import (
     PROTOCOL_VERSION,
     SUPPORTED_PROTOCOL_VERSIONS,
