@@ -1198,10 +1198,10 @@ class TestAskPrompt:
     def test_prompt_lists_all_images(self) -> None:
         prompt = build_ask_prompt("check", "", ("a/b.png", "c/d.jpg"))
 
-        assert "## ATTACHED IMAGES" in prompt
+        assert "## Attached images" in prompt
         assert "`a/b.png`" in prompt
         assert "`c/d.jpg`" in prompt
-        assert "ATTACHED IMAGES" not in build_ask_prompt("check", "", ())
+        assert "Attached images" not in build_ask_prompt("check", "", ())
 
     def test_ask_prompt_demands_brevity(self) -> None:
         prompt = build_ask_prompt("what is a list comprehension?", "", ())
@@ -1364,7 +1364,8 @@ class TestAskLockRelease:
         base, _ = fake_viewer
         status, data = post_json(base, "/api/ask", {"prompt": "x" * (MAX_MESSAGE_CHARS + 1)})
         assert status == 400
-        assert "MAX_MESSAGE_CHARS" in data["error"]
+        assert "too long" in data["error"]
+        assert str(MAX_MESSAGE_CHARS) in data["error"]
 
     def test_oversized_prompt_does_not_brick_the_ask_feature(self, fake_viewer) -> None:
         base, _ = fake_viewer
@@ -1419,22 +1420,21 @@ class TestChatAnswerExtraction:
     def test_prefers_critique_section(self) -> None:
         report = "\n".join(
             [
-                "# ANTIGRAVITY ADVERSARIAL DELEGATION REPORT",
+                "# Antigravity delegation report",
                 "- **Verdict**: SUCCESS",
                 "",
-                "## Antigravity Critique â€” `gemini-3.8-flash-high` (PRIMARY)",
+                "## Review verdict",
+                "",
+                "- **Verdict**: PASS (confidence: high)",
+                "",
+                "## Antigravity Critique \u2014 `gemini-3.8-flash-high` (primary)",
                 "",
                 "### Findings & Response",
                 "",
                 "Bottom line: looks fine.",
                 "",
                 "### Lifecycle",
-                "- step 4 Â· DONE",
-                "",
-                "## Complete stdout (verbatim) â€” `gemini-3.8-flash-high`",
-                "```text",
-                json.dumps({"event": "step_update", "step_update": {"text_delta": "raw"}}),
-                "```",
+                "- step 4 \u00b7 DONE",
             ]
         )
 
@@ -1442,14 +1442,14 @@ class TestChatAnswerExtraction:
 
         assert "Bottom line: looks fine." in answer
         assert "step 4" in answer
-        assert "Complete stdout" not in answer
-        assert "step_update" not in answer
+        assert "Review verdict" not in answer
+        assert "delegation report" not in answer
         assert not answer.startswith("## Antigravity Critique")
 
-    def test_fallback_trim_without_marker(self) -> None:
-        answer = extract_chat_answer("plain answer\n## Complete stderr\njunk")
+    def test_report_without_critique_is_returned_whole(self) -> None:
+        report = "# Antigravity delegation report\n\nagy was not found."
 
-        assert answer == "plain answer"
+        assert extract_chat_answer(report) == report
 
     def test_empty_report_is_explicit(self) -> None:
         assert "No answer" in extract_chat_answer("")

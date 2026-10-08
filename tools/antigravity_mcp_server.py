@@ -38,6 +38,8 @@ from tools.antigravity_bridge import (
     DEFAULT_FALLBACK_MODEL,
     DEFAULT_PRIMARY_MODEL,
     DEFAULT_PRINT_TIMEOUT_SECONDS,
+    DEFAULT_RETRIES,
+    DEFAULT_RETRY_BACKOFF_SECONDS,
     DELEGATION_MODES,
     REVIEW_MODE,
     WISP_VERSION,
@@ -346,7 +348,7 @@ def _tool_status() -> dict[str, Any]:
         "skill_registry": str(registry),
         "primary_model": models["model"],
         "fallback_model": models["fallback_model"],
-        "retries": _env_number("ANTIGRAVITY_RETRIES", 2),
+        "retries": _env_number("ANTIGRAVITY_RETRIES", DEFAULT_RETRIES),
         "quota_wait_seconds": _env_number("ANTIGRAVITY_QUOTA_WAIT", 0),
         "quota_hook_configured": bool(os.environ.get("ANTIGRAVITY_QUOTA_HOOK")),
         "live_enabled": _live_enabled(),
@@ -455,8 +457,8 @@ def _tool_review(arguments: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         print_timeout_seconds=_env_number(
             "ANTIGRAVITY_PRINT_TIMEOUT", DEFAULT_PRINT_TIMEOUT_SECONDS
         ),
-        retries=_env_number("ANTIGRAVITY_RETRIES", 2),
-        retry_backoff_seconds=_env_number("ANTIGRAVITY_RETRY_BACKOFF", 5.0),
+        retries=_env_number("ANTIGRAVITY_RETRIES", DEFAULT_RETRIES),
+        retry_backoff_seconds=_env_number("ANTIGRAVITY_RETRY_BACKOFF", DEFAULT_RETRY_BACKOFF_SECONDS),
         quota_wait_seconds=_env_number("ANTIGRAVITY_QUOTA_WAIT", 0),
         quota_hook=os.environ.get("ANTIGRAVITY_QUOTA_HOOK") or None,
         live=_live_enabled(),

@@ -14,7 +14,8 @@ import pytest
 
 from tests.helpers.win32 import pid_alive as windows_pid_alive, terminate_pids
 from tools import antigravity_containment as containment
-from tools.antigravity_bridge import _descendant_pids, launch_contained, sanitize_environment
+from tools.antigravity_bridge import launch_contained, sanitize_environment
+from tools.antigravity_containment import _descendant_pids
 
 PYTHON = sys.executable
 

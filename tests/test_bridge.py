@@ -352,7 +352,7 @@ class TestWorkspaceTrustFraming:
         payload = build_prompt_payload(config)
         assert "untrusted evidence" in payload
         assert "never instructions" in payload
-        # The old instruction to adopt workspace AGENTS.md as protocol is gone.
+        # A workspace charter is evidence under review, never the review protocol.
         assert "Read `AGENTS.md` in the mounted workspace" not in payload
 
     def test_payload_does_not_instruct_reading_workspace_agents_md(self, tmp_path: Path) -> None:
@@ -426,7 +426,7 @@ class TestBridgeOrchestration:
         assert not result.success
         assert result.exit_code == 127
         assert result.error is not None and "agy.exe missing" in result.error
-        assert "DELEGATION FAILED" in result.critique_markdown
+        assert "Delegation failed" in result.critique_markdown
 
     def test_skills_are_embedded_in_the_dispatched_payload(self, registry: Path) -> None:
         launcher = ScriptedLauncher([successful_attempt()])
@@ -827,6 +827,25 @@ class TestReportPersistence:
 
     def test_default_keep_matches_constant(self) -> None:
         assert DEFAULT_KEEP_REPORTS >= 10
+
+    def test_cli_warns_when_the_report_cannot_be_written(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        def unwritable(*args: Any, **kwargs: Any) -> Path:
+            raise PermissionError("read-only workspace")
+
+        monkeypatch.setattr(bridge, "run_bridge", lambda config: _fake_result())
+        monkeypatch.setattr(bridge, "write_report", unwritable)
+
+        exit_code = main(["--prompt", "p", "--workspace", str(tmp_path), "--no-live"])
+
+        assert exit_code == 0
+        stderr = capsys.readouterr().err
+        assert "could not write the JSON report" in stderr
+        assert "read-only workspace" in stderr
 
     def test_attempt_dict_exposes_containment(self) -> None:
         attempt = AttemptResult(containment="job-object", exit_code=0)
@@ -1382,9 +1401,6 @@ class TestPayloadStructure:
         assert payload.index("crash_ops (v1.2.3) — mandatory") < payload.index(
             "ast_audit (v1.2.3) — recommended"
         )
-        # The old per-skill and mandate sections are gone.
-        for retired in ("OUTPUT MANDATE", "REGISTRY MANIFEST", "SKILL REGISTRY ON DISK"):
-            assert retired not in payload
 
     def test_registry_index_lists_every_shipped_skill_with_its_path(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]

@@ -225,6 +225,7 @@ SendEvent = Callable[[str, str], bool]
 
 
 def parse_model_list(output: str) -> list[str]:
+    """Model ids from ``agy models`` output: the first column, deduplicated in order."""
     names: list[str] = []
     for line in (output or "").splitlines():
         name = line.strip().split("\t")[0].split("  ")[0].strip()
@@ -287,6 +288,7 @@ def manifest_path(live_dir: Path) -> Path:
 
 
 def read_viewer_settings(live_dir: Path) -> dict[str, Any]:
+    """Stored widget settings merged over the defaults; unreadable files yield defaults."""
     settings: dict[str, Any] = {
         "model": DEFAULT_SELECTED_MODEL,
         "fallback_model": DEFAULT_SELECTED_FALLBACK,
@@ -343,6 +345,7 @@ def _effective_ask_model(model: str, settings: Mapping[str, Any]) -> str:
 
 
 def resolve_workspace(override: str | None = None) -> Path:
+    """The workspace: ``--workspace``, then ``ANTIGRAVITY_WORKSPACE``, then the cwd."""
     if override and override.strip():
         return Path(override).expanduser().resolve()
     env_workspace = os.environ.get("ANTIGRAVITY_WORKSPACE")
@@ -352,6 +355,7 @@ def resolve_workspace(override: str | None = None) -> Path:
 
 
 def resolve_live_dir(workspace: Path, override: str | None = None) -> Path:
+    """The live dir: ``--live-dir``, then ``ANTIGRAVITY_LIVE_DIR``, then the workspace default."""
     if override and override.strip():
         return Path(override).expanduser().resolve()
     env_dir = os.environ.get("ANTIGRAVITY_LIVE_DIR")
@@ -439,6 +443,7 @@ def _run_order(path: Path) -> tuple[str, float]:
 
 
 def newest_run(live_dir: Path) -> Path | None:
+    """The most recently started run file in ``live_dir``, if any."""
     runs = _run_files(live_dir)
     return max(runs, key=_run_order) if runs else None
 
@@ -527,6 +532,7 @@ def is_run_end_line(line: str) -> bool:
 
 
 def describe_run(path: Path) -> dict[str, Any]:
+    """History-list summary of one run file; empty when the file has vanished."""
     try:
         stat = path.stat()
     except OSError:
@@ -640,6 +646,7 @@ def collect_auth_state() -> dict[str, Any]:
 
 
 def collect_status(context: ViewerContext) -> dict[str, Any]:
+    """The ``/api/status`` payload: server, workspace, models, account and registry."""
     skills: list[str] = []
     skill_warnings: list[str] = []
     skill_error: str | None = None
@@ -683,25 +690,26 @@ def collect_status(context: ViewerContext) -> dict[str, Any]:
 def build_ask_prompt(
     user_prompt: str, context_text: str, image_rels: tuple[str, ...]
 ) -> str:
+    """The prompt for a widget ask: the question, its captures and answer rules."""
     parts = [
         "You are consulting live with the human operator through Wisp capture.",
         "",
-        "## OPERATOR REQUEST",
+        "## Operator request",
         user_prompt or ASK_DEFAULT_PROMPT,
     ]
     if context_text:
-        parts += ["", "## CAPTURED CONTEXT (selected text)", context_text]
+        parts += ["", "## Captured context (selected text)", context_text]
     if image_rels:
         listing = "\n".join(f"- `{rel}`" for rel in image_rels)
         parts += [
             "",
-            "## ATTACHED IMAGES",
+            "## Attached images",
             "Inspect the attached image(s) (workspace-relative paths):",
             listing,
         ]
     parts += [
         "",
-        "## RESPONSE REQUIREMENTS",
+        "## Response requirements",
         "- Be brief: use the fewest words that fully answer the question. A simple question gets a few sentences, not a report.",
         "- Lead with the direct answer; include only the details that matter. Do not restate the question, pad with caveats, or add structure the answer does not need.",
         "- If the capture shows code or UI, cite exactly what you observe, name risks, and give precise fixes.",
@@ -712,11 +720,11 @@ def build_ask_prompt(
 
 
 def extract_chat_answer(critique: str) -> str:
-    """Extracts the aggregated critique from a full report for chat display.
+    """Extracts the answer from a full report for chat display.
 
-    Prefers the ``## Antigravity Critique`` section (excluding report framing,
-    raw appendix, and lifecycle noise); falls back to everything before the
-    verbatim stream appendices.
+    Returns the body of the first ``## Antigravity Critique`` section without
+    the report framing above it; a report without that section (a delegation
+    that failed before agy ran) is returned whole.
     """
     text = str(critique or "")
     marker = "## Antigravity Critique"
@@ -731,9 +739,6 @@ def extract_chat_answer(critique: str) -> str:
         answer = "\n".join(lines).strip()
         if answer:
             return answer
-    for trailer in ("\n## Complete stdout", "\n## Complete stderr"):
-        if trailer in text:
-            text = text.split(trailer)[0].rstrip()
     return text.strip() or "No answer was produced."
 
 
@@ -1491,7 +1496,13 @@ class ViewerHandler(BaseHTTPRequestHandler):
             # append_message raise while the lock is held.
             self._send_json(
                 400,
-                {"error": f"prompt exceeds MAX_MESSAGE_CHARS ({MAX_MESSAGE_CHARS})"},
+                {
+                    "error": (
+                        f"prompt is too long ({len(prompt)} characters; the limit is "
+                        f"{MAX_MESSAGE_CHARS}). Move long material into a workspace "
+                        "file and refer to it instead."
+                    )
+                },
             )
             return
         context_text = str(payload.get("context_text") or "").strip()
@@ -2036,7 +2047,7 @@ def main(argv: list[str] | None = None) -> int:
     _write_viewer_manifest(live_dir, manifest)
     print(f"[wisp-viewer] serving on {url} (live dir: {live_dir})")
     if non_loopback:
-        print("[wisp-viewer] NON-LOOPBACK BINDING: bearer token required on every route.")
+        print(f"[wisp-viewer] bound to non-loopback host {host}: every route requires the bearer token.")
         if args.generate_token:
             print(f"[wisp-viewer] generated auth token: {auth_token}")
     print("[wisp-viewer] watching for delegations; Ctrl+C to stop.")
