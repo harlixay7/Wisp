@@ -648,8 +648,10 @@ svg{flex:0 0 auto}
 .h-title{font-size:var(--fs-body);color:var(--text-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .h-meta{font-size:var(--fs-label);color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .h-acts{display:flex;align-items:center;gap:2px;flex:0 0 auto}
-.h-acts .icon-btn{opacity:0}
-.h-acts .icon-btn.on,.h-acts .icon-btn.armed,.hrow:hover .h-acts .icon-btn,.hrow:focus-within .h-acts .icon-btn{opacity:1}
+.h-acts .icon-btn,.h-acts .h-open{opacity:0;transition:opacity var(--d-micro),background var(--d-micro),color var(--d-micro)}
+.h-acts .icon-btn.on,.h-acts .icon-btn.armed,.hrow:hover .h-acts .icon-btn,.hrow:focus-within .h-acts .icon-btn,
+.hrow:hover .h-acts .h-open,.hrow:focus-within .h-acts .h-open{opacity:1}
+.h-acts .h-open{margin-right:2px}
 .viewing{font-size:var(--fs-label);color:var(--text-3);padding:0 6px}
 
 /* ================================================================
@@ -761,7 +763,7 @@ kbd{display:inline-flex;align-items:center;height:20px;padding:0 6px;border-radi
 
 .palette{
   position:absolute;z-index:50;right:var(--pad-right);bottom:calc(var(--pad-bottom) + var(--dock-h) + var(--gap));
-  width:min(var(--panel-w),calc(100vw - var(--pad-left) - var(--pad-right)));max-height:388px;
+  width:min(var(--panel-w),calc(100vw - var(--pad-left) - var(--pad-right)));max-height:min(424px,calc(100vh - var(--pad-bottom) - var(--dock-h) - var(--gap) - 16px));
   display:flex;flex-direction:column;overflow:hidden;border-radius:18px;
   background:var(--glass-strong);border:1px solid var(--glass-border);box-shadow:var(--highlight),var(--shadow-pop);
   backdrop-filter:blur(28px) saturate(160%);-webkit-backdrop-filter:blur(28px) saturate(160%);
@@ -1456,6 +1458,8 @@ function motionDuration(ms) {
 // Web Animations wrapper: drops transform/filter frames under gentle motion
 // (an all-movement animation becomes a fade-in) and does nothing when off.
 // Returns the Animation, or null when nothing ran; onDone always runs once.
+// fill:'forwards' holds the end frame only until onDone has run, unless
+// `hold` is set: then the caller (settleView) cancels it.
 function animate(node, frames, options, onDone) {
   let finished = false;
   const done = () => { if (!finished) { finished = true; if (onDone) onDone(); } };
@@ -1481,7 +1485,7 @@ function animate(node, frames, options, onDone) {
   });
   const settle = () => {
     done();
-    if (opts.fill === 'forwards') anim.cancel();
+    if (opts.fill === 'forwards' && !opts.hold) anim.cancel();
   };
   anim.onfinish = settle;
   anim.oncancel = done;
@@ -1627,7 +1631,7 @@ function flipPanelHeight(fromOffset, toOffset) {
   const panel = $('panel');
   const total = panel.offsetHeight;
   if (!total) return;
-  const options = { duration: MOTION.view, easing: MOTION.easeOut, fill: 'forwards' };
+  const options = { duration: MOTION.view, easing: MOTION.easeOut, fill: 'forwards', hold: true };
   const clip = (offset) => ({ clipPath: 'inset(' + offset + 'px 0 0 0 round ' + LAYOUT.radius + 'px)' });
   const shift = (offset) => ({ transform: 'translateY(' + offset + 'px)' });
   const squash = (offset) => ({ transform: 'scaleY(' + ((total - offset) / total).toFixed(4) + ')' });
@@ -1640,8 +1644,13 @@ function flipPanelHeight(fromOffset, toOffset) {
 function markDock(view) {
   document.querySelectorAll('.dk[data-mode]').forEach((button) => {
     const active = button.dataset.mode === view;
+    const changed = button.classList.contains('active') !== active;
     button.classList.toggle('active', active);
     button.setAttribute('aria-pressed', String(active));
+    // The newly active pill settles with a small spring.
+    if (changed && active) {
+      animate(button, [{ transform: 'scale(.9)' }, { transform: 'none' }], { duration: MOTION.view, easing: MOTION.spring });
+    }
   });
   $('settingsBtn').classList.toggle('active', view === 'settings');
   $('settingsBtn').setAttribute('aria-pressed', String(view === 'settings'));
@@ -1722,7 +1731,7 @@ function showView(next, options) {
       trackViewAnim(animate(prevEl, [
         { opacity: 1, transform: 'none' },
         { opacity: 0, transform: 'translateY(-4px) scale(.985)' },
-      ], { duration: MOTION.exit, fill: 'forwards' }));
+      ], { duration: MOTION.exit, fill: 'forwards', hold: true }));
       cleanup.push(() => prevEl.classList.remove('leaving'));
     }
     const tall = Math.max(fromH, toH);
@@ -1746,7 +1755,7 @@ function showView(next, options) {
     trackViewAnim(animate(box, [
       { opacity: 1, transform: 'none' },
       { opacity: 0, transform: 'translateY(8px) scale(.97)' },
-    ], { duration: MOTION.ui, fill: 'forwards' }));
+    ], { duration: MOTION.ui, fill: 'forwards', hold: true }));
     cleanup.push(() => {
       box.classList.remove('leaving');
       if (prevEl && app.dataset.view !== prev) prevEl.classList.remove('on');
@@ -1796,6 +1805,8 @@ function setText(id, text) {
 
 function updateHeader() {
   const view = app.dataset.view;
+  // The owl-only view has no header; the leaving panel keeps its last one.
+  if (view === 'emotion') return;
   const waiting = S.runActive ? 'Review in progress' : 'Waiting for the next review';
   let title = '';
   let sub = '';
@@ -1815,8 +1826,7 @@ function updateHeader() {
       sub = runs + (runs === 1 ? ' review' : ' reviews') + ' · ' + chats + (chats === 1 ? ' conversation' : ' conversations');
       break;
     }
-    case 'settings': title = 'Settings'; sub = 'Appearance, asks and account'; break;
-    default: title = 'Wisp'; sub = '';
+    default: title = 'Settings'; sub = 'Appearance, asks and account';
   }
   setText('viewTitle', title);
   setText('viewSub', sub);
@@ -3763,7 +3773,10 @@ function renderHistory() {
       event.stopPropagation();
       armConfirm(del, 'Delete?', () => deleteThread(item.id));
     });
-    acts.append(pin, del);
+    const open = el('button', 'btn small h-open', 'Open');
+    open.type = 'button';
+    open.addEventListener('click', (event) => { event.stopPropagation(); openThread(item.id); });
+    acts.append(open, pin, del);
     row.append(ico, main, acts);
     makeRowActivatable(row, () => openThread(item.id));
     chatList.appendChild(row);
