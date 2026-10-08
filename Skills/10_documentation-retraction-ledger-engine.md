@@ -117,7 +117,7 @@ misses missing prerequisites, shell differences and output that changed.
 **Commands and snippets**
 - Missing prerequisites: install step, virtual environment activation, build or
   migration step, a service that must be running, credentials the command silently needs.
-- Wrong working directory or relative paths that only work from the repo root.
+- Wrong working directory or relative paths that only work from the top-level directory.
 - Shell portability: `export X=1` versus `$env:X = "1"` versus `set X=1`; line
   continuation `\` versus backtick versus `^`; `python` versus `python3` versus `py`;
   path separators and quoting.
