@@ -76,7 +76,7 @@ Full JSON report → <workspace>/.antigravity-reports/antigravity-report-<timest
 Copy this block into your harness's skill location (see §3.1). It is **generated**
 from the canonical file — do not edit this block by hand; edit
 `.opencode/skills/antigravity-delegation/SKILL.md` and re-embed (a regression
-test in `tests/test_skill_registry_governance.py` fails when the two drift).
+test in `tests/test_repo_consistency.py` fails when the two drift).
 
 ````markdown
 ---

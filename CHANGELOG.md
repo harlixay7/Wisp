@@ -10,6 +10,45 @@ one product version; the adversarial skill registry (`Skills/`) and the
 delegation skill (`.opencode/skills/antigravity-delegation/SKILL.md`) version
 independently; the Electron shell versions with the viewer.
 
+## [Unreleased]
+
+### Fixed
+- A clean review that quotes text such as `RESOURCE_EXHAUSTED` is no longer
+  misclassified as rate-limited; a clean exit whose only output is a quota
+  message still fails over.
+- `ResumeThread` failures are detected on 64-bit Windows instead of leaving
+  the child suspended until the hard timeout.
+- `--dry-run` prints exactly the command and payload a real run would use.
+- The quota hook runs only after a rate-limit failure.
+- POSIX runs kill the whole process group, including leftover grandchildren.
+- The MCP server reads the widget's model selection from the configured live
+  directory, and `antigravity_status` reports the same models reviews use.
+- The live-registry lock yields once and never blocks a delegation.
+- Widget server: the pywebview shell's JS API is connected; `--transparent`
+  works; account switching reports "unsupported" off Windows; `--host ::1`
+  binds IPv6 and accepts its own origin; capture save errors return a JSON
+  error; the model list is cached when `agy` is missing; chat writes are
+  serialized; rejected POSTs close the connection.
+- Widget UI: streamed text is no longer dropped between frames; native-shell
+  handlers are registered once; sparks are not leaked under reduced motion;
+  chat ignores events from other runs; Electron `set-view` no longer passes
+  NaN bounds.
+
+### Changed
+- `antigravity_bridge` is split into `antigravity_containment` and
+  `antigravity_aggregate`; `antigravity_viewer` into `viewer_shell` and
+  `viewer_platform`. Public names are re-exported.
+- Skill files are named after the skills they define (`NN_<name>.md`).
+- The Electron shell validates IPC senders and grants only clipboard-write
+  permission to the widget origin.
+- Tests are organized by subject with shared helpers; `pyproject.toml`
+  replaces `ruff.toml` and the lint rule set is wider.
+- README rewritten; the example delegation is now synthetic.
+
+### Added
+- `CONTRIBUTING.md`, issue and pull request templates, Dependabot, and
+  `.editorconfig`.
+
 ## [1.1.0] — 2026-10-07
 
 Hardening release focused on failure semantics, trust boundaries, evidence

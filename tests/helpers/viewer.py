@@ -114,7 +114,10 @@ class ViewerProcess:
         if not manifest.exists():
             raise RuntimeError(f"viewer.json was never written: {self.stderr_text()}")
         data = json.loads(manifest.read_text(encoding="utf-8"))
-        self.base = f"http://127.0.0.1:{data['port']}"
+        host = str(data.get("host") or "127.0.0.1")
+        if ":" in host and not host.startswith("["):
+            host = f"[{host}]"
+        self.base = f"http://{host}:{data['port']}"
         return self.base, live
 
     def _stop(self) -> None:

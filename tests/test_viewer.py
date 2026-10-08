@@ -73,6 +73,17 @@ def fake_viewer(tmp_path: Path):
         yield context
 
 
+
+def _ipv6_loopback_available() -> bool:
+    if not socket.has_ipv6:
+        return False
+    try:
+        with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as probe:
+            probe.bind(("::1", 0))
+    except OSError:
+        return False
+    return True
+
 class TestPortBinding:
     def test_busy_port_falls_back_to_next(self, tmp_path: Path) -> None:
         with socket.socket() as probe:
@@ -765,13 +776,13 @@ class TestIpv6Loopback:
 
     def test_ipv6_loopback_binding_serves_loopback_requests(self, tmp_path: Path) -> None:
         """End-to-end: --host ::1 must not 403 every request."""
-        try:
-            with ViewerProcess(tmp_path, extra_args=["--host", "::1"]) as ctx:
-                base, _ = ctx
-                health = urllib.request.urlopen(base + "/health", timeout=10)
-                assert health.status == 200
-        except (OSError, RuntimeError):
+        if not _ipv6_loopback_available():
             pytest.skip("IPv6 loopback unavailable in this environment")
+        with ViewerProcess(tmp_path, extra_args=["--host", "::1"]) as ctx:
+            base, _ = ctx
+            assert base.startswith("http://[::1]:")
+            health = urllib.request.urlopen(base + "/health", timeout=10)
+            assert health.status == 200
 
 
 class TestModelListParsing:
