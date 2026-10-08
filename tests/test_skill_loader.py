@@ -1,4 +1,4 @@
-"""Skill loader: YAML/Markdown parsing, validation, selection, directory resolution, and manifests."""
+"""Skill loader: YAML/Markdown parsing, validation, selection, and directory resolution."""
 
 from __future__ import annotations
 
@@ -60,14 +60,16 @@ ESCAPED_MARKDOWN_SKILL = (
 
 
 class TestSkillLoader:
-    def test_valid_registry_loads_and_renders(self, registry: Path) -> None:
+    def test_valid_registry_loads_and_selects(self, registry: Path) -> None:
         loader = SkillLoader(registry)
 
-        rendered = loader.render_selected(ALL_SELECTOR)
+        payloads = " ".join(
+            skill.instructions_payload for skill in loader.select(ALL_SELECTOR)
+        )
 
-        assert "CRASH_OPS_INSTRUCTIONS" in rendered
-        assert "AST_AUDIT_INSTRUCTIONS" in rendered
-        assert "TEMPLATE_ONLY_INSTRUCTIONS" not in rendered
+        assert "CRASH_OPS_INSTRUCTIONS" in payloads
+        assert "AST_AUDIT_INSTRUCTIONS" in payloads
+        assert "TEMPLATE_ONLY_INSTRUCTIONS" not in payloads
         assert loader.available() == [
             "crash_ops",
             "ast_audit",
@@ -224,32 +226,6 @@ class TestSkillDirResolution:
     def test_missing_override_is_strict(self, tmp_path: Path) -> None:
         with pytest.raises(SkillNotFoundError):
             resolve_skill_dir(tmp_path, tmp_path / "missing")
-
-
-class TestSkillManifest:
-    def test_manifest_is_metadata_only(self, registry: Path) -> None:
-        loader = SkillLoader(registry)
-
-        manifest = loader.render_manifest()
-
-        assert "## ADVERSARIAL SKILL REGISTRY MANIFEST" in manifest
-        for skill in loader.skills:
-            assert f"**{skill.name}**" in manifest
-            assert str(skill.source_path) in manifest
-            marker = skill.instructions_payload.strip()[:60]
-            assert marker not in manifest
-
-    def test_prompt_blocks_are_labeled(self, registry: Path) -> None:
-        loader = SkillLoader(registry)
-        skills = loader.select(["crash_ops"])
-
-        active = loader.render_prompt(skills, heading="## ACTIVE ADVERSARIAL SKILLS (MANDATORY)")
-        recommended = loader.render_prompt(
-            skills, heading="## RECOMMENDED ADVERSARIAL SKILLS (TASK-DEPENDENT)"
-        )
-
-        assert "## ACTIVE ADVERSARIAL SKILLS (MANDATORY)" in active
-        assert "## RECOMMENDED ADVERSARIAL SKILLS (TASK-DEPENDENT)" in recommended
 
 
 class TestSkillBriefs:

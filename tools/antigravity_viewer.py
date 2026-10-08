@@ -66,6 +66,8 @@ from tools.antigravity_bridge import (
     AttemptResult,
     BridgeConfig,
     DelegationEnvelope,
+    extract_reset_text,
+    is_rate_limited,
     resolve_agy_executable,
     run_bridge,
     write_report,
@@ -168,8 +170,6 @@ _RUN_FILE_PATTERN = re.compile(r"run-[A-Za-z0-9\-_]+\.jsonl")
 # --------------------------------------------------------------------------
 # Account and quota detection (agy logs)
 
-_RATE_LIMIT_MARKERS = ("RESOURCE_EXHAUSTED", "code 429", "Individual quota reached")
-_RESET_PATTERN = re.compile(r"Resets in ([0-9]+\s*[smhdw][0-9]*\s*[smhdw]*)", re.IGNORECASE)
 _EMAIL_PATTERN = re.compile(
     r"authenticated successfully as ([A-Za-z0-9_.+-]+@[A-Za-z0-9-]+\.[A-Za-z0-9-.]+)"
 )
@@ -225,6 +225,7 @@ SendEvent = Callable[[str, str], bool]
 
 
 def parse_model_list(output: str) -> list[str]:
+    """Model ids from ``agy models`` output: the first column, deduplicated in order."""
     names: list[str] = []
     for line in (output or "").splitlines():
         name = line.strip().split("\t")[0].split("  ")[0].strip()
@@ -279,14 +280,17 @@ def _clean_skills(raw: Sequence[Any]) -> list[str]:
 
 
 def settings_path(live_dir: Path) -> Path:
+    """Where the widget's settings live inside ``live_dir``."""
     return Path(live_dir) / SETTINGS_NAME
 
 
 def manifest_path(live_dir: Path) -> Path:
+    """Where the running viewer's manifest (port, pid, tokens) lives."""
     return Path(live_dir) / MANIFEST_NAME
 
 
 def read_viewer_settings(live_dir: Path) -> dict[str, Any]:
+    """Stored widget settings merged over the defaults; unreadable files yield defaults."""
     settings: dict[str, Any] = {
         "model": DEFAULT_SELECTED_MODEL,
         "fallback_model": DEFAULT_SELECTED_FALLBACK,
@@ -343,6 +347,7 @@ def _effective_ask_model(model: str, settings: Mapping[str, Any]) -> str:
 
 
 def resolve_workspace(override: str | None = None) -> Path:
+    """The workspace: ``--workspace``, then ``ANTIGRAVITY_WORKSPACE``, then the cwd."""
     if override and override.strip():
         return Path(override).expanduser().resolve()
     env_workspace = os.environ.get("ANTIGRAVITY_WORKSPACE")
@@ -352,6 +357,7 @@ def resolve_workspace(override: str | None = None) -> Path:
 
 
 def resolve_live_dir(workspace: Path, override: str | None = None) -> Path:
+    """The live dir: ``--live-dir``, then ``ANTIGRAVITY_LIVE_DIR``, then the workspace default."""
     if override and override.strip():
         return Path(override).expanduser().resolve()
     env_dir = os.environ.get("ANTIGRAVITY_LIVE_DIR")
@@ -439,6 +445,7 @@ def _run_order(path: Path) -> tuple[str, float]:
 
 
 def newest_run(live_dir: Path) -> Path | None:
+    """The most recently started run file in ``live_dir``, if any."""
     runs = _run_files(live_dir)
     return max(runs, key=_run_order) if runs else None
 
@@ -527,6 +534,7 @@ def is_run_end_line(line: str) -> bool:
 
 
 def describe_run(path: Path) -> dict[str, Any]:
+    """History-list summary of one run file; empty when the file has vanished."""
     try:
         stat = path.stat()
     except OSError:
@@ -619,16 +627,14 @@ def collect_auth_state() -> dict[str, Any]:
                 newest_log_age = round(now - path.stat().st_mtime)
             except OSError:
                 newest_log_age = None
-        if any(marker in content for marker in _RATE_LIMIT_MARKERS):
+        if is_rate_limited(content):
             try:
                 age = now - path.stat().st_mtime
             except OSError:
                 age = RATE_LIMIT_WINDOW_SECONDS + 1
             if age < RATE_LIMIT_WINDOW_SECONDS:
                 rate_limited = True
-                matches = _RESET_PATTERN.findall(content)
-                if matches:
-                    resets_in = " ".join(matches[-1].split())
+                resets_in = extract_reset_text(content, last=True) or resets_in
     return {
         "account": mask_email(account),
         "account_source": "log-heuristic" if account else None,
@@ -640,6 +646,7 @@ def collect_auth_state() -> dict[str, Any]:
 
 
 def collect_status(context: ViewerContext) -> dict[str, Any]:
+    """The ``/api/status`` payload: server, workspace, models, account and registry."""
     skills: list[str] = []
     skill_warnings: list[str] = []
     skill_error: str | None = None
@@ -683,28 +690,38 @@ def collect_status(context: ViewerContext) -> dict[str, Any]:
 def build_ask_prompt(
     user_prompt: str, context_text: str, image_rels: tuple[str, ...]
 ) -> str:
+    """The prompt for a widget ask: the question, its captures and answer rules."""
     parts = [
         "You are consulting live with the human operator through Wisp capture.",
         "",
-        "## OPERATOR REQUEST",
+        "## Operator request",
         user_prompt or ASK_DEFAULT_PROMPT,
     ]
     if context_text:
-        parts += ["", "## CAPTURED CONTEXT (selected text)", context_text]
+        parts += ["", "## Captured context (selected text)", context_text]
     if image_rels:
         listing = "\n".join(f"- `{rel}`" for rel in image_rels)
         parts += [
             "",
-            "## ATTACHED IMAGES",
+            "## Attached images",
             "Inspect the attached image(s) (workspace-relative paths):",
             listing,
         ]
     parts += [
         "",
-        "## RESPONSE REQUIREMENTS",
-        "- Be brief: use the fewest words that fully answer the question. A simple question gets a few sentences, not a report.",
-        "- Lead with the direct answer; include only the details that matter. Do not restate the question, pad with caveats, or add structure the answer does not need.",
-        "- If the capture shows code or UI, cite exactly what you observe, name risks, and give precise fixes.",
+        "## Response requirements",
+        (
+            "- Be brief: use the fewest words that fully answer the question. A simple "
+            "question gets a few sentences, not a report."
+        ),
+        (
+            "- Lead with the direct answer; include only the details that matter. Do not "
+            "restate the question, pad with caveats, or add structure the answer does not need."
+        ),
+        (
+            "- If the capture shows code or UI, cite exactly what you observe, name risks, "
+            "and give precise fixes."
+        ),
         "- Use Markdown only when it genuinely helps; keep it tight.",
         "- If something is unclear, state the assumption you are making; never invent facts.",
     ]
@@ -712,11 +729,11 @@ def build_ask_prompt(
 
 
 def extract_chat_answer(critique: str) -> str:
-    """Extracts the aggregated critique from a full report for chat display.
+    """Extracts the answer from a full report for chat display.
 
-    Prefers the ``## Antigravity Critique`` section (excluding report framing,
-    raw appendix, and lifecycle noise); falls back to everything before the
-    verbatim stream appendices.
+    Returns the body of the first ``## Antigravity Critique`` section without
+    the report framing above it; a report without that section (a delegation
+    that failed before agy ran) is returned whole.
     """
     text = str(critique or "")
     marker = "## Antigravity Critique"
@@ -731,9 +748,6 @@ def extract_chat_answer(critique: str) -> str:
         answer = "\n".join(lines).strip()
         if answer:
             return answer
-    for trailer in ("\n## Complete stdout", "\n## Complete stderr"):
-        if trailer in text:
-            text = text.split(trailer)[0].rstrip()
     return text.strip() or "No answer was produced."
 
 
@@ -897,6 +911,8 @@ def _release(lock: threading.Lock) -> None:
 
 @dataclass
 class ViewerContext:
+    """State shared by every request handler of one viewer instance."""
+
     workspace: Path
     live_dir: Path
     port: int
@@ -1060,6 +1076,8 @@ def request_shutdown(
 
 
 class ViewerServer(ThreadingHTTPServer):
+    """Threaded HTTP server that owns the :class:`ViewerContext` for its port."""
+
     daemon_threads = True
     allow_reuse_address = os.name != "nt"
 
@@ -1079,6 +1097,8 @@ class ViewerServer(ThreadingHTTPServer):
 
 
 class ViewerHandler(BaseHTTPRequestHandler):
+    """Routes the widget's HTTP API, static assets and the SSE live feed."""
+
     server_version = f"{SERVER_NAME}/{SERVER_VERSION}"
     protocol_version = "HTTP/1.1"
     timeout = 60
@@ -1491,7 +1511,13 @@ class ViewerHandler(BaseHTTPRequestHandler):
             # append_message raise while the lock is held.
             self._send_json(
                 400,
-                {"error": f"prompt exceeds MAX_MESSAGE_CHARS ({MAX_MESSAGE_CHARS})"},
+                {
+                    "error": (
+                        f"prompt is too long ({len(prompt)} characters; the limit is "
+                        f"{MAX_MESSAGE_CHARS}). Move long material into a workspace "
+                        "file and refer to it instead."
+                    )
+                },
             )
             return
         context_text = str(payload.get("context_text") or "").strip()
@@ -1880,7 +1906,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "--shell",
         choices=("auto", "electron", "native", "browser"),
         default="auto",
-        help="Widget shell: electron (frameless transparent, preferred), native (pywebview), browser, or auto (default).",
+        help=(
+            "Widget shell: electron (frameless transparent, preferred), native (pywebview), "
+            "browser, or auto (default)."
+        ),
     )
     parser.add_argument("--width", type=int, default=240)
     parser.add_argument("--height", type=int, default=240)
@@ -1888,7 +1917,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "--transparent",
         action=argparse.BooleanOptionalAction,
         default=False,
-        help="Native shell only: attempt a transparent widget background (not supported on all WebView2 builds).",
+        help=(
+            "Native shell only: attempt a transparent widget background (not supported on "
+            "all WebView2 builds)."
+        ),
     )
     parser.add_argument(
         "--open",
@@ -1976,6 +2008,7 @@ def _run_widget_shell(
 
 
 def main(argv: list[str] | None = None) -> int:
+    """CLI entry point: serves the widget and opens its window; returns the exit code."""
     args = _build_parser().parse_args(argv)
     workspace = resolve_workspace(args.workspace)
     live_dir = resolve_live_dir(workspace, args.live_dir)
@@ -2036,7 +2069,10 @@ def main(argv: list[str] | None = None) -> int:
     _write_viewer_manifest(live_dir, manifest)
     print(f"[wisp-viewer] serving on {url} (live dir: {live_dir})")
     if non_loopback:
-        print("[wisp-viewer] NON-LOOPBACK BINDING: bearer token required on every route.")
+        print(
+            f"[wisp-viewer] bound to non-loopback host {host}: every route requires "
+            "the bearer token."
+        )
         if args.generate_token:
             print(f"[wisp-viewer] generated auth token: {auth_token}")
     print("[wisp-viewer] watching for delegations; Ctrl+C to stop.")

@@ -461,7 +461,7 @@ Python 3.10 and 3.13.
 the suite. After that:
 
 ```bash
-python -m pytest tests/ -q                # 438 test cases
+python -m pytest tests/ -q                # 447 test cases
 ruff check .                              # lint
 python -m tools.skill_loader --validate   # check the playbooks
 ```

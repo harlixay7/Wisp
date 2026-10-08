@@ -20,7 +20,6 @@ Run ``python -m tools.skill_loader --validate`` to validate a registry.
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
 import sys
@@ -394,7 +393,7 @@ def load_skill_file(path: Path) -> Skill:
 
 
 class SkillLoader:
-    """Discovers, validates, resolves, and renders skills from a registry directory."""
+    """Discovers, validates and resolves skills from a registry directory."""
 
     def __init__(self, skill_dir: Path | str | None = None) -> None:
         self.skill_dir = Path(skill_dir) if skill_dir is not None else DEFAULT_SKILL_DIR
@@ -403,6 +402,7 @@ class SkillLoader:
 
     @property
     def skills(self) -> list[Skill]:
+        """Every valid skill in the registry; raises ``SkillError`` on a broken file."""
         if self._skills is None:
             self._skills = self._discover()
         return list(self._skills)
@@ -448,9 +448,11 @@ class SkillLoader:
         return skills
 
     def available(self) -> list[str]:
+        """Names of every registered skill, in filename order."""
         return [skill.name for skill in self.skills]
 
     def load(self, identifier: str) -> Skill:
+        """Resolves one skill by name or filename stem (case-insensitive)."""
         key = str(identifier).strip()
         if not key:
             raise SkillNotFoundError("Skill identifier must not be empty")
@@ -491,68 +493,6 @@ class SkillLoader:
         if isinstance(selector, str):
             return [part.strip() for part in selector.split(",") if part.strip()]
         return [str(part).strip() for part in selector if str(part).strip()]
-
-    def render_prompt(
-        self,
-        skills: Sequence[Skill],
-        heading: str | None = None,
-        note: str | None = None,
-    ) -> str:
-        """Renders selected skills with their full instruction bodies.
-
-        Kept for tooling that wants a self-contained document (it is not
-        size-bounded). The bridge does not use it: full bodies overflow the
-        Windows command line, so it sends :func:`render_skill_block` instead.
-        """
-        if not skills:
-            return ""
-        blocks = [
-            heading or "## ACTIVATED ADVERSARIAL SKILLS (REGISTRY-GOVERNED)",
-            note
-            or (
-                "The following domain skills are binding for this consultation. "
-                "Execute their operating procedures exactly; do not paraphrase them away."
-            ),
-        ]
-        for skill in skills:
-            triggers = ", ".join(skill.activation_triggers)
-            blocks.append(
-                f"### SKILL: {skill.name} (v{skill.version})\n"
-                f"{skill.description}\n\n"
-                f"Activation triggers: {triggers}\n\n"
-                f"Input contract: {json.dumps(dict(skill.input_contract), ensure_ascii=False, default=str)}\n\n"
-                f"Output contract: {json.dumps(dict(skill.output_contract), ensure_ascii=False, default=str)}\n\n"
-                f"#### Skill Instructions\n\n{skill.instructions_payload}"
-            )
-        return "\n\n".join(blocks).strip() + "\n"
-
-    def render_selected(self, selector: str | Sequence[str] | None) -> str:
-        return self.render_prompt(self.select(selector))
-
-    def render_manifest(self, skills: Sequence[Skill] | None = None) -> str:
-        """Full-metadata manifest of the registry (no instruction bodies).
-
-        Not used by the bridge, whose payload carries the much smaller
-        :func:`render_registry_index` instead.
-        """
-        entries = list(skills if skills is not None else self.skills)
-        if not entries:
-            return ""
-        lines = [
-            "## ADVERSARIAL SKILL REGISTRY MANIFEST",
-            (
-                "Complete metadata for every registered skill. If the task touches a "
-                "domain listed below that is not active or recommended, read that "
-                "skill's raw file (source path) in full and apply it."
-            ),
-            "",
-        ]
-        for skill in entries:
-            triggers = ", ".join(skill.activation_triggers)
-            lines.append(f"- **{skill.name}** (v{skill.version}) \u2014 {skill.description}")
-            lines.append(f"  - triggers: {triggers}")
-            lines.append(f"  - file: `{skill.source_path}`")
-        return "\n".join(lines)
 
 
 def _check_role(role: str) -> str:
@@ -616,11 +556,11 @@ def _main(argv: Sequence[str] | None = None) -> int:
     try:
         skills = loader.skills
     except SkillError as exc:
-        print(f"[SKILL REGISTRY ERROR] {exc}", file=sys.stderr)
+        print(f"error: skill registry: {exc}", file=sys.stderr)
         return 2
 
     for warning in loader.warnings:
-        print(f"[SKILL WARNING] {warning}", file=sys.stderr)
+        print(f"warning: {warning}", file=sys.stderr)
 
     if args.validate:
         print(f"OK: {len(skills)} skill definition(s) validated in {args.skill_dir}")

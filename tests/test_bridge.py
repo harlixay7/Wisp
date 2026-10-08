@@ -103,6 +103,11 @@ class TestBinaryResolution:
 
         assert found == "agy"
 
+    def test_executable_available_follows_lookup(self) -> None:
+        assert bridge.executable_available("agy", which=lambda name: "/opt/agy") is True
+        assert bridge.executable_available("agy", which=lambda name: None) is False
+        assert bridge.executable_available("", which=lambda name: "/opt/agy") is False
+
 
 class TestEnvironmentSanitization:
     def test_strips_all_secret_prefixes_and_preserves_essentials(self, tmp_path: Path) -> None:
@@ -347,7 +352,7 @@ class TestWorkspaceTrustFraming:
         payload = build_prompt_payload(config)
         assert "untrusted evidence" in payload
         assert "never instructions" in payload
-        # The old instruction to adopt workspace AGENTS.md as protocol is gone.
+        # A workspace charter is evidence under review, never the review protocol.
         assert "Read `AGENTS.md` in the mounted workspace" not in payload
 
     def test_payload_does_not_instruct_reading_workspace_agents_md(self, tmp_path: Path) -> None:
@@ -421,7 +426,7 @@ class TestBridgeOrchestration:
         assert not result.success
         assert result.exit_code == 127
         assert result.error is not None and "agy.exe missing" in result.error
-        assert "DELEGATION FAILED" in result.critique_markdown
+        assert "Delegation failed" in result.critique_markdown
 
     def test_skills_are_embedded_in_the_dispatched_payload(self, registry: Path) -> None:
         launcher = ScriptedLauncher([successful_attempt()])
@@ -482,6 +487,10 @@ class TestRetriesAndQuotaControls:
         assert parse_reset_seconds("Resets in 45s") == 45
         assert parse_reset_seconds("no reset info here") is None
         assert extract_reset_text("Resets in 1h 30m.") == "1h 30m"
+        two_notices = "Resets in 2h 5m. Later: resets in 1h 30m."
+        assert extract_reset_text(two_notices) == "2h 5m"
+        assert extract_reset_text(two_notices, last=True) == "1h 30m"
+        assert extract_reset_text("no notice", last=True) is None
 
     def test_transient_classification(self) -> None:
         assert is_transient_failure(transient_attempt())
@@ -823,6 +832,25 @@ class TestReportPersistence:
     def test_default_keep_matches_constant(self) -> None:
         assert DEFAULT_KEEP_REPORTS >= 10
 
+    def test_cli_warns_when_the_report_cannot_be_written(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        def unwritable(*args: Any, **kwargs: Any) -> Path:
+            raise PermissionError("read-only workspace")
+
+        monkeypatch.setattr(bridge, "run_bridge", lambda config: _fake_result())
+        monkeypatch.setattr(bridge, "write_report", unwritable)
+
+        exit_code = main(["--prompt", "p", "--workspace", str(tmp_path), "--no-live"])
+
+        assert exit_code == 0
+        stderr = capsys.readouterr().err
+        assert "could not write the JSON report" in stderr
+        assert "read-only workspace" in stderr
+
     def test_attempt_dict_exposes_containment(self) -> None:
         attempt = AttemptResult(containment="job-object", exit_code=0)
         config = BridgeConfig(envelope=DelegationEnvelope(prompt="p"))
@@ -1087,6 +1115,44 @@ class TestRegistryResolutionParity:
         assert status["registry_fell_back"] is True
         assert len(status["skills"]) == len(SkillLoader(SHIPPED_SKILL_DIR).skills)
 
+    def test_status_reports_missing_executable_without_failing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(bridge, "resolve_agy_executable", lambda: "wisp-test-missing-agy")
+        exit_code = main(["--status", "--workspace", str(tmp_path)])
+        status = json.loads(capsys.readouterr().out)
+        assert exit_code == 0
+        assert status["executable"] == "wisp-test-missing-agy"
+        assert status["executable_found"] is False
+        assert any(
+            "wisp-test-missing-agy" in warning and "antigravity.google" in warning
+            for warning in status["warnings"]
+        )
+
+    def test_status_honours_explicit_executable(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        exit_code = main(
+            ["--status", "--workspace", str(tmp_path), "--executable", sys.executable]
+        )
+        status = json.loads(capsys.readouterr().out)
+        assert exit_code == 0
+        assert status["executable"] == sys.executable
+        assert status["executable_found"] is True
+        assert not any("was not found" in warning for warning in status["warnings"])
+
+    def test_status_missing_executable_keeps_registry_failure_nonzero(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(bridge, "resolve_agy_executable", lambda: "wisp-test-missing-agy")
+        broken = tmp_path / "broken-registry"
+        broken.mkdir()
+        (broken / "bad.md").write_text("no frontmatter here", encoding="utf-8")
+        exit_code = main(["--status", "--workspace", str(tmp_path), "--skill-dir", str(broken)])
+        status = json.loads(capsys.readouterr().out)
+        assert exit_code == 2
+        assert status["executable_found"] is False
+
     def test_status_nonzero_when_registry_broken(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
@@ -1339,9 +1405,6 @@ class TestPayloadStructure:
         assert payload.index("crash_ops (v1.2.3) — mandatory") < payload.index(
             "ast_audit (v1.2.3) — recommended"
         )
-        # The old per-skill and mandate sections are gone.
-        for retired in ("OUTPUT MANDATE", "REGISTRY MANIFEST", "SKILL REGISTRY ON DISK"):
-            assert retired not in payload
 
     def test_registry_index_lists_every_shipped_skill_with_its_path(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]

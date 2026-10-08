@@ -61,6 +61,9 @@ _TOOL_RESULT_KEYS = frozenset(
 _NESTED_KEYS = frozenset(
     {"events", "steps", "items", "messages", "updates", "step_update", "error", "details", "data"}
 )
+# Bounds recursion on adversarial or runaway payloads; deeper content stays in
+# the raw streams of the report.
+_MAX_FRAGMENT_DEPTH = 8
 
 
 def _fence(text: str, language: str = "text") -> str:
@@ -102,7 +105,7 @@ def _dumps_compact(value: Any) -> str:
 
 
 def _extract_fragments(data: Any, depth: int = 0) -> list[tuple[str, str]]:
-    if data is None or depth > 8:
+    if data is None or depth > _MAX_FRAGMENT_DEPTH:
         return []
     if isinstance(data, str):
         return []
