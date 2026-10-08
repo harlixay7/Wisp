@@ -1520,7 +1520,7 @@ class TestUiAssets:
         html = (ROOT / "tools" / "antigravity_viewer.html").read_text(encoding="utf-8")
 
         assert "splitAssistantDetails" in html
-        assert "SHOW RUN DETAILS" in html
+        assert "Show run details" in html
         assert "'### Lifecycle'" in html
 
 
