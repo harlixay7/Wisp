@@ -314,7 +314,7 @@ quota. Continuous integration runs it on Windows and Ubuntu with Python 3.10
 and 3.13.
 
 ```bash
-python -m pytest tests/ -q                # 423 test cases
+python -m pytest tests/ -q                # 438 test cases
 ruff check tools tests                    # lint
 python -m tools.skill_loader --validate   # check the playbooks
 ```
