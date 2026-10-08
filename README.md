@@ -69,15 +69,16 @@ reading, writing, stuck, or finished.
 
 ## A closer look
 
-The widget has six views, and the tabs across its top switch between them.
-On the main **Wisp** view, the same six float around the owl as buttons.
+The widget has six views. Switch between them from the dock under the panel,
+or press <kbd>Ctrl</kbd> + <kbd>K</kbd> to search every action by name.
 
 <p align="center">
-  <img src="docs/assets/wisp-stream.webp" width="100%" alt="Stream view: the reviewer's findings appear line by line with the files and code it refers to.">
+  <img src="docs/assets/wisp-stream.webp" width="100%" alt="Stream view: the task pinned at the top, filters for thoughts, tools and output, and each step of the review as a card.">
 </p>
 
 **Stream** is the full, live record of the review: what the reviewer thought,
-which files it opened, which commands it ran and what came back. **Focus**
+which files it opened, which commands it ran and what came back. Filter it
+down to thoughts, tool calls or the final answer, and copy any step. **Focus**
 is a calmer version that only shows the latest thoughts.
 
 <p align="center">
@@ -94,19 +95,20 @@ box, and every conversation is saved so follow-up questions keep their
 context. The capture hotkeys work on Windows.
 
 <p align="center">
-  <img src="docs/assets/wisp-verdict.webp" width="100%" alt="Verdict view: counters for thoughts, tools, retries and time, a PASS badge, and buttons to replay the run or copy its folder.">
+  <img src="docs/assets/wisp-verdict.webp" width="100%" alt="Verdict view: a Review complete banner, counters for thoughts, tool calls and retries, a summary of the answer, and buttons to ask a follow-up, copy the answer or replay the run.">
 </p>
 
 **Verdict** sums up the last run: whether the review finished, how long it
-took, how many thoughts and tool calls it made, and whether anything had to
-be retried. **Replay run** plays the whole thing back step by step.
+took, how many thoughts and tool calls it made, and a summary of the answer.
+**Ask a follow-up** opens the chat with the review as context, and **Replay**
+plays the whole run back step by step.
 
 <p align="center">
-  <img src="docs/assets/wisp-history.webp" width="100%" alt="History view: saved conversations, which can be pinned, and past runs, which can be replayed.">
+  <img src="docs/assets/wisp-history.webp" width="100%" alt="History view: a search field, saved conversations that can be pinned or deleted, and past reviews labelled by what was asked.">
 </p>
 
-**History** keeps your past conversations and runs. Pin the ones you care
-about. Reviews started from any project on your machine show up here,
+**History** keeps your past conversations and reviews, each labelled by what
+was asked. Search them, pin the ones you care about, or delete the rest. Reviews started from any project on your machine show up here,
 labelled by project, so it doesn't matter where your assistant was working.
 
 ## How it works

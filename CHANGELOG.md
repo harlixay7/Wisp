@@ -35,6 +35,16 @@ independently; the Electron shell versions with the viewer.
   NaN bounds.
 
 ### Changed
+- Widget redesigned ("Glass Dock"): one frosted panel with the owl perched on
+  its corner and a floating dock for views, the command palette, settings and
+  window controls; plain-language status labels; a shared motion system
+  (view transitions, entry animations, verdict count-up) that honors the
+  Full / Gentle / Off setting and reduced motion; settings shown inside the
+  panel.
+- New widget actions: Ctrl+K command palette; stream filters, per-entry copy
+  and jump-to-latest; verdict summary with Ask a follow-up and Copy answer;
+  chat starter prompts, copy and retry; history search, pin and delete.
+- `/api/runs` reports each run's task; chat threads can be deleted.
 - `antigravity_bridge` is split into `antigravity_containment` and
   `antigravity_aggregate`; `antigravity_viewer` into `viewer_shell` and
   `viewer_platform`. Public names are re-exported.

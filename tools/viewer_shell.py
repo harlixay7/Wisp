@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 SHELL_DIR = Path(__file__).resolve().parent / "wisp_shell"
-BROWSER_WINDOW_SIZE = (470, 452)
+BROWSER_WINDOW_SIZE = (480, 624)  # matches CANVAS_W x CANVAS_H in wisp_shell/main.js
 DEFAULT_WORK_AREA = (0, 0, 1920, 1080)
 WIDGET_MARGIN = 18
 MIN_VIEW_WIDTH = 240
