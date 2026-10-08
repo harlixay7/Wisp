@@ -12,7 +12,7 @@ description: >-
   health rules, top-tier model policy, quota semantics, and mandatory objection
   reconciliation.
 metadata:
-  version: "2.7.0"
+  version: "2.7.1"
   bridge: "tools/antigravity_bridge.py"
   mcp_server: "tools/antigravity_mcp_server.py"
 ---
@@ -121,12 +121,13 @@ it only on "attack this plan" wastes a third of its value. Full guide:
 
 ## 2a. Registry health (operational rule — verified failure mode)
 
-- The skill registry is the bridge workspace's `Skills\` directory. **Every
+- The skill registry is the bridge workspace's `Skills/` directory. **Every
   `.md` file in it must carry YAML frontmatter delimited by `---`**, and ONE
-  malformed file empties the ENTIRE registry (`skills: []` plus a `skill_error`
-  in `antigravity_status`) — silently disabling every skill for all delegations.
+  malformed file breaks the ENTIRE registry (`skills: []` plus a `skill_error`
+  in `antigravity_status`): delegations that name skills fail with a registry
+  error, and delegations without skills run with no skill index at all.
 - **Never place non-skill files there** — reports, notes, or documentation go in
-  the workspace root or a `docs\` folder.
+  the workspace root or a `docs/` folder.
 - Before trusting skill-aware delegations, confirm `antigravity_status` shows a
   non-empty `skills` list with empty `warnings`. Never tell the reviewer to
   ignore the registry; pass the `skills` parameter instead.
@@ -177,9 +178,9 @@ automatically (a warning is recorded in the report).
 1. **Automatic failover** — on `RESOURCE_EXHAUSTED` / `code 429` / quota exhaustion,
    the identical payload is re-dispatched to `claude-opus-4-6-thinking`.
 2. **Total exhaustion** — the result carries `rate_limited: true` and `resets_in`
-   (e.g. `"1h 45m"`). Tell the user the exact reset duration. Account rotation:
-   `cmdkey /delete:LegacyGeneric:target=gemini:antigravity` then run `agy` and
-   complete the browser sign-in with the other account.
+   (e.g. `"1h 45m"`). Tell the user the exact reset duration. Account rotation
+   (Windows): `cmdkey /delete:LegacyGeneric:target=gemini:antigravity`, then run
+   `agy` and complete the browser sign-in with the other account.
 3. **Failed runs are inspectable** — timeouts and rate limits still preserve the full
    accumulated `stdout`/`stderr` in the result; read them for partial findings.
 4. **Report persistence** — every invocation (MCP or CLI) saves a complete forensic
@@ -189,7 +190,9 @@ automatically (a warning is recorded in the report).
    failovers, and the verdict from the same live event feed. It is read-only,
    optional, and never touches the engine. It can be started before or during a
    delegation (it replays the newest run, then tails it); if the operator asks
-   for it, launch it yourself with `tools\antigravity_viewer.cmd` (Windows).
+   for it, launch it yourself with `tools\antigravity_viewer.cmd` (Windows) or
+   `.venv/bin/python tools/antigravity_viewer.py` (macOS/Linux) from the Wisp
+   repo root.
 6. **Retries** — transient errors (connection resets, 5xx, empty responses) are
    retried with exponential backoff; an exit-0 empty response is never a success.
 
@@ -231,16 +234,36 @@ re-delegated and received a pass.
 
 The MCP server is harness-agnostic. Harnesses spawn registered **local stdio** servers
 automatically at startup and terminate them at exit — nothing to start manually.
+Register the venv Python and the server script by **absolute path** (a relative
+`tools/...` path resolves only when the harness starts inside the Wisp repo).
+`setup.bat` / `./setup.sh` print these entries with the machine's real paths;
+`--check` prints them again. `<wisp>` below is the Wisp repo root; on Windows the
+interpreter is `<wisp>\.venv\Scripts\python.exe`. The server reviews its working
+directory (the harness's project) unless `ANTIGRAVITY_WORKSPACE` is set or the call
+passes `workspace`.
 
-- **opencode** (`opencode.json`):
+- **Claude Code**:
+  `claude mcp add --scope user -e ANTIGRAVITY_HARNESS=claude-code antigravity -- <wisp>/.venv/bin/python <wisp>/tools/antigravity_mcp_server.py`
+- **Codex** (`~/.codex/config.toml`):
+  ```toml
+  [mcp_servers.antigravity]
+  command = "<wisp>/.venv/bin/python"
+  args = ["<wisp>/tools/antigravity_mcp_server.py"]
+  tool_timeout_sec = 3600
+  env = { ANTIGRAVITY_HARNESS = "codex" }
+  ```
+- **Cline / Roo / Cursor** — add to their MCP JSON:
+  ```json
+  { "mcpServers": { "antigravity": { "command": "<wisp>/.venv/bin/python", "args": ["<wisp>/tools/antigravity_mcp_server.py"], "env": { "ANTIGRAVITY_HARNESS": "mcp-client" } } } }
+  ```
+- **opencode** (`opencode.json`; the repo's own copy uses `cmd.exe` and is Windows-only):
   ```json
   {
     "$schema": "https://opencode.ai/config.json",
     "mcp": {
       "antigravity": {
         "type": "local",
-        "command": ["python", "tools/antigravity_mcp_server.py"],
-        "cwd": ".",
+        "command": ["<wisp>/.venv/bin/python", "<wisp>/tools/antigravity_mcp_server.py"],
         "enabled": true,
         "timeout": 3600000,
         "environment": { "ANTIGRAVITY_HARNESS": "opencode" }
@@ -248,20 +271,10 @@ automatically at startup and terminate them at exit — nothing to start manuall
     }
   }
   ```
-- **Universal launcher** — `tools/antigravity_mcp.cmd` resolves the repo root, pins
-  the top-tier models, and starts the server. Use `cmd.exe /c <path>` where a harness
-  needs an executable command.
-- **Claude Code** — `claude mcp add antigravity -- python tools/antigravity_mcp_server.py`
-- **Codex** (`~/.codex/config.toml`):
-  ```toml
-  [mcp_servers.antigravity]
-  command = "cmd.exe"
-  args = ["/c", "<wisp-repo>\\tools\\antigravity_mcp.cmd"]
-  ```
-- **Cline / Roo / Cursor** — add to their MCP JSON:
-  ```json
-  { "mcpServers": { "antigravity": { "command": "cmd.exe", "args": ["/c", "<wisp-repo>\\tools\\antigravity_mcp.cmd"] } } }
-  ```
+- **Windows launcher** — `tools/antigravity_mcp.cmd` (run as `cmd.exe /c <path>`) uses
+  the venv Python, pins the top-tier models, and sets `ANTIGRAVITY_WORKSPACE` to the
+  Wisp repo when it is unset, so reviews default to the Wisp repo itself unless the
+  call passes `workspace`.
 
 Optional persistent mode: a long-running HTTP server can be registered as a `remote`
 MCP server (opencode: `{"type": "remote", "url": "...", "headers": {...}}`), but this
@@ -277,7 +290,7 @@ Envelope integrity:
 
 Closure integrity:
 - Give every finding an explicit verdict (`ACCEPTED` / `REJECTED`) with empirical evidence; silent drops are prohibited.
-- Report completion only when every `CONDITIONAL_PASS` / `FUNDAMENTAL_REJECTION` is resolved, patched, or re-delegated — a green test suite alone never closes an unresolved critique.
+- Report completion only when every `PASS_WITH_FIXES` / `BLOCK` verdict's `must_fix` items are resolved, patched, or re-delegated — a green test suite alone never closes an unresolved critique.
 
 Reviewer autonomy:
-- Respect the active skill's mutation mandate: read-only audit skills emit remediations as EARS requirements — apply them yourself afterwards, never ask the reviewer to patch its own findings mid-audit.
+- Respect the delegation mode: in `review` mode the reviewer proposes changes as unified diffs (plan skills as EARS requirements) — apply them yourself afterwards, never ask the reviewer to patch its own findings mid-audit.
