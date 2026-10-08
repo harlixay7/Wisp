@@ -247,11 +247,22 @@ def sanitize_environment(
     return sanitized
 
 
+AGY_INSTALL_HINT = (
+    "Install the Google Antigravity CLI (https://antigravity.google) and sign in, "
+    "or pass --executable with the full path to agy."
+)
+
+
 def resolve_agy_executable(
     which: Callable[[str], str | None] | None = None,
     home: Path | None = None,
 ) -> str:
-    """Locates the ``agy`` executable without hardcoding machine-specific paths."""
+    """Locates the ``agy`` executable without hardcoding machine-specific paths.
+
+    Searches ``PATH``, then ``~/.gemini/bin``. When neither has it, returns the
+    bare name ``agy`` so a later launch fails with a "not found" error naming
+    the command; use :func:`executable_available` to test for that case.
+    """
     lookup = which or shutil.which
     found = lookup("agy")
     if found:
@@ -263,6 +274,19 @@ def resolve_agy_executable(
         if candidate.is_file():
             return str(candidate)
     return "agy"
+
+
+def executable_available(
+    executable: str, which: Callable[[str], str | None] | None = None
+) -> bool:
+    """True when ``executable`` (a bare command name or a path) can be launched."""
+    lookup = which or shutil.which
+    return bool(executable) and lookup(executable) is not None
+
+
+def missing_executable_warning(executable: str) -> str:
+    """The warning reported when the agy executable cannot be found."""
+    return f"Antigravity executable {executable!r} was not found. {AGY_INSTALL_HINT}"
 
 
 def is_rate_limited(text: str | None) -> bool:
@@ -1588,8 +1612,8 @@ def run_bridge(config: BridgeConfig, launcher: LaunchFn | None = None) -> Bridge
                 attempt = _execute(model_name)
             except FileNotFoundError as exc:
                 launch_errors.append(
-                    f"Antigravity executable {executable!r} was not found: {exc}. "
-                    "Install the CLI or pass an explicit executable path."
+                    f"Antigravity executable {executable!r} was not found ({exc}). "
+                    f"{AGY_INSTALL_HINT}"
                 )
                 launch_exit_code = 127  # the shell convention for "command not found"
                 return "LAUNCH_ERROR"
@@ -2081,12 +2105,20 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _cmd_status(args: argparse.Namespace, workspace: Path) -> int:
-    """Prints bridge health as JSON; exits 2 when the skill registry is unusable."""
+    """Prints bridge health as JSON; exits 2 when the skill registry is unusable.
+
+    A missing agy executable is reported (``executable_found: false`` plus a
+    warning) but does not change the exit code: the bridge itself is healthy
+    and only the reviewer still needs installing.
+    """
     registry, fell_back, registry_error = _resolve_registry_for_cli(workspace, args.skill_dir)
+    executable = args.executable or resolve_agy_executable()
+    executable_found = executable_available(executable)
     status: dict[str, Any] = {
         "schema_version": REPORT_SCHEMA_VERSION,
         "wisp_version": WISP_VERSION,
-        "executable": resolve_agy_executable(),
+        "executable": executable,
+        "executable_found": executable_found,
         "workspace": str(workspace),
         "skill_registry": str(registry or args.skill_dir or workspace / DEFAULT_SKILL_DIR),
         "registry_fell_back": fell_back,
@@ -2108,9 +2140,11 @@ def _cmd_status(args: argparse.Namespace, workspace: Path) -> int:
         try:
             loader = SkillLoader(registry)
             skills = [skill.name for skill in loader.skills]
-            warnings = loader.warnings
+            warnings = list(loader.warnings)
         except SkillError as exc:
             status["skill_error"] = str(exc)
+    if not executable_found:
+        warnings.append(missing_executable_warning(executable))
     status["skills"] = skills
     status["warnings"] = warnings
     print(json.dumps(status, indent=2, ensure_ascii=False))

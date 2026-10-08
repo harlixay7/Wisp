@@ -43,6 +43,8 @@ from tools.antigravity_bridge import (
     WISP_VERSION,
     BridgeConfig,
     DelegationEnvelope,
+    executable_available,
+    missing_executable_warning,
     resolve_agy_executable,
     run_bridge,
     write_report,
@@ -335,8 +337,11 @@ def _tool_status() -> dict[str, Any]:
     workspace = _workspace()
     registry = _skill_dir(workspace)
     models = _selected_models(workspace)
+    executable = resolve_agy_executable()
+    executable_found = executable_available(executable)
     payload: dict[str, Any] = {
-        "executable": resolve_agy_executable(),
+        "executable": executable,
+        "executable_found": executable_found,
         "workspace": str(workspace),
         "skill_registry": str(registry),
         "primary_model": models["model"],
@@ -362,9 +367,11 @@ def _tool_status() -> dict[str, Any]:
             }
             for skill in loader.skills
         ]
-        payload["warnings"] = loader.warnings
+        payload["warnings"] = list(loader.warnings)
     except SkillError as exc:
         payload["skill_error"] = str(exc)
+    if not executable_found:
+        payload["warnings"].append(missing_executable_warning(executable))
     return payload
 
 

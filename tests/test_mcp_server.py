@@ -202,6 +202,28 @@ class TestToolCalls:
         assert payload["workspace"] == str(workspace)
         assert any(skill["name"] == "mcp_test_skill" for skill in payload["skills"])
 
+    def test_status_flags_missing_executable(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.setenv("ANTIGRAVITY_WORKSPACE", str(_make_workspace(tmp_path)))
+        monkeypatch.setattr(server, "resolve_agy_executable", lambda: "wisp-test-missing-agy")
+
+        response = handle_request("tools/call", {"name": "antigravity_status", "arguments": {}})
+
+        assert response["isError"] is False
+        payload = _text_of(response)
+        assert payload["executable_found"] is False
+        assert any("wisp-test-missing-agy" in warning for warning in payload["warnings"])
+
+    def test_status_confirms_found_executable(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.setenv("ANTIGRAVITY_WORKSPACE", str(_make_workspace(tmp_path)))
+        monkeypatch.setattr(server, "resolve_agy_executable", lambda: sys.executable)
+
+        payload = _text_of(
+            handle_request("tools/call", {"name": "antigravity_status", "arguments": {}})
+        )
+
+        assert payload["executable_found"] is True
+        assert not any("was not found" in warning for warning in payload["warnings"])
+
     def test_skills_lists_triggers(self, tmp_path: Path, monkeypatch) -> None:
         workspace = _make_workspace(tmp_path)
         monkeypatch.setenv("ANTIGRAVITY_WORKSPACE", str(workspace))

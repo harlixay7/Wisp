@@ -103,6 +103,11 @@ class TestBinaryResolution:
 
         assert found == "agy"
 
+    def test_executable_available_follows_lookup(self) -> None:
+        assert bridge.executable_available("agy", which=lambda name: "/opt/agy") is True
+        assert bridge.executable_available("agy", which=lambda name: None) is False
+        assert bridge.executable_available("", which=lambda name: "/opt/agy") is False
+
 
 class TestEnvironmentSanitization:
     def test_strips_all_secret_prefixes_and_preserves_essentials(self, tmp_path: Path) -> None:
@@ -1086,6 +1091,44 @@ class TestRegistryResolutionParity:
         status = json.loads(capsys.readouterr().out)
         assert status["registry_fell_back"] is True
         assert len(status["skills"]) == len(SkillLoader(SHIPPED_SKILL_DIR).skills)
+
+    def test_status_reports_missing_executable_without_failing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(bridge, "resolve_agy_executable", lambda: "wisp-test-missing-agy")
+        exit_code = main(["--status", "--workspace", str(tmp_path)])
+        status = json.loads(capsys.readouterr().out)
+        assert exit_code == 0
+        assert status["executable"] == "wisp-test-missing-agy"
+        assert status["executable_found"] is False
+        assert any(
+            "wisp-test-missing-agy" in warning and "antigravity.google" in warning
+            for warning in status["warnings"]
+        )
+
+    def test_status_honours_explicit_executable(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        exit_code = main(
+            ["--status", "--workspace", str(tmp_path), "--executable", sys.executable]
+        )
+        status = json.loads(capsys.readouterr().out)
+        assert exit_code == 0
+        assert status["executable"] == sys.executable
+        assert status["executable_found"] is True
+        assert not any("was not found" in warning for warning in status["warnings"])
+
+    def test_status_missing_executable_keeps_registry_failure_nonzero(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(bridge, "resolve_agy_executable", lambda: "wisp-test-missing-agy")
+        broken = tmp_path / "broken-registry"
+        broken.mkdir()
+        (broken / "bad.md").write_text("no frontmatter here", encoding="utf-8")
+        exit_code = main(["--status", "--workspace", str(tmp_path), "--skill-dir", str(broken)])
+        status = json.loads(capsys.readouterr().out)
+        assert exit_code == 2
+        assert status["executable_found"] is False
 
     def test_status_nonzero_when_registry_broken(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
