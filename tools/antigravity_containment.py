@@ -121,7 +121,10 @@ def _get_kernel32() -> Any:
     """
     global _KERNEL32
     if _KERNEL32 is None:
-        kernel32 = ctypes.windll.kernel32
+        # A private WinDLL instance: prototypes set here must never leak to
+        # (or be clobbered by) other modules that share ctypes.windll's
+        # function objects with different struct types.
+        kernel32 = ctypes.WinDLL("kernel32")
         handle = ctypes.c_void_p
         dword = ctypes.c_uint32
         prototypes: dict[str, tuple[Any, list[Any]]] = {

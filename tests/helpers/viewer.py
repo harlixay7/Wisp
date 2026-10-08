@@ -13,7 +13,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import IO
@@ -169,6 +169,53 @@ def http_request(
         return response.status, json.loads(response.read() or b"{}")
     finally:
         conn.close()
+
+
+def poll_thread(
+    base: str,
+    thread_id: str,
+    timeout: float = 30.0,
+    until: Callable[[dict], bool] | None = None,
+) -> dict:
+    """Polls ``GET /api/chat/thread/<id>`` until it is readable.
+
+    Tolerates transient 404/5xx/connection errors within the deadline: a
+    freshly written thread file can be briefly unreadable on Windows while
+    antivirus or the indexer holds it. When ``until`` is given, keeps polling
+    until the predicate passes (e.g. the assistant answer has arrived).
+    Raises AssertionError with the last error if the deadline expires first.
+    """
+    import json
+    import time
+    import urllib.error
+    import urllib.request
+
+    deadline = time.time() + timeout
+    last_error: Exception | None = None
+    while time.time() < deadline:
+        try:
+            response = urllib.request.urlopen(
+                f"{base}/api/chat/thread/{thread_id}", timeout=10
+            )
+            thread = json.loads(response.read())["thread"]
+            if until is None or until(thread):
+                return thread
+            last_error = TimeoutError("predicate not satisfied yet")
+            time.sleep(0.3)
+            continue
+        except urllib.error.HTTPError as exc:
+            if exc.code in (404, 503):
+                last_error = exc
+                time.sleep(0.3)
+                continue
+            raise
+        except (urllib.error.URLError, ConnectionError, OSError) as exc:
+            last_error = exc
+            time.sleep(0.3)
+            continue
+    raise AssertionError(
+        f"thread {thread_id!r} not readable within {timeout}s: {last_error}"
+    )
 
 
 def post_json(base: str, path: str, payload: dict) -> tuple[int, dict]:
