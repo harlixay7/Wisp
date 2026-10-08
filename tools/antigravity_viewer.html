@@ -197,7 +197,16 @@ svg{flex:0 0 auto}
 .scroll::-webkit-scrollbar{width:6px}
 .scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:99px}
 .scroll::-webkit-scrollbar-track{background:transparent}
-/* Edge fades appear only where more content continues (updateFades). */
+/* Edge fades appear only where more content continues (updateFades). The
+   chat fades deeper so the edge of a light question bubble never reads as a bar. */
+#chatScroll.more-above{
+  -webkit-mask-image:linear-gradient(to bottom,transparent 0,transparent 6px,#000 48px);
+  mask-image:linear-gradient(to bottom,transparent 0,transparent 6px,#000 48px);
+}
+#chatScroll.more-above.more-below{
+  -webkit-mask-image:linear-gradient(to bottom,transparent 0,transparent 6px,#000 48px,#000 calc(100% - 22px),transparent);
+  mask-image:linear-gradient(to bottom,transparent 0,transparent 6px,#000 48px,#000 calc(100% - 22px),transparent);
+}
 .scroll.more-above{
   -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 28px);
   mask-image:linear-gradient(to bottom,transparent 0,#000 28px);
@@ -1387,6 +1396,7 @@ const fx = {
   settleTimer: 0,
   chatRendered: { id: null, count: 0 },
   chatAnchor: false,                       // scroll a newly opened thread to its last question
+  chatScrollTop: 0,                        // chat scroll position while the view is hidden
   palette: { items: [], index: 0, restore: null },
 };
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -3394,6 +3404,11 @@ function renderChat() {
   const messages = thread && Array.isArray(thread.messages) ? thread.messages : [];
   const prior = fx.chatRendered;
   const sameThread = !!thread && prior.id === thread.id;
+  // Nothing new: keep the rendered messages and where the reader left off.
+  if (sameThread && prior.count === messages.length && !S.chatPending && !fx.chatAnchor && container.childElementCount) {
+    $('chatScroll').scrollTop = fx.chatScrollTop;
+    return;
+  }
   const firstNew = sameThread ? prior.count : messages.length;
   container.innerHTML = '';
   fx.chatRendered = { id: thread ? thread.id : null, count: messages.length };
@@ -4041,7 +4056,10 @@ function bindChat() {
     event.preventDefault();
     uploadPastedFiles(files);
   });
-  $('chatScroll').addEventListener('scroll', () => { S.chatAutoscroll = nearBottom($('chatScroll')); });
+  $('chatScroll').addEventListener('scroll', () => {
+    S.chatAutoscroll = nearBottom($('chatScroll'));
+    if (app.dataset.view === 'chat') fx.chatScrollTop = $('chatScroll').scrollTop;
+  });
   document.querySelectorAll('[data-starter]').forEach((chip) => {
     chip.addEventListener('click', () => {
       if (chip.dataset.starter === 'send') {
