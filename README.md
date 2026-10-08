@@ -1,266 +1,325 @@
-# Wisp
+<p align="center">
+  <img src="docs/assets/wisp-hero.svg" width="100%" alt="Wisp. A second opinion for AI-written code. Your AI writes the code; Wisp checks it before you trust it. An owl cycles through moods as a review runs.">
+</p>
 
-Wisp turns the Google Antigravity CLI (`agy`) into a delegated adversarial verification sub-agent for any coding harness — opencode, Claude Code, Codex, Cline, or a plain script. It packages the delegation as an MCP server and a CLI, normalizes Antigravity's machine-readable stream into an organized critique, keeps the complete forensic record on disk, and mirrors every run in a floating desktop widget with a chat channel for quick operator questions.
+<p align="center">
+  <a href="https://github.com/harlixay7/Wisp/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/harlixay7/Wisp/ci.yml?branch=main&style=flat-square&label=tests&labelColor=0d1117&color=2ea043" alt="Test status"></a>
+  <img src="https://img.shields.io/badge/python-3.10%2B-0d1117?style=flat-square&labelColor=0d1117&color=3b82c4" alt="Python 3.10 or newer">
+  <img src="https://img.shields.io/badge/built_for-Windows-0d1117?style=flat-square&labelColor=0d1117&color=6e7681" alt="Built for Windows">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0d1117?style=flat-square&labelColor=0d1117&color=8957e5" alt="MIT license"></a>
+</p>
 
-The dilemma it resolves is structural: an agent that wrote the code cannot neutrally grade it, and Antigravity's raw output is hostile to consumers — a single 180-step review produced **426 KB** of `stream-json`, most of it lifecycle traffic, with the actual verdict buried at the end. Wisp holds the adversarial contract (envelope, skill selection, claims to falsify), extracts and organizes the real critique — compacting the wire representation without imposing a hard output ceiling — while retaining every raw byte in the on-disk forensic record.
+<p align="center">
+  <a href="#get-started"><b>Get started</b></a>
+  &nbsp;&middot;&nbsp;
+  <a href="#how-it-works">How it works</a>
+  &nbsp;&middot;&nbsp;
+  <a href="#register-the-mcp-server">Connect your agent</a>
+  &nbsp;&middot;&nbsp;
+  <a href="#privacy-and-safety">Privacy</a>
+  &nbsp;&middot;&nbsp;
+  <a href="#documentation">Docs</a>
+</p>
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
-![tests](https://img.shields.io/badge/tests-315%20passing-brightgreen.svg)
+<br>
 
----
+AI coding assistants are fast, and they are usually confident. The catch is
+that the same assistant that wrote the code is also the one telling you it
+works. It is grading its own homework.
+
+**Wisp gives you a second opinion.** When your coding assistant has a plan or
+a finished change, Wisp hands it to a separate AI reviewer whose only job is
+to find what's wrong. The reviewer reads your actual code, runs checks, and
+has to point to the file and line behind every finding. While it works, a
+small owl on your desktop shows you what it's doing, and when it's done you
+get the whole critique, word for word.
+
+<p align="center">
+  <img src="docs/assets/wisp-demo.webp" width="100%" alt="A review running in the Wisp widget. The left side lists each step as it happens: review started, thinking through the plan, opened a file, searched the code, ran the tests, wrote up the findings. The widget on the right streams the reviewer's work live, then shows the verdict and a celebrating owl.">
+</p>
+<p align="center"><sub>A full review in the real app. The task was scripted for this recording; the widget and engine are the shipping code.</sub></p>
+
+## Why it helps
+
+**Someone checks the work who didn't write it.** The reviewer runs as its own
+process with its own instructions. It isn't told the code is good and has no
+reason to agree with your assistant.
+
+**Answers come with receipts.** Wisp asks for evidence rather than opinions:
+file paths, line numbers, and the output of commands the reviewer actually
+ran. You can check any of it yourself in a minute.
+
+**You can see it working.** No spinner and no black box. Every thought, every
+file it opens and every command it runs streams into the widget as it happens,
+and nothing is cut short.
+
+**It stays on your machine.** The widget only listens on your own computer,
+your conversations and reports are saved inside your project, and Wisp never
+handles your passwords or API keys.
+
+## What the owl is telling you
+
+The owl isn't decoration. It reacts to what the reviewer is doing right now,
+so a glance at the corner of your screen tells you whether it's thinking,
+reading, writing, stuck, or finished.
+
+<p align="center">
+  <img src="docs/assets/wisp-moods.svg" width="100%" alt="The eleven moods of the owl: dormant, nothing running; awakening, a review just started; deliberating, thinking it through; reaching, opening a file or running a command; absorbing, reading what came back; composing, writing up the answer; impatient, no news for 20 seconds; strained, hit a hiccup and retrying; shifting, switched to the backup model; triumph, finished successfully; withered, the review failed.">
+</p>
+
+## A closer look
+
+The widget has six views, and the tabs across its top switch between them.
+On the main **Wisp** view, the same six float around the owl as buttons.
+
+<p align="center">
+  <img src="docs/assets/wisp-stream.webp" width="100%" alt="Stream view: the reviewer's findings appear line by line with the files and code it refers to.">
+</p>
+
+**Stream** is the full, live record of the review: what the reviewer thought,
+which files it opened, which commands it ran and what came back. **Focus**
+is a calmer version that only shows the latest thoughts.
+
+<p align="center">
+  <img src="docs/assets/wisp-chat.webp" width="100%" alt="Chat view: a question about a failing test and a plain-language answer with the cause and the fix.">
+</p>
+
+**Chat** is where you talk to it yourself. Highlight anything on your screen
+(an error, a log line, a confusing paragraph), press <kbd>Ctrl</kbd> +
+<kbd>Alt</kbd> + <kbd>Q</kbd>, and Wisp sends it off and posts the answer
+here. <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>E</kbd> does the same but lets
+you add your own question first. If nothing is selected, you get to snip part
+of the screen instead. You can paste screenshots straight into the message
+box, and every conversation is saved so follow-up questions keep their
+context. The capture hotkeys work on Windows.
+
+<p align="center">
+  <img src="docs/assets/wisp-verdict.webp" width="100%" alt="Verdict view: counters for thoughts, tools, retries and time, a PASS badge, and buttons to replay the run or copy its folder.">
+</p>
+
+**Verdict** sums up the last run: whether the review finished, how long it
+took, how many thoughts and tool calls it made, and whether anything had to
+be retried. **Replay run** plays the whole thing back step by step.
+
+<p align="center">
+  <img src="docs/assets/wisp-history.webp" width="100%" alt="History view: saved conversations, which can be pinned, and past runs, which can be replayed.">
+</p>
+
+**History** keeps your past conversations and runs. Pin the ones you care
+about. Reviews started from any project on your machine show up here,
+labelled by project, so it doesn't matter where your assistant was working.
 
 ## How it works
 
-```mermaid
-flowchart LR
-    A[Calling agent or operator] -->|"MCP tool / CLI / chat"| B[tools/antigravity_bridge.py]
-    B -->|"envelope + skills + registry manifest"| C["agy CLI (contained subprocess:<br/>Job Object / process group)"]
-    C -->|"stream-json lines"| B
-    B -->|"organized critique (compacted)"| A
-    B -->|"full report: raw stdout/stderr in attempts[]"| D[".antigravity-reports/"]
-    B -->|"live NDJSON run"| E[tools/antigravity_viewer.py]
-    E -->|SSE| F["Wisp widget (Electron) or browser"]
-    B -.->|"registers its live dir"| G["~/.antigravity-reports/live-registry.json"]
-    G -.->|"cross-workspace watch"| E
-```
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/wisp-flow-dark.svg">
+    <img src="docs/assets/wisp-flow-light.svg" width="100%" alt="Your AI agent sends a plan, a claim and files to check to Wisp. Wisp packs the request and passes it to an independent reviewer, Google Antigravity, which reads your code. Everything the reviewer says comes back through Wisp to your agent as the full critique, appears live in the owl widget, and is saved as a report in .antigravity-reports.">
+  </picture>
+</p>
 
-The bridge spawns `agy` inside an OS containment boundary (Windows Job Object with kill-on-close; POSIX process group), streams and captures stdout/stderr in full, retries transient failures, fails over to the fallback model on quota exhaustion, and persists one complete JSON report per delegation. The MCP server is a thin stdio wrapper over the same engine; the viewer is optional and read-only with respect to the engine.
+1. **You or your assistant ask for a review.** A request is a short note: what
+   to look at, any claims you want tested ("this change doesn't touch
+   anything outside `src/config/`"), and which files matter.
+2. **Wisp prepares it.** It adds the relevant review playbooks (more on those
+   below), removes credentials from the environment the reviewer will run
+   in, and starts the reviewer in a contained process.
+3. **The reviewer does the work.** Wisp uses the
+   [Google Antigravity CLI](https://antigravity.google) (`agy`) as the
+   reviewer. It can read your project and run commands to check things for
+   itself.
+4. **Everything comes back.** The complete critique goes back to whoever
+   asked, streams live into the widget, and is saved as a report under
+   `.antigravity-reports/` in your project. Nothing is trimmed along the way.
 
----
+A few things happen quietly in the background. If the connection drops or
+the reviewer returns nothing, Wisp retries. If you run out of quota on the
+main model (`gemini-3.8-flash-high`), it hands the same request to a backup
+model (`claude-opus-4-6-thinking`) and carries on. If the run is stopped, the
+reviewer and everything it started are shut down together.
 
-## Quickstart
+## Get started
 
-Windows (from a clone; `setup.bat` handles Python, the venv, dependencies, the `agy` check, registry validation, and the test suite):
+**You'll need:**
 
-```powershell
-git clone <your-fork-url> wisp
-cd wisp
+- **Windows 10 or 11.** The engine also runs on Linux; see the note below.
+- **Python 3.10 or newer.**
+- **The [Google Antigravity CLI](https://antigravity.google)**, installed and
+  signed in with your Google account. Wisp uses your existing sign-in and
+  never sees your password.
+- **Node.js** (optional). With it, the widget floats on your desktop as a
+  transparent overlay. Without it, the widget opens in a browser window.
+
+**Install and run on Windows:**
+
+```bat
+git clone https://github.com/harlixay7/Wisp.git
+cd Wisp
 setup.bat
-.venv\Scripts\python tools\antigravity_bridge.py --status
-.venv\Scripts\python tools\antigravity_bridge.py --prompt "Harden this migration plan" ^
-    --context "SQLite WAL, single writer" ^
-    --claim "No migration exceeds 5 seconds" ^
-    --artifact "migrations/0042_add_index.sql" ^
-    --skills adversarial-plan-hardening-engine
+tools\antigravity_viewer.cmd
 ```
 
-macOS / Linux:
+`setup.bat` does the setup for you. It checks your Python version, creates a
+virtual environment, installs the dependencies, finds the Antigravity CLI,
+validates the review playbooks, runs the test suite, and installs the desktop
+widget if Node.js is available. The last line opens the owl.
 
-```bash
-python3 -m venv .venv && . .venv/bin/activate
-pip install -r requirements-dev.txt
-python -m tools.skill_loader --validate
-python -m pytest tests/ -q
-python tools/antigravity_bridge.py --status
+The first time, open `agy` once in your project folder and accept its
+workspace-trust prompt, so the reviewer is allowed to read your code.
+
+**Your first review:**
+
+```bat
+.venv\Scripts\python tools\antigravity_bridge.py --prompt "Review my plan to upgrade to pydantic v2" --skills adversarial-plan-hardening-engine
 ```
 
-Prerequisites: Python 3.10+, a signed-in Google Antigravity CLI (`agy`), and Node.js only if you want the desktop widget (one-time `npm install` in `tools/wisp_shell`, performed by `setup.bat` when npm is present). The bridge resolves `agy` from `PATH`, then `~/.gemini/bin`; `--executable <path>` overrides.
+To sharpen it, add `--claim "..."` for each statement you want tested and
+`--artifact "path/to/file.py"` for each file the reviewer should read first.
 
-A dry run prints the exact command and payload without invoking `agy`:
+Watch the owl while it runs. The full critique prints in your terminal and a
+complete report is saved in `.antigravity-reports/`. Add `--dry-run` to see
+exactly what would be sent without sending it.
 
-```bash
-python tools/antigravity_bridge.py --dry-run --prompt "..." --skills all
-```
-
----
-
-## The delegation contract
-
-An envelope describes the review; every field is optional except `prompt`.
-
-| Field | Meaning |
-| --- | --- |
-| `prompt` | The plan, diff summary, question, or claim set under review. Required. |
-| `context` | Prior art, constraints, failed attempts, environment facts. |
-| `claims_to_falsify` | Itemized assertions Antigravity must disprove or confirm with evidence. |
-| `artifacts` | Workspace-relative paths (`src/scheduler.py:45-120`). Paths only — Antigravity reads the mounted workspace itself. |
-| `skills` | The necessary/primary skills to activate (names or `"all"`); rendered as mandatory instructions. |
-| `recommended_skills` | Up to three task-dependent skills; rendered as apply-when-relevant. More than three is a validation error. |
-| `notes` | Operator steering that must not be ignored. |
-
-The payload always carries the **full registry manifest** (name, version, description, triggers, source path) so Antigravity can read any additional skill in full from the mounted registry. When a workspace has no `Skills/` directory, the shipped registry is used, mounted via an extra `--add-dir`, and the fallback is recorded as a warning in the report.
-
-Via MCP, the same contract is exposed as `antigravity_review` (plus `antigravity_status` and `antigravity_skills`):
-
-```json
-{
-  "prompt": "Harden this plan before execution: ...",
-  "context": "SQLite WAL, single writer",
-  "claims_to_falsify": ["No migration exceeds 5 seconds"],
-  "artifacts": ["migrations/0042_add_index.sql"],
-  "skills": ["adversarial-plan-hardening-engine"],
-  "recommended_skills": ["data-contract-state-integrity-engine"]
-}
-```
-
----
-
-## What comes back
-
-For every delegation, the bridge persists a complete report under `<workspace>/.antigravity-reports/antigravity-report-<timestamp>-<id>.json`:
-
-- **The organized critique** — the final `result.response` leads as `Findings & Response`; streamed per-step text is coalesced; tool names are tallied; lifecycle beacons collapse into a compact digest (step counts, session init, notable steps, result status).
-- **Complete raw streams** — the untouched `stdout` and `stderr` of every attempt live in `attempts[]`; nothing is discarded on disk.
-- **The MCP tool response** — the organized critique plus `stream_stats` (character counts per stream) and the report path, so callers get a compacted, readable payload and the raw record stays retrievable.
-
-Observed on a real 180-step run: `426,063` characters of raw stdout became a `45,409`-character organized critique with the verdict intact; the pre-fix aggregator emitted `432,855` characters that were mostly raw-stream duplicate.
-
-The bridge CLI `--json` prints the full result including both raw streams; the report file is the authoritative forensic record.
-
----
-
-## The live viewer and widget
-
-`tools\antigravity_viewer.cmd` starts a local server and a frameless Electron widget (browser fallback when the shell is not installed). The widget follows the newest run across **every registered workspace** — each live-enabled delegation records its live directory in `~/.antigravity-reports/live-registry.json`, so runs triggered from other repositories appear in the stream, History, and replay.
-
-Six views, sized to a fixed transparent canvas and switchable by click, keyboard (`1`–`6`), or the cradle navigation in the Wisp tab:
-
-| View | Content |
-| --- | --- |
-| Wisp | The companion; hover reveals the mode cradle |
-| Focus | Live digest of the latest thoughts |
-| Stream | The full reasoning trail, markdown-rendered, path badges, entry counts |
-| Chat | Operator chat: quick asks, attachments (paste images), thread history, run details |
-| Verdict | Run telemetry (thoughts/tools/retries/elapsed), pass/fail banner, run info, replay |
-| History | Conversations (pin/unpin) and archived runs, labelled by workspace |
-
-Operator hotkeys: `Ctrl+Alt+Q` sends the current selection (or opens a snip) as a quick ask; `Ctrl+Alt+E` pre-fills the chat composer with the capture instead of sending. The same two flows are available as buttons in the widget header. Three themes (Ember, Aurora, Moss) are selectable in Settings and persisted per user.
-
-The chat asks and the MCP server share one engine but are configured independently: the Settings "Wisp Asks" toggle applies only to chat/hotkey asks; MCP delegations use the skills their calling agent passes.
-
----
-
-## Known limitations
-
-- **Windows command-line payload ceiling.** The delegation payload travels as
-  the `agy -p <payload>` argument, and Windows caps a single command line at
-  ~32,767 characters. Rendered skill instructions count toward that ceiling
-  (each active skill contributes its full text plus the registry manifest), so
-  combining multiple large skills with a long prompt can hit the limit. The
-  bridge fails fast before spawning, with an actionable error; keep prompts
-  tight and prefer one primary skill plus `recommended_skills` only when
-  needed. A file- or stdin-based payload channel is the longer-term fix.
-- **WebView2 asset caching.** ...
-
-## Skill registry
-
-`Skills/` holds the adversarial skill definitions — Markdown with YAML front matter, or YAML. Every definition must carry `name`, `version`, `description`, `activation_triggers`, `input_contract`, `output_contract`, and `instructions_payload`.
-
-```bash
-python -m tools.skill_loader --validate      # fail loudly on contract violations
-python tools/antigravity_bridge.py --list-skills
-```
-
-Twelve skills ship with the repository, covering plan hardening, AST/wiring audits, empirical falsification, surgical patching, data contracts, AI evals, runtime security, telemetry, portability, documentation accuracy, retrieval grounding, and agentic tool orchestration. `--skills all` activates the full non-template registry; `kind: template` files are never auto-selected.
-
----
+> [!NOTE]
+> **On Linux,** the engine, the MCP server and the viewer all run, and the
+> continuous-integration tests run on Ubuntu as well as Windows. The
+> screen-capture hotkeys are Windows-only, and the desktop overlay hasn't
+> been tested off Windows. macOS isn't tested at all yet.
+>
+> ```bash
+> python3 -m venv .venv && . .venv/bin/activate
+> pip install -r requirements-dev.txt
+> python tools/antigravity_bridge.py --status
+> ```
 
 ## Register the MCP server
 
-The server speaks MCP v1 over stdio; stdout carries protocol frames only, all diagnostics go to stderr. Register it once per harness — harnesses spawn and terminate it automatically.
+Wisp speaks the [Model Context Protocol](https://modelcontextprotocol.io), the
+standard way coding assistants call outside tools. Register it once and your
+assistant can ask for a review whenever it wants a second opinion.
 
-- **opencode** — already configured in this repository's `opencode.json` (`cmd.exe /c tools\antigravity_mcp.cmd`, long tool timeout).
-- **Universal launcher** — `tools\antigravity_mcp.cmd` resolves the repository root, pins the model chain, and starts the server.
-- **Claude Code** — `claude mcp add antigravity -- cmd.exe /c "<repo-root>\tools\antigravity_mcp.cmd"` (adjust the path to your clone).
-- **Codex** (`~/.codex/config.toml`):
-  ```toml
-  [mcp_servers.antigravity]
-  command = "cmd.exe"
-  args = ["/c", "<repo-root>\\tools\\antigravity_mcp.cmd"]
-  ```
-- **Cline / Roo / Cursor** — their MCP settings JSON:
-  ```json
-  { "mcpServers": { "antigravity": { "command": "cmd.exe", "args": ["/c", "<repo-root>\\tools\\antigravity_mcp.cmd"] } } }
-  ```
+**Claude Code**
 
-`AGENTS.md` defines the mandatory delegation gates (plan generation, high-risk seams, pre-commit audit, repeated failure) and the reconciliation rules the calling agent must follow; `AgentSkill.md` and `.opencode/skills/antigravity-delegation/SKILL.md` carry the agent-facing operating protocol.
-
----
-
-## Configuration
-
-Environment variables are read by the MCP server, the viewer, and the launchers. All are optional.
-
-| Variable | Effect | Default |
-| --- | --- | --- |
-| `ANTIGRAVITY_WORKSPACE` | Workspace root mounted for reviews | current working directory |
-| `ANTIGRAVITY_SKILL_DIR` | Explicit skill registry directory | `<workspace>/Skills`, falling back to the shipped `Skills/` |
-| `ANTIGRAVITY_LIVE` | Live event emission (`0` disables) | `1` |
-| `ANTIGRAVITY_LIVE_DIR` | Live NDJSON directory | `<workspace>/.antigravity-reports/live` |
-| `ANTIGRAVITY_LIVE_KEEP` | Live run files retained | `20` |
-| `ANTIGRAVITY_LIVE_REGISTRY` | Cross-workspace live registry path | `~/.antigravity-reports/live-registry.json` |
-| `ANTIGRAVITY_MODEL` | Primary model | `gemini-3.8-flash-high` |
-| `ANTIGRAVITY_FALLBACK_MODEL` | Quota failover model | `claude-opus-4-6-thinking` |
-| `ANTIGRAVITY_HARNESS` | Harness tag recorded in the envelope | per launcher |
-| `ANTIGRAVITY_PRINT_TIMEOUT` | `agy --print-timeout`, seconds | `1200` |
-| `ANTIGRAVITY_RETRIES` | Transient-failure retries per model | `2` |
-| `ANTIGRAVITY_RETRY_BACKOFF` | Base seconds for retry backoff | `5` |
-| `ANTIGRAVITY_QUOTA_WAIT` | Max seconds to wait for a quota reset | `0` (never wait) |
-| `ANTIGRAVITY_QUOTA_HOOK` | Command run on quota exhaustion (account rotation) | unset |
-
-Additional CLI flags: `--model`, `--fallback-model`, `--print-timeout`, `--grace-seconds`, `--retries`, `--retry-backoff`, `--quota-wait`, `--quota-hook`, `--live/--no-live`, `--executable`, `--json`, `--dry-run`, `--status`, `--list-skills`.
-
----
-
-## Verification
-
-Deterministic suite — offline by design; no test invokes `agy`, no network, no credentials:
-
-| Check | Command | Observed |
-| --- | --- | --- |
-| Test suite | `python -m pytest tests/ -q` | all green in `~90 s` |
-| Skill registry | `python -m tools.skill_loader --validate` | `12 skills`, `0 warnings` |
-| Bridge status | `python tools/antigravity_bridge.py --status` | resolves executable, workspace, registry, models |
-
-Testbed: Windows 11, CPython 3.13, single workstation. The suite is deterministic by construction — scripted launchers replace `agy`, and the live registry is isolated per test.
-
-Real delegations, recorded as **single observations** (N=1) on the same workstation — not controlled benchmarks:
-
-| Run | Model chain | Steps | Wall time | Raw stdout | Organized critique |
-| --- | --- | --- | --- | --- | --- |
-| Plan hardening | `gemini-3.8-flash-high` | 85 | `213.4 s` | `229,093` chars | `35,069` chars (report) |
-| Deployment audit | `gemini-3.8-flash-high` | 180 | `374.8 s` | `426,063` chars | `45,409` chars |
-
-Long runs reflect the underlying agent loop (dozens of tool steps per review), not bridge overhead; the bridge itself adds aggregation and report writing measured in milliseconds. Multi-seed sweeps have not been run.
-
----
-
-## Boundaries and non-goals
-
-- **Windows-first.** Selection/snip capture and the Electron widget are Windows implementations (Win32 clipboard, native window drag regions). The bridge, MCP server, skill loader, aggregation, and live feed are OS-agnostic; the viewer falls back to a browser where the shell is unavailable.
-- **Antigravity required.** `agy` must be installed and signed in; quota exhaustion fails over to the fallback model or fails loudly with the reset window preserved in the report. Wisp does not manage Google credentials.
-- **Aggregation is heuristic.** The final `result.response` is authoritative and leads the critique; streamed text is coalesced per step; lifecycle beacons are summarized, not reproduced. The complete raw streams are always retained in `attempts[]` — if the organized view ever misleads, the forensic record is one field away.
-- **CI included.** `.github/workflows/ci.yml` runs the deterministic suite (ruff, `compileall`, skill-registry validation, Node syntax check, pytest) on Windows + Ubuntu across Python 3.10/3.13; no run touches real `agy` or quota.
-- **The viewer is optional.** The delegation engine and MCP server work identically whether or not the viewer process is running.
-- **Not a sandbox for untrusted code.** The containment boundary governs the `agy` process tree (Windows: suspended start, Job Object assignment, and taskkill tree termination; POSIX: session process group), not the model's outputs or its granted authority; treat reviews as advice, not execution. Full trust model: `SECURITY.md`.
-
----
-
-## Repository layout
-
+```bash
+claude mcp add antigravity -- python tools/antigravity_mcp_server.py
 ```
-tools/
-  antigravity_bridge.py        delegation engine: containment, retries, quota failover,
-                               stream aggregation, reports
-  antigravity_mcp_server.py    MCP v1 stdio server (antigravity_review/status/skills)
-  antigravity_live.py          live event feed, stream parser, cross-workspace registry
-  antigravity_viewer.py        local viewer server (SSE, chat, captures)
-  antigravity_viewer.html      widget UI (six views, cradle navigation, themes)
-  skill_loader.py              registry discovery, validation, prompt/manifest rendering
-  wisp_capture.py              selection/snip capture (Win32 + PowerShell fallback)
-  wisp_chat.py                 persistent chat threads for operator asks
-  wisp_shell/                  Electron shell (npm install once; optional)
-  capture/                     PowerShell capture helpers
-Skills/                        adversarial skill registry (12 skills)
-tests/                         deterministic suite (315 tests)
-docs/                          skills repair provenance log
-Creature artwork: the runtime assets live in `tools/viewer_assets/`; high-resolution source masters are maintained outside the repository.
-AGENTS.md                      delegation gates and reconciliation rules
-AgentSkill.md                  agent-facing delegation protocol
-setup.bat                      Windows bootstrap: venv, deps, agy check, validation, tests
+
+**opencode** picks it up automatically from the `opencode.json` in this
+repository. Ready-made entries for **Codex**, **Cline**, **Cursor** and
+**Roo Code** are in [AgentSkill.md](AgentSkill.md#32-mcp-registration-per-harness).
+Assistants without MCP support, such as Aider, can call the command line
+shown above instead.
+
+Once it's registered, your assistant gets three tools:
+
+| Tool | What it does |
+| --- | --- |
+| `antigravity_review` | Runs a review and returns the complete critique. Only `prompt` is required. |
+| `antigravity_status` | Checks that the reviewer is installed and the playbooks are valid. |
+| `antigravity_skills` | Lists the available review playbooks. |
+
+A request from your assistant looks like this:
+
+```json
+{
+  "prompt": "Harden this plan before we build it: ...",
+  "claims_to_falsify": ["Stopping the parent process stops every child within 500 ms"],
+  "artifacts": ["src/supervisor.py:45-120"],
+  "skills": ["adversarial-plan-hardening-engine"]
+}
 ```
+
+For a complete, realistic request, see
+[examples/delegation-case-study.json](examples/delegation-case-study.json).
+[docs/delegation-playbook.md](docs/delegation-playbook.md) covers how to write
+requests that get sharp answers instead of polite agreement.
+
+## Review playbooks
+
+Wisp ships with twelve playbooks, which the code calls *skills*. Each is a
+written procedure the reviewer has to follow, with its own rules about what
+counts as evidence and what a finished answer looks like. Pick the ones that
+fit the job, or pass `--skills all`.
+
+<details>
+<summary><b>See all twelve playbooks</b></summary>
+<br>
+
+| Playbook | Reach for it when |
+| --- | --- |
+| `adversarial-plan-hardening-engine` | You have a plan or design and want it attacked before anyone builds it |
+| `zero-trust-ast-wiring-verifier` | You want proof that the code is really connected the way it claims |
+| `empirical-claim-falsification-engine` | Someone made a speed, memory or hardware claim that needs re-checking |
+| `zero-regression-surgical-implementation` | You're fixing a bug and can't afford to break anything else |
+| `data-contract-state-integrity-engine` | Schemas, migrations, saved data or transactions are changing |
+| `ai-eval-regression-engine` | You're changing prompts or models and need tests to catch regressions |
+| `runtime-security-vault-engine` | Tools, secrets, file access or prompt injection are in play |
+| `telemetry-hardware-profiling-gate` | Something is slow, stalls, or eats memory |
+| `git-hygiene-portability-gate` | The project should work on someone else's machine, not just yours |
+| `documentation-retraction-ledger-engine` | The docs may no longer match what the code does |
+| `hybrid-rag-retrieval-grounding-engine` | You're building search or retrieval for an AI system |
+| `agentic-tool-dag-orchestration-engine` | You're designing tool calls or multi-step agent workflows |
+
+You can write your own: add a YAML or Markdown file to `Skills/` and check it
+with `python -m tools.skill_loader --validate`. The format is described in
+[AGENTS.md](AGENTS.md#6-skill-registry).
+
+</details>
+
+## Privacy and safety
+
+- **The widget is local.** It listens on `127.0.0.1` (port 48477) and
+  refuses to bind to any other address unless you set an access token.
+- **Your files stay put.** Conversations, screenshots and reports are saved
+  under `.antigravity-reports/` inside your project. The only thing that
+  leaves your machine is the review request sent to Google Antigravity.
+- **Credentials are left out.** Before starting the reviewer, Wisp removes
+  credential variables from its environment: cloud keys, GitHub and SSH
+  tokens, OpenAI, Anthropic and Hugging Face keys, and similar.
+- **Nothing is left running.** The reviewer runs inside a Windows Job Object
+  (a process group on Linux), so stopping a review stops everything it
+  started.
+
+Be clear about what this means, though. It's careful housekeeping, not a
+sandbox. The reviewer can read your project and run commands without asking
+first, because that's how it checks claims. Only point Wisp at projects whose
+code you'd be comfortable running yourself. [SECURITY.md](SECURITY.md) has
+the full details.
+
+## Good to know
+
+- **It's built for Windows first.** The screen-capture hotkeys are
+  Windows-only, and the desktop overlay is only tested there.
+- **Very large requests can hit a Windows limit.** The request travels on
+  the `agy` command line, which Windows caps at about 32,000 characters.
+  Long prompts combined with many playbooks can reach it, and Wisp stops with
+  a clear message when they do.
+- **It uses your Antigravity quota.** Every review counts against your Google
+  account's limits. When the main model runs out, Wisp switches to the backup
+  model and tells you so.
+
+## For contributors
+
+The test suite runs offline and never calls the real reviewer, so it costs no
+quota. Continuous integration runs it on Windows and Ubuntu with Python 3.10
+and 3.13.
+
+```bash
+python -m pytest tests/ -q                # 370 test cases
+ruff check tools tests                    # lint
+python -m tools.skill_loader --validate   # check the playbooks
+```
+
+## Documentation
+
+| Document | What's inside |
+| --- | --- |
+| [AgentSkill.md](AgentSkill.md) | Setup for every supported assistant and every command-line option |
+| [docs/delegation-playbook.md](docs/delegation-playbook.md) | How to write requests that get useful answers |
+| [AGENTS.md](AGENTS.md) | The rules coding assistants follow when they delegate to Wisp |
+| [SECURITY.md](SECURITY.md) | What is contained, what isn't, and how to report a problem |
+| [CHANGELOG.md](CHANGELOG.md) | What changed in each release |
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Wisp is released under the [MIT License](LICENSE).

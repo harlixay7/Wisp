@@ -1,5 +1,5 @@
 # Wisp runtime dependencies.
 # Everything else in the engine, MCP server, viewer, and live feed is
 # CPython standard library.
-# Pinned exactly for release reproducibility (audit #66).
+# Pinned exactly so releases are reproducible.
 PyYAML==6.0.3

@@ -13,3 +13,6 @@
 *.toml text eol=lf
 *.png binary
 *.jpg binary
+*.webp binary
+*.gif binary
+*.svg text eol=lf

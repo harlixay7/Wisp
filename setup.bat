@@ -2,6 +2,8 @@
 setlocal EnableExtensions
 title Wisp setup
 cd /d "%~dp0"
+set "NOPAUSE="
+if /i "%~1"=="--no-pause" set "NOPAUSE=1"
 echo.
 echo  Wisp - setup and environment check
 echo  ==================================
@@ -87,11 +89,11 @@ echo    - Bridge status:   .venv\Scripts\python tools\antigravity_bridge.py --st
 echo    - Live viewer:     tools\antigravity_viewer.cmd
 echo    - MCP registration: see README "Register the MCP server".
 echo.
-pause
+if not defined NOPAUSE pause
 exit /b 0
 
 :fail
 echo.
 echo  Setup failed. Review the messages above.
-pause
+if not defined NOPAUSE pause
 exit /b 1

@@ -1,4 +1,4 @@
-# Agent 1 — Antigravity Delegation: Master Integration Guide
+# Antigravity Delegation: Integration Guide
 
 **Version 2.7.0** · harness-agnostic; runs from any workspace.
 Canonical skill: `.opencode/skills/antigravity-delegation/SKILL.md`
@@ -18,7 +18,7 @@ embeds the deployable skill **verbatim**; Section 3 contains per-harness wiring.
 | 1 | Trust the workspace: add your repository root to `trustedWorkspaces` in `~/.gemini/antigravity-cli/settings.json` (or run `agy` once and accept the trust prompt). |
 | 2 | Restart opencode — it loads `opencode.json` (MCP server) and `.opencode/skills/` at startup. Config is not hot-reloaded. |
 | 3 | Verify: `python tools/antigravity_bridge.py --status` → executable, model chain, 12 registry skills. |
-| 4 | Delegate: ask Agent 1 to call `antigravity_review`, or use the CLI fallback in §4.5. |
+| 4 | Delegate: ask your coding agent to call `antigravity_review`, or use the CLI fallback in §4.5. |
 
 No background server, no ports, no daemon: the harness spawns the MCP server when it
 starts and terminates it on exit. Nothing needs manual starting.
@@ -28,7 +28,7 @@ starts and terminates it on exit. Nothing needs manual starting.
 ## 1. Architecture
 
 ```
-Agent 1 (harness: opencode / Claude Code / Codex / Cline / …)
+Calling agent (opencode / Claude Code / Codex / Cline / …)
   │  reads AGENTS.md + this document / the skill
   │  builds a delegation envelope {prompt, context, claims_to_falsify, artifacts, skills}
   ▼
@@ -43,7 +43,7 @@ agy -p <payload> --add-dir <workspace> --model gemini-3.8-flash-high --effort hi
   │  Windows Job Object (JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE) / POSIX session group
   │  full stdout+stderr capture · transient retries · quota failover
   ▼
-Complete critique + every raw stream  →  Agent 1
+Complete critique + every raw stream  →  calling agent
 Full JSON report → <workspace>/.antigravity-reports/antigravity-report-<timestamp>-<id>.json
 ```
 
@@ -51,21 +51,23 @@ Full JSON report → <workspace>/.antigravity-reports/antigravity-report-<timest
 
 | Path | Responsibility |
 | --- | --- |
-| `tools/antigravity_bridge.py` | Engine: resolution, env hygiene, containment, capture, aggregation, retries, quota controls, CLI. |
+| `tools/antigravity_bridge.py` | Engine: resolution, env hygiene, capture, retries, quota controls, reports, CLI. |
+| `tools/antigravity_containment.py` | Process-tree containment (Windows Job Objects, POSIX process groups). |
+| `tools/antigravity_aggregate.py` | `stream-json` aggregation into the organized critique. |
 | `tools/antigravity_mcp_server.py` | MCP stdio server: `antigravity_review`, `antigravity_status`, `antigravity_skills`. |
 | `tools/antigravity_mcp.cmd` | Canonical Windows launcher (resolves repo root, pins models, starts the server). |
 | `tools/skill_loader.py` | `Skills/` registry discovery, metadata validation, prompt rendering. |
-| `Skills/*.{yaml,yml,md}` | 12 adversarial skills injected into every delegation. |
-| `.opencode/skills/antigravity-delegation/SKILL.md` | The deployable Agent 1 skill (§2). |
+| `Skills/NN_<name>.md` | 12 adversarial skills injected into every delegation. |
+| `.opencode/skills/antigravity-delegation/SKILL.md` | The deployable delegation skill (§2). |
 | `opencode.json` | Registers the MCP server for opencode (1-hour tool timeout). |
 | `AGENTS.md` | Harness-agnostic delegation charter (gates + reconciliation). |
-| `tests/` | the deterministic suite (live count on the README badge) across bridge, hardening, faults, live, MCP protocol, viewer, governance; no test invokes real `agy`. |
+| `tests/` | Deterministic, offline suite organized by subject; no test invokes the real `agy`. |
 
 **Three distinct skill planes — do not confuse them:**
 
 1. `Skills/` (this repo) — agy-facing adversarial skills; injected by the bridge.
 2. `~/.gemini/config/skills/<name>/SKILL.md` — Antigravity's own native skills, expanded by agy itself.
-3. Harness skills (`~/.agents/skills/`, `.opencode/skills/`, `~/.claude/skills/`) — instructions for **Agent 1**.
+3. Harness skills (`~/.agents/skills/`, `.opencode/skills/`, `~/.claude/skills/`) — instructions for the **calling agent**.
 
 ---
 
@@ -74,7 +76,7 @@ Full JSON report → <workspace>/.antigravity-reports/antigravity-report-<timest
 Copy this block into your harness's skill location (see §3.1). It is **generated**
 from the canonical file — do not edit this block by hand; edit
 `.opencode/skills/antigravity-delegation/SKILL.md` and re-embed (a regression
-test in `tests/test_skill_registry_governance.py` fails when the two drift).
+test in `tests/test_repo_consistency.py` fails when the two drift).
 
 ````markdown
 ---
@@ -96,9 +98,9 @@ metadata:
   mcp_server: "tools/antigravity_mcp_server.py"
 ---
 
-# Antigravity Delegation — Agent 1 Operating Protocol
+# Antigravity Delegation — Operating Protocol
 
-You are **Agent 1** (Lead Builder / Orchestrator). Google Antigravity (`agy`) is your
+You are the **calling agent** (lead builder and orchestrator). Google Antigravity (`agy`) is your
 **independent adversarial verification lead** — a formal engineering contract, not
 optional advice.
 
@@ -202,14 +204,13 @@ it only on "attack this plan" wastes a third of its value. Full guide:
 - **Never place non-skill files there** — reports, notes, or documentation go in
   the workspace root or a `docs\` folder.
 - Before trusting skill-aware delegations, confirm `antigravity_status` shows a
-  non-empty `skills` list with empty `warnings`. Symptom of a stale workaround:
-  payloads saying "ignore the skills registry" — that note is obsolete; remove
-  it and pass the `skills` parameter again.
+  non-empty `skills` list with empty `warnings`. Never tell the reviewer to
+  ignore the registry; pass the `skills` parameter instead.
 - Runtime note: every delegation's full prompt is persisted in
   `<workspace>/.antigravity-reports/` — treat that directory as containing
   whatever the envelopes carried.
 
-## 3. Model policy (operator-mandated)
+## 3. Model policy
 
 - Primary: `gemini-3.8-flash-high` with automatic `--effort high`.
 - Quota failover: `claude-opus-4-6-thinking`.
@@ -318,11 +319,11 @@ automatically at startup and terminate them at exit — nothing to start manuall
   ```toml
   [mcp_servers.antigravity]
   command = "cmd.exe"
-  args = ["/c", "<repo-root>\\tools\\antigravity_mcp.cmd"]
+  args = ["/c", "<wisp-repo>\\tools\\antigravity_mcp.cmd"]
   ```
 - **Cline / Roo / Cursor** — add to their MCP JSON:
   ```json
-  { "mcpServers": { "antigravity": { "command": "cmd.exe", "args": ["/c", "<repo-root>\\tools\\antigravity_mcp.cmd"] } } }
+  { "mcpServers": { "antigravity": { "command": "cmd.exe", "args": ["/c", "<wisp-repo>\\tools\\antigravity_mcp.cmd"] } } }
   ```
 
 Optional persistent mode: a long-running HTTP server can be registered as a `remote`
@@ -371,9 +372,9 @@ Register `tools/antigravity_mcp.cmd` (Windows) or
 | Harness | Where | Entry |
 | --- | --- | --- |
 | opencode | `opencode.json` → `"mcp"` | See skill §7; already configured in this repo. |
-| Claude Code | `claude mcp add antigravity -- cmd.exe /c "<repo-root>\\tools\\antigravity_mcp.cmd"` | Adjust the path to your clone; check `claude mcp add --help` for scope flags. |
-| Codex | `~/.codex/config.toml` → `[mcp_servers.antigravity]` | `command = "cmd.exe"`, `args = ["/c", "<repo-root>\\tools\\antigravity_mcp.cmd"]` |
-| Cline / Roo | MCP settings JSON → `mcpServers` | `{ "command": "cmd.exe", "args": ["/c", "<repo-root>\\tools\\antigravity_mcp.cmd"] }` |
+| Claude Code | `claude mcp add antigravity -- cmd.exe /c "<wisp-repo>\\tools\\antigravity_mcp.cmd"` | Adjust the path to your clone; check `claude mcp add --help` for scope flags. |
+| Codex | `~/.codex/config.toml` → `[mcp_servers.antigravity]` | `command = "cmd.exe"`, `args = ["/c", "<wisp-repo>\\tools\\antigravity_mcp.cmd"]` |
+| Cline / Roo | MCP settings JSON → `mcpServers` | `{ "command": "cmd.exe", "args": ["/c", "<wisp-repo>\\tools\\antigravity_mcp.cmd"] }` |
 | Cursor | `.cursor/mcp.json` → `mcpServers` | Same shape as Cline. |
 | Aider / no MCP | — | Use the CLI fallback in §4.5. |
 

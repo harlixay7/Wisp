@@ -43,6 +43,18 @@ ALL_SELECTOR = "all"
 _NAME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
 
 
+class SkillError(Exception):
+    """Base class for skill registry failures."""
+
+
+class SkillValidationError(SkillError):
+    """Raised when a skill definition violates the metadata contract."""
+
+
+class SkillNotFoundError(SkillError):
+    """Raised when a requested skill identifier is absent from the registry."""
+
+
 def resolve_skill_dir(
     workspace: Path | str, override: Path | str | None = None
 ) -> tuple[Path, bool]:
@@ -66,18 +78,6 @@ def resolve_skill_dir(
         f"Skill registry directory not found: {workspace_candidate} "
         f"(no shipped registry at {SHIPPED_SKILL_DIR})"
     )
-
-
-class SkillError(Exception):
-    """Base class for skill registry failures."""
-
-
-class SkillValidationError(SkillError):
-    """Raised when a skill definition violates the metadata contract."""
-
-
-class SkillNotFoundError(SkillError):
-    """Raised when a requested skill identifier is absent from the registry."""
 
 
 _HTML_SPACE_PATTERN = re.compile(r"&#x20;|&nbsp;")
@@ -182,11 +182,15 @@ class Skill:
 
     @property
     def is_template(self) -> bool:
-        return self.kind.lower() == "template" or self.stem.lower().startswith("template_")
+        return self.kind.lower() == "template"
 
 
-def parse_skill_document(document: Mapping[str, Any], source_path: Path) -> Skill:
-    """Validates a parsed YAML mapping and returns a :class:`Skill`."""
+def parse_skill_document(document: object, source_path: Path) -> Skill:
+    """Validates a parsed YAML document and returns a :class:`Skill`.
+
+    Accepts any parsed value so that non-mapping roots (a bare list or scalar)
+    are reported as validation errors rather than crashing.
+    """
     if not isinstance(document, Mapping):
         raise SkillValidationError(f"{source_path}: root document must be a YAML mapping")
 
@@ -273,24 +277,30 @@ def _load_markdown_skill(raw_text: str, path: Path) -> Skill:
     return parse_skill_document(document, path)
 
 
-def load_skill_file(path: Path) -> Skill:
-    """Reads, parses, and validates a single YAML or Markdown skill file."""
+def _read_skill_text(path: Path) -> str:
     try:
-        raw_text = path.read_text(encoding="utf-8-sig")
+        return path.read_text(encoding="utf-8-sig")
     except OSError as exc:
         raise SkillValidationError(f"{path}: cannot read skill file: {exc}") from exc
 
-    if not raw_text.strip():
-        raise SkillValidationError(f"{path}: skill file is empty")
 
+def _parse_skill_text(text: str, path: Path) -> Skill:
+    """Parses already-read skill text; the suffix of ``path`` picks the format."""
     if path.suffix.lower() in MARKDOWN_SKILL_SUFFIXES:
-        return _load_markdown_skill(raw_text, path)
-
+        return _load_markdown_skill(text, path)
     try:
-        document = yaml.safe_load(raw_text)
+        document = yaml.safe_load(text)
     except yaml.YAMLError as exc:
         raise SkillValidationError(f"{path}: invalid YAML: {exc}") from exc
     return parse_skill_document(document, path)
+
+
+def load_skill_file(path: Path) -> Skill:
+    """Reads, parses, and validates a single YAML or Markdown skill file."""
+    raw_text = _read_skill_text(path)
+    if not raw_text.strip():
+        raise SkillValidationError(f"{path}: skill file is empty")
+    return _parse_skill_text(raw_text, path)
 
 
 class SkillLoader:
@@ -327,16 +337,16 @@ class SkillLoader:
         skills: list[Skill] = []
         seen: dict[str, Path] = {}
         for path in skill_files:
-            try:
-                peek = path.read_text(encoding="utf-8-sig")
-            except OSError as exc:
-                raise SkillValidationError(f"{path}: cannot read skill file: {exc}") from exc
-            if not peek.strip():
+            raw_text = _read_skill_text(path)
+            # Empty placeholders are skipped here, while load_skill_file treats
+            # them as errors: a registry may hold not-yet-authored stubs, but a
+            # file requested explicitly must actually define a skill.
+            if not raw_text.strip():
                 self._warnings.append(
                     f"Skipped empty skill file (not authored yet): {path.name}"
                 )
                 continue
-            skill = load_skill_file(path)
+            skill = _parse_skill_text(raw_text, path)
             prior = seen.get(skill.name)
             if prior is not None:
                 raise SkillValidationError(

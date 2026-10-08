@@ -21,3 +21,6 @@ Thumbs.db
 *.swp
 .idea/
 .vscode/
+
+# Local agent worktrees
+.claude/worktrees/

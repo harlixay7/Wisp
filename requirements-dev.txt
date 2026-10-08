@@ -1,5 +1,5 @@
 -r requirements.txt
-# Dev/test toolchain, pinned exactly (audit #66). Upgrade deliberately:
+# Dev/test toolchain, pinned exactly. Upgrade deliberately:
 # bump the pin, run the full suite, then commit the bump as its own change.
 pytest==9.1.1
 ruff==0.14.4

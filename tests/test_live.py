@@ -1,11 +1,19 @@
-﻿"""Deterministic tests for the live event feed (parser, sinks, bridge wiring)."""
+"""Live event feed: stream parsing, sinks, emission order, retention, and the registry."""
 
 from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
+import threading
+import time
 from pathlib import Path
 
+import pytest
+
+from tests.helpers import ROOT
+from tools import antigravity_live
 from tools.antigravity_bridge import (
     AttemptResult,
     BridgeConfig,
@@ -13,11 +21,19 @@ from tools.antigravity_bridge import (
     run_bridge,
 )
 from tools.antigravity_live import (
+    ACTIVE_RUN_GRACE_SECONDS,
+    DEFAULT_KEEP_RUNS,
+    LIVE_SCHEMA_VERSION,
+    REGISTRY_MAX_ENTRIES,
     CallbackSink,
     JsonlSink,
     LiveEmitter,
+    _registry_file_lock,
+    known_live_dirs,
     new_run_id,
     parse_stream_line,
+    register_live_dir,
+    registry_path,
 )
 
 
@@ -50,6 +66,12 @@ def envelope() -> DelegationEnvelope:
 
 def success(stdout: str = "CRITIQUE") -> AttemptResult:
     return AttemptResult(exit_code=0, stdout=stdout, stderr="", duration_seconds=0.01)
+
+
+def _read_lines(path: Path) -> list[dict]:
+    return [
+        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
 
 
 class TestParsing:
@@ -166,6 +188,38 @@ class TestParsing:
         assert ("thinking", "weighing the tradeoff", {}) in parse_stream_line(think_line)
 
 
+class TestDepthPreservation:
+    @staticmethod
+    def _nested_data(depth: int, leaf: dict) -> dict:
+        nested: dict = leaf
+        for _ in range(depth):
+            nested = {"data": nested}
+        return nested
+
+    def test_over_depth_content_survives_as_raw(self) -> None:
+        deep = self._nested_data(12, {"payload": "deep-value-1"})
+        events = parse_stream_line(json.dumps(deep))
+        raw_events = [text for kind, text, _ in events if kind == "raw"]
+        assert raw_events, "over-depth content must survive"
+        assert any("deep-value-1" in text for text in raw_events)
+        metas = [meta for kind, _, meta in events if kind == "raw"]
+        assert any(entry.get("depth_truncated") for entry in metas)
+
+    def test_mixed_depth_event_keeps_both_levels(self) -> None:
+        payload = {
+            "event": "step_update",
+            "step_update": {
+                "step_index": 1,
+                "text_delta": "shallow text",
+                "data": self._nested_data(10, {"payload": "deep-value-2"}),
+            },
+        }
+        events = parse_stream_line(json.dumps(payload))
+        texts = [text for kind, text, _ in events]
+        assert any("shallow text" in text for text in texts)
+        assert any("deep-value-2" in text for text in texts)
+
+
 class TestSinks:
     def test_jsonl_sink_appends_and_stamps(self, tmp_path: Path) -> None:
         live = tmp_path / "live"
@@ -177,10 +231,7 @@ class TestSinks:
 
         files = list(live.glob("run-*.jsonl"))
         assert len(files) == 1
-        lines = [
-            json.loads(line)
-            for line in files[0].read_text(encoding="utf-8").splitlines()
-        ]
+        lines = [json.loads(line) for line in files[0].read_text(encoding="utf-8").splitlines()]
         assert [line["kind"] for line in lines] == ["run_start", "thinking"]
         assert lines[1]["text"] == "deep thought"
         assert [line["seq"] for line in lines] == [1, 2]
@@ -224,16 +275,68 @@ class TestSinks:
         assert new_run_id() != new_run_id()
 
 
+class TestOrderedEmission:
+    def test_seq_order_matches_write_order_under_threads(self, tmp_path: Path) -> None:
+        sink = JsonlSink(tmp_path, "run-ordered", keep_runs=DEFAULT_KEEP_RUNS)
+        emitter = LiveEmitter("run-ordered", [sink])
+        start = threading.Barrier(9)
+
+        def worker(index: int) -> None:
+            start.wait()
+            for round_index in range(20):
+                emitter.emit("text", f"w{index}-{round_index}")
+
+        threads = [threading.Thread(target=worker, args=(index,)) for index in range(8)]
+        for thread in threads:
+            thread.start()
+        start.wait()
+        for thread in threads:
+            thread.join()
+        sink.close()
+        events = _read_lines(sink.path)
+        seqs = [event["seq"] for event in events]
+        assert seqs == sorted(seqs)
+        assert len(seqs) == 160
+        assert seqs == list(range(1, 161))
+
+
+class TestRetentionGrace:
+    def test_prune_skips_recently_active_runs(self, tmp_path: Path) -> None:
+        keep = 2
+        paths = []
+        for index in range(keep + 2):
+            run = tmp_path / f"run-20260101-0000{index}-aa.jsonl"
+            run.write_text('{"kind":"text"}\n', encoding="utf-8")
+            paths.append(run)
+        # All runs freshly written: even beyond the keep window, nothing may be
+        # pruned because they could belong to another active process.
+        sink = JsonlSink(tmp_path, "run-20260101-9999-zz", keep_runs=keep)
+        survivors = sorted(path.name for path in tmp_path.glob("run-*.jsonl"))
+        sink.close()
+        assert len(survivors) == keep + 3
+
+    def test_prune_claims_idle_old_runs(self, tmp_path: Path) -> None:
+        keep = 1
+        old = tmp_path / "run-20200101-000000-old.jsonl"
+        old.write_text("{}\n", encoding="utf-8")
+        stale_stamp = time.time() - (ACTIVE_RUN_GRACE_SECONDS + 120)
+        os.utime(old, (stale_stamp, stale_stamp))
+        fresh = tmp_path / "run-20260101-000000-new.jsonl"
+        fresh.write_text("{}\n", encoding="utf-8")
+        sink = JsonlSink(tmp_path, "run-20260101-111111-cur", keep_runs=keep)
+        sink.close()
+        names = {path.name for path in tmp_path.glob("run-*.jsonl")}
+        assert old.name not in names
+        assert fresh.name in names
+        assert sink.path.name in names
+
+
 class TestBridgeIntegration:
     def test_run_bridge_emits_full_lifecycle(self, tmp_path: Path) -> None:
         stream_lines = [
             json.dumps({"step_update": {"thinking": "analyzing"}}),
             json.dumps(
-                {
-                    "step_update": {
-                        "tool_calls": [{"name": "read_file", "args": {"path": "x.py"}}]
-                    }
-                }
+                {"step_update": {"tool_calls": [{"name": "read_file", "args": {"path": "x.py"}}]}}
             ),
             json.dumps({"tool_result": {"output": "file contents"}}),
             json.dumps({"step_update": {"text": "final verdict"}}),
@@ -253,8 +356,7 @@ class TestBridgeIntegration:
         run_files = list((tmp_path / "live").glob("run-*.jsonl"))
         assert len(run_files) == 1
         events = [
-            json.loads(line)
-            for line in run_files[0].read_text(encoding="utf-8").splitlines()
+            json.loads(line) for line in run_files[0].read_text(encoding="utf-8").splitlines()
         ]
         kinds = [event["kind"] for event in events]
         for expected in (
@@ -299,11 +401,58 @@ class TestBridgeIntegration:
         assert kinds[-1] == "run_end"
         assert all(event.run_id for event in collected)
 
+    def test_task_event_shows_the_prompt_right_after_run_start(self, tmp_path: Path) -> None:
+        collected: list = []
+        config = BridgeConfig(
+            envelope=DelegationEnvelope(prompt="Review the retry plan"),
+            workspace=tmp_path,
+            live_callback=collected.append,
+            retry_backoff_seconds=0.0,
+        )
+
+        run_bridge(config, launcher=StreamingLauncher([], success()))
+
+        assert [event.kind for event in collected[:2]] == ["run_start", "task"]
+        assert collected[1].text == "Review the retry plan"
+
+    def test_task_event_preview_is_capped(self, tmp_path: Path) -> None:
+        from tools.antigravity_bridge import LIVE_TASK_PREVIEW_CHARS
+
+        collected: list = []
+        long_prompt = "x" * (LIVE_TASK_PREVIEW_CHARS + 50)
+        config = BridgeConfig(
+            envelope=DelegationEnvelope(prompt=long_prompt),
+            workspace=tmp_path,
+            live_callback=collected.append,
+            retry_backoff_seconds=0.0,
+        )
+
+        run_bridge(config, launcher=StreamingLauncher([], success()))
+
+        task = next(event for event in collected if event.kind == "task")
+        assert task.text.startswith("x" * LIVE_TASK_PREVIEW_CHARS)
+        assert "full prompt is in the report" in task.text
+
+
+class TestBridgeRegistersLiveDir:
+    def test_live_run_registers_its_directory(self, tmp_path: Path, monkeypatch) -> None:
+        registry = tmp_path / "registry.json"
+        monkeypatch.setenv("ANTIGRAVITY_LIVE_REGISTRY", str(registry))
+        config = BridgeConfig(
+            envelope=DelegationEnvelope(prompt="register me"),
+            workspace=tmp_path,
+            live=True,
+            retry_backoff_seconds=0.0,
+        )
+
+        run_bridge(config, launcher=StreamingLauncher([], success()))
+
+        expected = str((tmp_path / ".antigravity-reports" / "live").resolve())
+        assert expected in {entry["path"] for entry in known_live_dirs()}
+
 
 class TestLiveRegistry:
     def test_register_and_read_with_env_isolation(self, tmp_path: Path, monkeypatch) -> None:
-        from tools.antigravity_live import known_live_dirs, register_live_dir, registry_path
-
         registry = tmp_path / "registry.json"
         monkeypatch.setenv("ANTIGRAVITY_LIVE_REGISTRY", str(registry))
         live = tmp_path / "ws" / ".antigravity-reports" / "live"
@@ -318,39 +467,31 @@ class TestLiveRegistry:
         assert entries[0]["workspace"] == str(tmp_path / "ws")
         assert entries[0]["last_seen"] > 0
 
-    def test_concurrent_registrations_all_present(self, tmp_path: Path, monkeypatch) -> None:
-        import threading
-
-        from tools.antigravity_live import known_live_dirs, register_live_dir
-
-        monkeypatch.setenv("ANTIGRAVITY_LIVE_REGISTRY", str(tmp_path / "registry.json"))
+    def test_concurrent_registrations_all_present_with_schema(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        registry = tmp_path / "registry.json"
+        monkeypatch.setenv("ANTIGRAVITY_LIVE_REGISTRY", str(registry))
         dirs: list[Path] = []
         for index in range(10):
             directory = tmp_path / f"ws{index}" / ".antigravity-reports" / "live"
             directory.mkdir(parents=True)
             dirs.append(directory)
-
         threads = [
-            threading.Thread(target=register_live_dir, args=(directory,))
-            for directory in dirs
+            threading.Thread(target=register_live_dir, args=(directory,)) for directory in dirs
         ]
         for thread in threads:
             thread.start()
         for thread in threads:
             thread.join(timeout=15)
-
+        entries = json.loads(registry.read_text(encoding="utf-8"))
+        assert len(entries) == 10
+        assert all(entry.get("schema_version") == LIVE_SCHEMA_VERSION for entry in entries)
         known = {entry["path"] for entry in known_live_dirs()}
         for directory in dirs:
             assert str(directory.resolve()) in known
 
     def test_prunes_missing_and_caps_entries(self, tmp_path: Path, monkeypatch) -> None:
-        from tools.antigravity_live import (
-            REGISTRY_MAX_ENTRIES,
-            known_live_dirs,
-            register_live_dir,
-            registry_path,
-        )
-
         monkeypatch.setenv("ANTIGRAVITY_LIVE_REGISTRY", str(tmp_path / "registry.json"))
         for index in range(55):
             directory = tmp_path / f"d{index}" / "live"
@@ -378,8 +519,6 @@ class TestLiveRegistry:
         assert str(extra.resolve()) in {entry["path"] for entry in entries}
 
     def test_corrupt_registry_is_tolerated(self, tmp_path: Path, monkeypatch) -> None:
-        from tools.antigravity_live import known_live_dirs
-
         registry = tmp_path / "registry.json"
         registry.write_text("{not json", encoding="utf-8")
         monkeypatch.setenv("ANTIGRAVITY_LIVE_REGISTRY", str(registry))
@@ -387,20 +526,83 @@ class TestLiveRegistry:
         assert known_live_dirs() == []
 
 
-class TestBridgeRegistersLiveDir:
-    def test_live_run_registers_its_directory(self, tmp_path: Path, monkeypatch) -> None:
-        from tools.antigravity_live import known_live_dirs
+class TestRegistryFileLocking:
+    def test_lock_file_helper_yields_and_creates_sidecar(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("ANTIGRAVITY_LIVE_REGISTRY", str(tmp_path / "registry.json"))
 
+        with _registry_file_lock():
+            assert (tmp_path / "registry.json.lock").exists()
+
+    def test_cross_process_registrations_all_present(self, tmp_path: Path) -> None:
+        """The registry lock is OS-level: separate bridge processes register concurrently."""
+        registry = tmp_path / "registry.json"
+        script = (
+            "import json, os, sys\n"
+            f"sys.path.insert(0, {str(ROOT)!r})\n"
+            f"os.environ['ANTIGRAVITY_LIVE_REGISTRY'] = {str(registry)!r}\n"
+            "from tools.antigravity_live import register_live_dir\n"
+            f"parent = {str(tmp_path)!r}\n"
+            "data = json.loads(sys.argv[1])\n"
+            "for name in data:\n"
+            "    register_live_dir(os.path.join(parent, name), parent)\n"
+        )
+        child_scripts = []
+        for worker in range(3):
+            names = json.dumps([f"live-{worker}-{index}" for index in range(4)])
+            child_scripts.append(names)
+        procs = []
+        for names in child_scripts:
+            procs.append(subprocess.Popen([sys.executable, "-c", script, names], cwd=str(ROOT)))
+        codes = [proc.wait(timeout=120) for proc in procs]
+        assert codes == [0, 0, 0]
+        entries = json.loads(registry.read_text(encoding="utf-8"))
+        paths = {entry["path"] for entry in entries}
+        expected = {
+            str(tmp_path / f"live-{worker}-{index}") for worker in range(3) for index in range(4)
+        }
+        missing = expected - paths
+        assert not missing, f"lost registry entries under cross-process contention: {missing}"
+
+    def test_lock_propagates_body_import_error_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("ANTIGRAVITY_LIVE_REGISTRY", str(tmp_path / "registry.json"))
+
+        with pytest.raises(ImportError, match="from the body"):
+            with _registry_file_lock():
+                raise ImportError("from the body")
+
+    def test_lock_timeout_proceeds_with_stderr_notice(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.setenv("ANTIGRAVITY_LIVE_REGISTRY", str(tmp_path / "registry.json"))
+        monkeypatch.setattr(antigravity_live, "_try_lock", lambda handle: False)
+        monkeypatch.setattr(antigravity_live, "_REGISTRY_LOCK_ATTEMPTS", 3)
+        monkeypatch.setattr(antigravity_live, "_REGISTRY_LOCK_RETRY_SECONDS", 0.0)
+        ran = False
+        with _registry_file_lock():
+            ran = True
+        captured = capsys.readouterr()
+        assert ran
+        assert captured.out == ""
+        assert "without the cross-process lock" in captured.err
+
+    def test_registration_sweeps_only_stale_temp_files(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         registry = tmp_path / "registry.json"
         monkeypatch.setenv("ANTIGRAVITY_LIVE_REGISTRY", str(registry))
-        config = BridgeConfig(
-            envelope=DelegationEnvelope(prompt="register me"),
-            workspace=tmp_path,
-            live=True,
-            retry_backoff_seconds=0.0,
-        )
-
-        run_bridge(config, launcher=StreamingLauncher([], success()))
-
-        expected = str((tmp_path / ".antigravity-reports" / "live").resolve())
-        assert expected in {entry["path"] for entry in known_live_dirs()}
+        stale = tmp_path / "registry.json.tmp.deadbeef"
+        fresh = tmp_path / "registry.json.tmp.cafef00d"
+        for leftover in (stale, fresh):
+            leftover.write_text("[]", encoding="utf-8")
+        old = time.time() - 2 * 3600
+        os.utime(stale, (old, old))
+        register_live_dir(tmp_path / "live")
+        assert not stale.exists()
+        assert fresh.exists()

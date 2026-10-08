@@ -24,110 +24,129 @@ This is a local operator tool, not a hardened multi-user web service; see
 ``SECURITY.md`` for the full trust model.
 
 The viewer is strictly optional: the delegation engine and the MCP server work
-identically whether or not this process is running.
+identically whether or not this process is running. The desktop shells that
+host the page live in :mod:`tools.viewer_shell`; OS process and account
+helpers live in :mod:`tools.viewer_platform`.
 """
 
 from __future__ import annotations
 
 import argparse
 import base64
-import ctypes
+import http.client
 import json
 import mimetypes
 import os
 import re
 import secrets
-import shutil
 import signal
+import socket
 import subprocess
 import sys
 import threading
 import time
-import webbrowser
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 from urllib.parse import parse_qs, unquote, urlparse
-from urllib.request import urlopen as _urlopen
+from urllib.request import Request, urlopen
 
-try:
-    from tools.antigravity_bridge import (
-        DEFAULT_FALLBACK_MODEL,
-        DEFAULT_PRIMARY_MODEL,
-        WISP_VERSION,
-        AttemptResult,
-        BridgeConfig,
-        DelegationEnvelope,
-        resolve_agy_executable,
-        run_bridge,
-        write_report,
-    )
-    from tools.antigravity_live import LIVE_DIR_NAME, known_live_dirs
-    from tools.skill_loader import (
-        DEFAULT_SKILL_DIR,
-        SkillError,
-        SkillLoader,
-        resolve_skill_dir,
-    )
-    from tools.wisp_capture import (
-        capture_auto,
-        relative_to_workspace,
-        save_pasted_image,
-    )
-    from tools.wisp_chat import ChatStore, MAX_MESSAGE_CHARS, valid_thread_id
-except ImportError:
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from tools.antigravity_bridge import (  # type: ignore[no-redef]
-        DEFAULT_FALLBACK_MODEL,
-        DEFAULT_PRIMARY_MODEL,
-        WISP_VERSION,
-        AttemptResult,
-        BridgeConfig,
-        DelegationEnvelope,
-        resolve_agy_executable,
-        run_bridge,
-        write_report,
-    )
-    from tools.antigravity_live import (  # type: ignore[no-redef]
-        LIVE_DIR_NAME,
-        known_live_dirs,
-    )
-    from tools.skill_loader import (  # type: ignore[no-redef]
-        DEFAULT_SKILL_DIR,
-        SkillError,
-        SkillLoader,
-        resolve_skill_dir,
-    )
-    from tools.wisp_capture import (  # type: ignore[no-redef]
-        capture_auto,
-        relative_to_workspace,
-        save_pasted_image,
-    )
-    from tools.wisp_chat import (  # type: ignore[no-redef]
-        MAX_MESSAGE_CHARS,
-        ChatStore,
-        valid_thread_id,
-    )
+if __package__ in (None, ""):
+    # Run as a script (``python tools/antigravity_viewer.py``): make the
+    # repository root importable so the ``tools.`` imports below resolve.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from tools.antigravity_bridge import (
+    DEFAULT_FALLBACK_MODEL,
+    DEFAULT_PRIMARY_MODEL,
+    WISP_VERSION,
+    AttemptResult,
+    BridgeConfig,
+    DelegationEnvelope,
+    resolve_agy_executable,
+    run_bridge,
+    write_report,
+)
+from tools.antigravity_live import LIVE_DIR_NAME, known_live_dirs
+from tools.skill_loader import (
+    DEFAULT_SKILL_DIR,
+    SkillError,
+    SkillLoader,
+    resolve_skill_dir,
+)
+from tools.viewer_platform import (
+    looks_like_viewer_process,
+    pid_image_name,
+    switch_account,
+    terminate_process,
+)
+from tools.viewer_shell import (
+    BROWSER_WINDOW_SIZE,
+    open_app_window,
+    open_electron_window,
+    open_native_window,
+)
+from tools.wisp_capture import (
+    capture_auto,
+    capture_dir,
+    relative_to_workspace,
+    save_pasted_image,
+)
+from tools.wisp_chat import (
+    MAX_MESSAGE_CHARS,
+    ChatStore,
+    valid_thread_id,
+    write_json_atomic,
+)
+
+# --------------------------------------------------------------------------
+# Server identity and timing
 
 SERVER_NAME = "wisp-viewer"
 SERVER_VERSION = WISP_VERSION
 DEFAULT_PORT = 48477
 PORT_SCAN_RANGE = 50
 SESSION_HEADER = "X-Wisp-Request"
+INSTANCE_TOKEN_HEADER = "X-Instance-Token"
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 POLL_INTERVAL_SECONDS = 0.15
 KEEPALIVE_SECONDS = 10.0
 REPLAY_LINE_DELAY_SECONDS = 0.04
 LIVE_LATCH_IDLE_SECONDS = 15.0
 WATCH_REFRESH_SECONDS = 2.0
+HANDSHAKE_TIMEOUT_SECONDS = 6.0
+HEALTH_PROBE_TIMEOUT_SECONDS = 2.0
+REPLACE_SETTLE_SECONDS = 1.5
+SERVE_POLL_SECONDS = 0.3
+
+# --------------------------------------------------------------------------
+# Limits
+
+MAX_UPLOAD_BYTES = 12 * 1024 * 1024
+MAX_BODY_BYTES = 32 * 1024 * 1024
 MAX_LOG_TAIL_BYTES = 400_000
+LAST_EVENT_TAIL_BYTES = 16_384
+# describe_run() looks for the bridge's ``task`` event among the first few
+# lines of a run file; both bounds keep the History list cheap on huge runs.
+TASK_SCAN_LINES = 6
+TASK_SCAN_BYTES = 65_536
+TASK_TITLE_CHARS = 160
+MAX_AUTH_LOGS_SCANNED = 20
+RUN_LIST_LIMIT = 60
+MAX_ASK_SKILLS = 32
+MAX_ASK_CONTEXT_CHARS = 4000
 RATE_LIMIT_WINDOW_SECONDS = 45 * 60
+
+# --------------------------------------------------------------------------
+# Files and assets
 
 TOOLS_DIR = Path(__file__).resolve().parent
 ASSET_DIR = TOOLS_DIR / "viewer_assets"
 HTML_PATH = TOOLS_DIR / "antigravity_viewer.html"
-SHELL_DIR = TOOLS_DIR / "wisp_shell"
+MANIFEST_NAME = "viewer.json"
+SETTINGS_NAME = "viewer_settings.json"
 STATE_NAMES = (
     "dormant",
     "awakening",
@@ -142,6 +161,11 @@ STATE_NAMES = (
     "withered",
 )
 ASSET_EXTENSIONS = (".png", ".webp", ".gif", ".jpg", ".jpeg")
+CAPTURE_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp"})
+_RUN_FILE_PATTERN = re.compile(r"run-[A-Za-z0-9\-_]+\.jsonl")
+
+# --------------------------------------------------------------------------
+# Account and quota detection (agy logs)
 
 _RATE_LIMIT_MARKERS = ("RESOURCE_EXHAUSTED", "code 429", "Individual quota reached")
 _RESET_PATTERN = re.compile(r"Resets in ([0-9]+\s*[smhdw][0-9]*\s*[smhdw]*)", re.IGNORECASE)
@@ -153,6 +177,8 @@ _AUTH_LOG_DIRS = (
     Path.home() / ".gemini" / "antigravity" / "log",
 )
 
+# --------------------------------------------------------------------------
+# Models
 
 FALLBACK_MODELS: tuple[str, ...] = (
     "gemini-3.8-flash-high",
@@ -170,10 +196,31 @@ FALLBACK_MODELS: tuple[str, ...] = (
     "claude-opus-4-6-thinking",
     "gpt-oss-120b-medium",
 )
-DEFAULT_SELECTED_MODEL = "gemini-3.8-flash-high"
-DEFAULT_SELECTED_FALLBACK = "claude-opus-4-6-thinking"
-_MODEL_CACHE: dict[str, Any] = {"ts": 0.0, "models": []}
+DEFAULT_SELECTED_MODEL = DEFAULT_PRIMARY_MODEL
+DEFAULT_SELECTED_FALLBACK = DEFAULT_FALLBACK_MODEL
+MODEL_SETTING_KEYS = ("model", "fallback_model", "chat_model")
+MODEL_CACHE_TTL_SECONDS = 600.0
+# Short TTL for the fallback list: long enough that a missing or broken agy
+# is not re-spawned (up to AGY_MODELS_TIMEOUT_SECONDS) on every request, short
+# enough that a freshly installed agy is picked up quickly.
+MODEL_FALLBACK_TTL_SECONDS = 60.0
+AGY_MODELS_TIMEOUT_SECONDS = 25
 _MODEL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+_MODEL_CACHE: dict[str, Any] = {"ts": 0.0, "models": [], "source": ""}
+# Held across the agy call so concurrent requests share one subprocess.
+_MODEL_CACHE_LOCK = threading.Lock()
+
+ASK_DEFAULT_PROMPT = (
+    "Review this quickly and flag anything important, risky, or broken. "
+    "Lead with the bottom line, then the specifics."
+)
+
+Query = Mapping[str, list[str]]
+SendEvent = Callable[[str, str], bool]
+
+
+# --------------------------------------------------------------------------
+# Model inventory and viewer settings
 
 
 def parse_model_list(output: str) -> list[str]:
@@ -186,37 +233,56 @@ def parse_model_list(output: str) -> list[str]:
 
 
 def list_models() -> dict[str, Any]:
-    now = time.time()
-    cached = _MODEL_CACHE.get("models") or []
-    if cached and now - float(_MODEL_CACHE.get("ts") or 0) < 600:
-        return {"models": cached, "source": "cache"}
-    try:
-        result = subprocess.run(
-            [resolve_agy_executable(), "models"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=25,
-        )
-        models = parse_model_list(result.stdout or "")
-        if models:
-            _MODEL_CACHE["models"] = models
-            _MODEL_CACHE["ts"] = now
-            return {"models": models, "source": "agy"}
-    except Exception:
-        pass
-    return {"models": list(FALLBACK_MODELS), "source": "fallback"}
+    """Model inventory from ``agy models``, falling back to a built-in list.
+
+    Both outcomes are cached (the fallback briefly) so callers can treat this
+    as cheap after the first call.
+    """
+    with _MODEL_CACHE_LOCK:
+        now = time.time()
+        cached = list(_MODEL_CACHE.get("models") or [])
+        source = _MODEL_CACHE.get("source")
+        age = now - float(_MODEL_CACHE.get("ts") or 0.0)
+        if cached and source == "agy" and age < MODEL_CACHE_TTL_SECONDS:
+            return {"models": cached, "source": "cache"}
+        if cached and source == "fallback" and age < MODEL_FALLBACK_TTL_SECONDS:
+            return {"models": cached, "source": "fallback"}
+        try:
+            result = subprocess.run(
+                [resolve_agy_executable(), "models"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=AGY_MODELS_TIMEOUT_SECONDS,
+            )
+            models = parse_model_list(result.stdout or "")
+        except (OSError, subprocess.SubprocessError):
+            models = []
+        source = "agy" if models else "fallback"
+        if not models:
+            models = list(FALLBACK_MODELS)
+        _MODEL_CACHE.update({"ts": now, "models": models, "source": source})
+        return {"models": list(models), "source": source}
 
 
 def _model_known(model: str) -> tuple[bool, list[str]]:
-    """Checks a model id against the current inventory (cached by list_models)."""
-    known = list_models().get("models") or []
-    return (model in known), list(known)
+    """Checks a model id against the (cached) inventory; returns it as well."""
+    known = list_models()["models"]
+    return (model in known), known
+
+
+def _clean_skills(raw: Sequence[Any]) -> list[str]:
+    """Stripped, non-empty skill names from an untrusted list."""
+    return [str(skill).strip() for skill in raw if str(skill).strip()]
 
 
 def settings_path(live_dir: Path) -> Path:
-    return Path(live_dir) / "viewer_settings.json"
+    return Path(live_dir) / SETTINGS_NAME
+
+
+def manifest_path(live_dir: Path) -> Path:
+    return Path(live_dir) / MANIFEST_NAME
 
 
 def read_viewer_settings(live_dir: Path) -> dict[str, Any]:
@@ -228,54 +294,56 @@ def read_viewer_settings(live_dir: Path) -> dict[str, Any]:
     }
     try:
         data = json.loads(settings_path(live_dir).read_text(encoding="utf-8"))
-        if isinstance(data, dict):
-            if isinstance(data.get("model"), str) and data["model"].strip():
-                settings["model"] = data["model"].strip()
-            if isinstance(data.get("chat_model"), str) and data["chat_model"].strip():
-                settings["chat_model"] = data["chat_model"].strip()
-            if (
-                isinstance(data.get("fallback_model"), str)
-                and data["fallback_model"].strip()
-            ):
-                settings["fallback_model"] = data["fallback_model"].strip()
-            skills = data.get("ask_skills")
-            if isinstance(skills, list):
-                settings["ask_skills"] = [
-                    str(skill).strip() for skill in skills if str(skill).strip()
-                ][:32]
     except (OSError, json.JSONDecodeError):
-        pass
+        return settings
+    if not isinstance(data, dict):
+        return settings
+    for key in MODEL_SETTING_KEYS:
+        value = data.get(key)
+        if isinstance(value, str) and value.strip():
+            settings[key] = value.strip()
+    skills = data.get("ask_skills")
+    if isinstance(skills, list):
+        settings["ask_skills"] = _clean_skills(skills)[:MAX_ASK_SKILLS]
     return settings
 
 
 def write_viewer_settings(live_dir: Path, patch: dict[str, Any]) -> dict[str, Any]:
+    """Merges ``patch`` into the stored settings and returns the result.
+
+    Invalid model names are ignored rather than stored. Persistence is best
+    effort: the merged settings are returned even when the write fails.
+    """
     settings = read_viewer_settings(live_dir)
-    for key in ("model", "fallback_model", "chat_model"):
+    for key in MODEL_SETTING_KEYS:
         value = patch.get(key)
         if isinstance(value, str) and value.strip() and _MODEL_NAME_PATTERN.match(value.strip()):
             settings[key] = value.strip()
     if "ask_skills" in patch:
         skills = patch.get("ask_skills")
         if isinstance(skills, list):
-            settings["ask_skills"] = [
-                str(skill).strip() for skill in skills if str(skill).strip()
-            ][:32]
+            settings["ask_skills"] = _clean_skills(skills)[:MAX_ASK_SKILLS]
         elif skills == "all":
             settings["ask_skills"] = ["all"]
     try:
-        path = settings_path(live_dir)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_name(path.name + ".tmp." + os.urandom(4).hex())
-        temporary.write_text(json.dumps(settings, indent=2), encoding="utf-8")
-        os.replace(temporary, path)
+        write_json_atomic(settings_path(live_dir), settings)
     except OSError:
         pass
     return settings
 
 
+def _effective_ask_model(model: str, settings: Mapping[str, Any]) -> str:
+    """The model an ask runs on: explicit choice, then chat model, then global."""
+    return model or settings.get("chat_model") or settings["model"]
+
+
+# --------------------------------------------------------------------------
+# Workspace, assets and hosts
+
+
 def resolve_workspace(override: str | None = None) -> Path:
-    if override and str(override).strip():
-        return Path(str(override)).expanduser().resolve()
+    if override and override.strip():
+        return Path(override).expanduser().resolve()
     env_workspace = os.environ.get("ANTIGRAVITY_WORKSPACE")
     if env_workspace:
         return Path(env_workspace).expanduser().resolve()
@@ -283,8 +351,8 @@ def resolve_workspace(override: str | None = None) -> Path:
 
 
 def resolve_live_dir(workspace: Path, override: str | None = None) -> Path:
-    if override and str(override).strip():
-        return Path(str(override)).expanduser().resolve()
+    if override and override.strip():
+        return Path(override).expanduser().resolve()
     env_dir = os.environ.get("ANTIGRAVITY_LIVE_DIR")
     if env_dir:
         return Path(env_dir).expanduser().resolve()
@@ -303,20 +371,11 @@ def load_assets() -> dict[str, str]:
     return found
 
 
-def _safe_mtime(path: Path) -> float:
-    """stat() with a 0.0 fallback (audit CAN-004/MISSED-003: files can vanish
-    between glob and sort when retention pruning runs concurrently)."""
-    try:
-        return path.stat().st_mtime
-    except OSError:
-        return 0.0
-
-
 def _host_from_header(host_header: str) -> str:
     """Extracts the hostname from a Host header, RFC 3986 brackets included.
 
-    ``"[::1]:48477".split(":")[0]`` yields ``"["`` — which silently 403'd
-    every request on IPv6 loopback bindings (audit CAN-005).
+    ``"[::1]:48477".split(":")[0]`` yields ``"["``, which would reject every
+    request on an IPv6 loopback binding.
     """
     raw = (host_header or "").strip().lower()
     if not raw:
@@ -326,42 +385,72 @@ def _host_from_header(host_header: str) -> str:
     return raw.split(":")[0]
 
 
-def newest_run(live_dir: Path) -> Path | None:
+def url_host(host: str) -> str:
+    """Formats ``host`` for a URL authority: IPv6 literals need brackets."""
+    bare = (host or "").strip()
+    if ":" in bare and not bare.startswith("["):
+        return f"[{bare}]"
+    return bare
+
+
+def allowed_origins(port: int) -> frozenset[str]:
+    """Browser origins permitted to POST: the loopback names on our port."""
+    return frozenset(f"http://{url_host(host)}:{port}" for host in LOOPBACK_HOSTS)
+
+
+def client_host(bind_host: str) -> str:
+    """Address a local client should dial to reach a server bound to ``bind_host``."""
+    bare = (bind_host or "").strip().strip("[]")
+    if bare in ("", "0.0.0.0"):
+        return "127.0.0.1"
+    if bare == "::":
+        return "::1"
+    return bare
+
+
+# --------------------------------------------------------------------------
+# Run discovery
+
+
+def _safe_mtime(path: Path) -> float:
+    """stat() mtime, or 0.0 if the file vanished (retention pruning can delete
+    runs between glob and sort)."""
     try:
-        runs = [
-            path
-            for path in live_dir.glob("run-*.jsonl")
-            if path.is_file()
-        ]
+        return path.stat().st_mtime
     except OSError:
-        return None
-    if not runs:
-        return None
-    runs.sort(key=lambda path: (_safe_mtime(path), path.name))
-    return runs[-1]
+        return 0.0
+
+
+def _run_files(live_dir: Path) -> list[Path]:
+    try:
+        return [path for path in live_dir.glob("run-*.jsonl") if path.is_file()]
+    except OSError:
+        return []
+
+
+def _run_order(path: Path) -> tuple[str, float]:
+    """Newest-run ordering: run ids embed their start time, mtime breaks ties.
+
+    Ordering by id rather than mtime keeps an older run that is still being
+    written from displacing a newer one.
+    """
+    return path.name, _safe_mtime(path)
+
+
+def newest_run(live_dir: Path) -> Path | None:
+    runs = _run_files(live_dir)
+    return max(runs, key=_run_order) if runs else None
 
 
 def newest_run_across(dirs: Sequence[Path]) -> Path | None:
-    """Newest run across several live directories (ordered by run id, then mtime)."""
-    best: Path | None = None
-    best_key: tuple[str, float] | None = None
-    for directory in dirs:
-        candidate = newest_run(directory)
-        if candidate is None:
-            continue
-        try:
-            key = (candidate.name, candidate.stat().st_mtime)
-        except OSError:
-            key = (candidate.name, 0.0)
-        if best_key is None or key > best_key:
-            best = candidate
-            best_key = key
-    return best
+    """Newest run across several live directories (same ordering as newest_run)."""
+    candidates = [run for run in (newest_run(directory) for directory in dirs) if run]
+    return max(candidates, key=_run_order) if candidates else None
 
 
 def _read_first_event(path: Path) -> dict[str, Any] | None:
     try:
-        with open(path, "r", encoding="utf-8", errors="replace") as handle:
+        with open(path, encoding="utf-8", errors="replace") as handle:
             for line in handle:
                 stripped = line.strip()
                 if not stripped:
@@ -373,11 +462,45 @@ def _read_first_event(path: Path) -> dict[str, Any] | None:
     return None
 
 
+def _read_task_event(path: Path) -> dict[str, Any] | None:
+    """The run's ``task`` event when it is among the first few lines.
+
+    Reads at most ``TASK_SCAN_BYTES`` from the head of the file, never the
+    whole run. Older runs (written before the bridge emitted ``task``) have
+    none and yield ``None``.
+    """
+    try:
+        with open(path, "rb") as handle:
+            head = handle.read(TASK_SCAN_BYTES)
+    except OSError:
+        return None
+    for line in head.decode("utf-8", errors="replace").splitlines()[:TASK_SCAN_LINES]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            data = json.loads(stripped)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict) and data.get("kind") == "task":
+            return data
+    return None
+
+
+def task_title(text: Any, limit: int = TASK_TITLE_CHARS) -> str:
+    """First non-empty line of a task prompt, clipped to ``limit`` characters."""
+    for line in str(text or "").splitlines():
+        stripped = " ".join(line.split())
+        if stripped:
+            return stripped if len(stripped) <= limit else stripped[: limit - 1] + "\u2026"
+    return ""
+
+
 def _read_last_event(path: Path) -> dict[str, Any] | None:
     try:
         size = path.stat().st_size
         with open(path, "rb") as handle:
-            handle.seek(max(0, size - 16384))
+            handle.seek(max(0, size - LAST_EVENT_TAIL_BYTES))
             chunk = handle.read().decode("utf-8", errors="replace")
     except OSError:
         return None
@@ -393,6 +516,15 @@ def _read_last_event(path: Path) -> dict[str, Any] | None:
     return None
 
 
+def is_run_end_line(line: str) -> bool:
+    """True when a live-feed line is the run's terminal ``run_end`` event."""
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        return False
+    return isinstance(event, dict) and event.get("kind") == "run_end"
+
+
 def describe_run(path: Path) -> dict[str, Any]:
     try:
         stat = path.stat()
@@ -404,6 +536,8 @@ def describe_run(path: Path) -> dict[str, Any]:
     end = last if last and last.get("kind") == "run_end" else None
     start_meta = (start or {}).get("meta") or {}
     end_meta = (end or {}).get("meta") or {}
+    task = _read_task_event(path)
+    task_meta = (task or {}).get("meta") or {}
     return {
         "file": path.name,
         "mtime": stat.st_mtime,
@@ -415,14 +549,14 @@ def describe_run(path: Path) -> dict[str, Any]:
         "success": end_meta.get("success") if end else None,
         "elapsed_seconds": end_meta.get("elapsed_seconds") if end else None,
         "failover_used": bool(end_meta.get("failover_used")) if end else False,
+        "task": task_title((task or {}).get("text")),
+        "harness": str(task_meta.get("harness") or start_meta.get("harness") or ""),
     }
 
 
-def list_runs(live_dir: Path, limit: int = 60) -> list[dict[str, Any]]:
-    try:
-        runs = [path for path in live_dir.glob("run-*.jsonl") if path.is_file()]
-    except OSError:
-        return []
+def list_runs(live_dir: Path, limit: int = RUN_LIST_LIMIT) -> list[dict[str, Any]]:
+    """Run summaries for the history list, most recently modified first."""
+    runs = _run_files(live_dir)
     runs.sort(key=lambda path: (_safe_mtime(path), path.name), reverse=True)
     entries: list[dict[str, Any]] = []
     for path in runs[:limit]:
@@ -432,10 +566,23 @@ def list_runs(live_dir: Path, limit: int = 60) -> list[dict[str, Any]]:
     return entries
 
 
+# --------------------------------------------------------------------------
+# Account, quota and status
+
+
+def mask_email(address: str | None) -> str | None:
+    """Masks a detected account address for API exposure (keeps the domain)."""
+    if not address or "@" not in address:
+        return address
+    local, _, domain = address.partition("@")
+    masked = local[0] + "*" if len(local) <= 2 else local[:2] + "***"
+    return f"{masked}@{domain}"
+
+
 def _read_log_tail(path: Path) -> str:
     try:
         size = path.stat().st_size
-        with open(path, "r", encoding="utf-8", errors="ignore") as handle:
+        with open(path, encoding="utf-8", errors="ignore") as handle:
             if size > MAX_LOG_TAIL_BYTES:
                 handle.seek(size - MAX_LOG_TAIL_BYTES)
             return handle.read()
@@ -458,7 +605,7 @@ def collect_auth_state() -> dict[str, Any]:
                 continue
     logs.sort(key=_safe_mtime, reverse=True)
     now = time.time()
-    for path in logs[:20]:
+    for path in logs[:MAX_AUTH_LOGS_SCANNED]:
         content = _read_log_tail(path)
         if not content:
             continue
@@ -491,8 +638,7 @@ def collect_auth_state() -> dict[str, Any]:
     }
 
 
-def collect_status(context: "ViewerContext") -> dict[str, Any]:
-    auth = collect_auth_state()
+def collect_status(context: ViewerContext) -> dict[str, Any]:
     skills: list[str] = []
     skill_warnings: list[str] = []
     skill_error: str | None = None
@@ -511,77 +657,26 @@ def collect_status(context: "ViewerContext") -> dict[str, Any]:
         "port": context.port,
         "workspace": str(context.workspace),
         "live_dir": str(context.live_dir),
-        "test_mode": os.environ.get("WISP_ASK_FAKE") == "1",
+        "test_mode": _fake_asks_enabled(),
         "watched_dirs": [str(directory) for directory in context.watched_dirs()],
         "executable": resolve_agy_executable(),
         "models": {
             "primary": os.environ.get("ANTIGRAVITY_MODEL", DEFAULT_PRIMARY_MODEL),
-            "fallback": os.environ.get(
-                "ANTIGRAVITY_FALLBACK_MODEL", DEFAULT_FALLBACK_MODEL
-            ),
+            "fallback": os.environ.get("ANTIGRAVITY_FALLBACK_MODEL", DEFAULT_FALLBACK_MODEL),
         },
         "selected": read_viewer_settings(context.live_dir),
-        "auth": auth,
+        "auth": collect_auth_state(),
         "skill_registry": str(registry),
         "skills": skills,
         "skill_warnings": skill_warnings,
         "skill_error": skill_error,
-        "runs": len([path for path in context.live_dir.glob("run-*.jsonl") if path.is_file()]),
+        "runs": len(_run_files(context.live_dir)),
         "uptime_seconds": round(time.time() - context.started, 1),
     }
 
 
-def switch_account() -> dict[str, Any]:
-    """Clears the stored Google credential and opens an interactive agy sign-in."""
-    output: list[str] = []
-    try:
-        result = subprocess.run(
-            ["cmdkey", "/delete:LegacyGeneric:target=gemini:antigravity"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=15,
-        )
-        message = (result.stdout or "").strip() or (result.stderr or "").strip()
-        if message:
-            output.append(message)
-    except Exception as exc:
-        output.append(f"credential clear failed: {exc}")
-    executable = resolve_agy_executable()
-    try:
-        subprocess.Popen(
-            f'start "Antigravity Sign-In" cmd.exe /k "{executable}"',
-            shell=True,
-        )
-        output.append("Sign-in terminal launched — complete the browser OAuth flow.")
-    except Exception as exc:
-        output.append(f"sign-in terminal failed to launch: {exc}")
-    return {"status": "switching", "output": "\n".join(output)}
-
-
-ASK_DEFAULT_PROMPT = (
-    "Review this quickly and flag anything important, risky, or broken. "
-    "Lead with the bottom line, then the specifics."
-)
-
-MAX_UPLOAD_BYTES = 12 * 1024 * 1024
-MAX_BODY_BYTES = 32 * 1024 * 1024
-CAPTURE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
-LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
-HANDSHAKE_TIMEOUT_SECONDS = 6.0
-
-
-def mask_email(address: str | None) -> str | None:
-    """Masks a detected account address for API exposure (keeps the domain)."""
-    if not address or "@" not in address:
-        return address
-    local, _, domain = address.partition("@")
-    if len(local) <= 2:
-        masked = local[0] + "*"
-    else:
-        masked = local[:2] + "***"
-    return f"{masked}@{domain}"
+# --------------------------------------------------------------------------
+# Operator asks
 
 
 def build_ask_prompt(
@@ -641,13 +736,18 @@ def extract_chat_answer(critique: str) -> str:
     return text.strip() or "No answer was produced."
 
 
+def _fake_asks_enabled() -> bool:
+    return os.environ.get("WISP_ASK_FAKE") == "1"
+
+
 def _fake_ask_launcher(
     command: Sequence[str],
     cwd: Path,
     env: Mapping[str, str],
     hard_timeout_seconds: int,
-    raw_line_sink: Any = None,
+    raw_line_sink: Callable[[str, str], None] | None = None,
 ) -> AttemptResult:
+    """Canned agy run used when ``WISP_ASK_FAKE=1`` (tests and UI demos)."""
     try:
         delay = float(os.environ.get("WISP_ASK_FAKE_DELAY", "0") or 0)
     except ValueError:
@@ -655,7 +755,7 @@ def _fake_ask_launcher(
     if delay > 0:
         time.sleep(delay)
     answer = (
-        "[TEST MODE] Canned critique \u2014 fake launcher active.\n\n"
+        "[TEST MODE] Canned critique — fake launcher active.\n\n"
         "# Quick review\n\n"
         "**Bottom line:** the capture looks structurally sound; one risk stands out.\n\n"
         "- Risk: the retry path has no backoff bound.\n"
@@ -663,19 +763,13 @@ def _fake_ask_launcher(
         "```python\nfor attempt in range(3):\n    time.sleep(2 ** attempt)\n```\n"
     )
     if os.environ.get("WISP_ASK_FAKE_BIG") == "1":
-        # CAN-002 regression fixture: a successful delegation whose answer
-        # exceeds ChatStore.MAX_MESSAGE_CHARS.
+        # Oversized answer (> MAX_MESSAGE_CHARS) to check that a successful
+        # run is clamped, not reported as a failure.
         answer += "\n" + ("detail " * 20_000)
     lines = [
+        json.dumps({"step_update": {"thinking": "Considering the operator's capture."}}),
         json.dumps(
-            {"step_update": {"thinking": "Considering the operator's capture."}}
-        ),
-        json.dumps(
-            {
-                "step_update": {
-                    "tool_calls": [{"name": "view_file", "args": {"path": "notes.md"}}]
-                }
-            }
+            {"step_update": {"tool_calls": [{"name": "view_file", "args": {"path": "notes.md"}}]}}
         ),
         json.dumps({"tool_result": {"output": "notes.md inspected (21 lines)"}}),
         json.dumps({"step_update": {"text": answer}}),
@@ -692,7 +786,7 @@ def _fake_ask_launcher(
 
 
 def _ask_worker(
-    context: "ViewerContext",
+    context: ViewerContext,
     thread_id: str,
     prompt: str,
     context_text: str,
@@ -700,27 +794,32 @@ def _ask_worker(
     model: str,
     skills: tuple[str, ...],
 ) -> None:
+    """Runs one delegation for an ask and records the answer in its thread.
+
+    Owns ``context.ask_lock`` (acquired by the request handler) and always
+    releases it.
+    """
     store = ChatStore(context.live_dir)
+    fake = _fake_asks_enabled()
     try:
         settings = read_viewer_settings(context.live_dir)
-        artifacts: list[str] = []
-        for raw in image_paths:
-            candidate = Path(raw)
-            if not candidate.is_absolute():
-                candidate = Path(context.workspace) / raw
-            if raw and context.contain_artifact(str(candidate)) and candidate.is_file():
-                artifacts.append(
-                    relative_to_workspace(candidate, context.workspace)
-                )
-        envelope = DelegationEnvelope(
-            prompt=build_ask_prompt(prompt, context_text, tuple(artifacts)),
-            harness="wisp-hotkey",
-            artifacts=tuple(artifacts),
+        # The handler already contained these paths; re-check in case a file
+        # was deleted or replaced while the ask was queued.
+        artifacts = tuple(
+            contained
+            for contained in (
+                context.contain_artifact(str(context.workspace / rel)) for rel in image_paths
+            )
+            if contained
         )
         config = BridgeConfig(
-            envelope=envelope,
+            envelope=DelegationEnvelope(
+                prompt=build_ask_prompt(prompt, context_text, artifacts),
+                harness="wisp-hotkey",
+                artifacts=artifacts,
+            ),
             workspace=context.workspace,
-            model=model or settings.get("chat_model") or settings["model"],
+            model=_effective_ask_model(model, settings),
             fallback_model=settings["fallback_model"],
             skills=skills,
             live=True,
@@ -734,11 +833,8 @@ def _ask_worker(
 
         config.live_callback = _on_event
         result = (
-            run_bridge(config, launcher=_fake_ask_launcher)
-            if os.environ.get("WISP_ASK_FAKE") == "1"
-            else run_bridge(config)
+            run_bridge(config, launcher=_fake_ask_launcher) if fake else run_bridge(config)
         )
-        report_path = ""
         try:
             report_path = str(write_report(context.workspace, result))
         except OSError:
@@ -746,9 +842,10 @@ def _ask_worker(
         answer = extract_chat_answer(
             result.critique_markdown or result.error or "No answer was produced."
         )
-        # Clamp before persisting: a >100k-char critique from a SUCCESSFUL
-        # delegation must not be misreported as a failure (CAN-002).
+        # Clamp before persisting: append_message rejects oversized content,
+        # and a long but successful answer must not turn into a failure.
         answer = answer[:MAX_MESSAGE_CHARS]
+        run_id = captured_run.get("id", "")
         store.append_message(
             thread_id,
             "assistant",
@@ -756,22 +853,24 @@ def _ask_worker(
             {
                 "success": result.success,
                 "model": result.model_used,
-                "run_id": captured_run.get("id", ""),
+                "run_id": run_id,
                 "report_path": report_path,
                 "error": result.error,
-                "fake": os.environ.get("WISP_ASK_FAKE") == "1",
+                "fake": fake,
             },
         )
         store.update_run(
             thread_id,
             {
                 "status": "done" if result.success else "failed",
-                "run_id": captured_run.get("id", ""),
+                "run_id": run_id,
                 "success": result.success,
                 "ended": time.time(),
             },
         )
     except Exception as exc:
+        # Deliberately broad: this thread has no caller to report to, so any
+        # failure must land in the chat thread for the operator to see.
         store.append_message(
             thread_id,
             "assistant",
@@ -781,10 +880,18 @@ def _ask_worker(
         store.update_run(thread_id, {"status": "failed", "error": str(exc)})
     finally:
         context.active_ask = {}
-        try:
-            context.ask_lock.release()
-        except RuntimeError:
-            pass
+        _release(context.ask_lock)
+
+
+def _release(lock: threading.Lock) -> None:
+    try:
+        lock.release()
+    except RuntimeError:
+        pass
+
+
+# --------------------------------------------------------------------------
+# Server state
 
 
 @dataclass
@@ -806,12 +913,12 @@ class ViewerContext:
     def artifact_roots(self) -> list[Path]:
         """Directories from which /api/ask may attach files.
 
-        Only roots **inside the workspace** qualify: delegation artifacts are
-        emitted workspace-relative so the mounted reviewer can resolve them,
-        and `_ask_worker` re-joins them against the workspace (GATE-4 FL-007).
+        Only roots inside the workspace qualify: delegation artifacts are
+        passed workspace-relative so the mounted reviewer can resolve them,
+        and the ask worker re-joins them against the workspace.
         """
         roots = [self.workspace]
-        captures = Path(self.live_dir).parent / "captures"
+        captures = capture_dir(self.live_dir)
         try:
             captures.relative_to(self.workspace.resolve())
         except ValueError:
@@ -829,11 +936,11 @@ class ViewerContext:
         """Returns a workspace-relative path when ``raw`` is an approved image.
 
         Approved means: resolves to an existing file, carries an image
-        extension, and lives inside one of :meth:`artifact_roots` — all of
+        extension, and lives inside one of :meth:`artifact_roots`, all of
         which are inside the workspace, so the returned relative path always
-        rejoins against the workspace. Everything else is rejected (audit
-        finding: arbitrary local paths previously flowed straight into
-        delegation artifacts).
+        rejoins against the workspace. Everything else is rejected, so
+        arbitrary local files can never be forwarded to the reviewer as
+        artifacts.
         """
         candidate = str(raw or "").strip()
         if not candidate:
@@ -866,23 +973,31 @@ class ViewerContext:
         try:
             for entry in known_live_dirs():
                 candidate = Path(entry["path"])
-                if candidate != self.live_dir and candidate not in dirs:
+                if candidate not in dirs:
                     dirs.append(candidate)
-        except Exception:
+        except (OSError, KeyError, TypeError, ValueError):
+            # A corrupt or unreadable registry must not break the own live view.
             pass
         self._watch_cache = (now, tuple(dirs))
         return dirs
 
 
+# --------------------------------------------------------------------------
+# Instance discovery and the shutdown handshake
+
+
 def existing_viewer(live_dir: Path) -> dict[str, Any] | None:
-    """Returns {port, pid, token?} when a live viewer already owns this workspace.
+    """Returns {host, port, pid, token?, auth_token?} when a live viewer already
+    owns this workspace.
 
     Liveness is established by an HTTP probe; ``token`` is the per-instance
     secret from the manifest used for the authenticated shutdown handshake.
     """
     try:
-        data = json.loads(settings_path(live_dir).parent.joinpath("viewer.json").read_text(encoding="utf-8"))
+        data = json.loads(manifest_path(live_dir).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
         return None
     try:
         port = int(data.get("port") or 0)
@@ -891,128 +1006,82 @@ def existing_viewer(live_dir: Path) -> dict[str, Any] | None:
         return None
     if not port:
         return None
+    host = client_host(str(data.get("host") or "127.0.0.1"))
     try:
-        with _urlopen(f"http://127.0.0.1:{port}/health", timeout=2) as response:
-            if response.status == 200:
-                info: dict[str, Any] = {"port": port, "pid": pid}
-                token = str(data.get("token") or "")
-                if token:
-                    info["token"] = token
-                auth = str(data.get("auth_token") or "")
-                if auth:
-                    info["auth_token"] = auth
-                return info
-    except Exception:
+        with urlopen(
+            f"http://{url_host(host)}:{port}/health", timeout=HEALTH_PROBE_TIMEOUT_SECONDS
+        ) as response:
+            if response.status != 200:
+                return None
+    except (OSError, http.client.HTTPException, ValueError):
         return None
-    return None
+    info: dict[str, Any] = {"port": port, "pid": pid, "host": host}
+    token = str(data.get("token") or "")
+    if token:
+        info["token"] = token
+    auth = str(data.get("auth_token") or "")
+    if auth:
+        info["auth_token"] = auth
+    return info
 
 
-def request_shutdown(port: int, instance_token: str, auth_token: str = "") -> bool:
+def request_shutdown(
+    port: int, instance_token: str, auth_token: str = "", host: str = "127.0.0.1"
+) -> bool:
     """Asks the viewer on ``port`` to shut down gracefully.
 
     Sends the instance secret in the dedicated ``X-Instance-Token`` header,
-    plus the operator bearer first when the target bound with ``--auth-token``
-    (MISSED-001: a single Authorization header cannot satisfy both secrets).
+    plus the operator bearer when the target bound with ``--auth-token``: one
+    Authorization header cannot carry both secrets.
     """
     if not port or not instance_token:
         return False
-    headers = {SESSION_HEADER: "1", "X-Instance-Token": instance_token}
-    if auth_token:
-        headers["Authorization"] = f"Bearer {auth_token}"
-    else:
-        headers["Authorization"] = f"Bearer {instance_token}"
+    headers = {
+        SESSION_HEADER: "1",
+        INSTANCE_TOKEN_HEADER: instance_token,
+        "Authorization": f"Bearer {auth_token or instance_token}",
+    }
+    request = Request(
+        f"http://{url_host(host)}:{port}/api/shutdown",
+        data=b"{}",
+        headers=headers,
+        method="POST",
+    )
     try:
-        request = _urlopen(
-            _build_request_with_headers(
-                f"http://127.0.0.1:{port}/api/shutdown", headers
-            ),
-            timeout=HANDSHAKE_TIMEOUT_SECONDS,
-        )
-        with request:
-            return 200 <= request.status < 300
-    except Exception:
+        with urlopen(request, timeout=HANDSHAKE_TIMEOUT_SECONDS) as response:
+            return 200 <= response.status < 300
+    except (OSError, http.client.HTTPException, ValueError):
         return False
 
 
-def _build_request_with_headers(url: str, headers: dict[str, str]) -> Any:
-    from urllib.request import Request
-
-    return Request(url, data=b"{}", headers=headers, method="POST")
-
-
-def pid_image_name(pid: int) -> str | None:
-    """Best-effort image name of a live PID (None when the PID does not exist)."""
-    try:
-        result = subprocess.run(
-            ["tasklist", "/FI", f"PID eq {int(pid)}", "/FO", "CSV", "/NH"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=15,
-        )
-        line = (result.stdout or "").strip().splitlines()
-        if not line or line[0].upper().startswith(("INFO", '"ERROR"')):
-            return None
-        return line[0].split(",")[0].strip('"').lower() or None
-    except Exception:
-        return None
-
-
-def pid_command_line(pid: int) -> str | None:
-    """Best-effort command line of a live PID (None when absent or unknown)."""
-    try:
-        result = subprocess.run(
-            [
-                "powershell",
-                "-NoProfile",
-                "-Command",
-                "(Get-CimInstance Win32_Process -Filter 'ProcessId = "
-                + str(int(pid))
-                + "').CommandLine",
-            ],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=20,
-        )
-        line = (result.stdout or "").strip()
-        return line or None
-    except Exception:
-        return None
-
-
-def looks_like_viewer_process(image_name: str | None, pid: int | None = None) -> bool:
-    """Conservative PID-reuse guard before any forced kill (GATE-4 FL-005).
-
-    A bare "this is some python process" match once allowed a recycled PID to
-    route an innocent interpreter into ``taskkill /F /T``; a forced kill now
-    additionally requires the process command line to name this viewer.
-    """
-    if not image_name:
-        return False
-    if not any(marker in image_name for marker in ("python", "electron", "wisp")):
-        return False
-    if pid is None:
-        return False
-    command_line = pid_command_line(pid) or ""
-    return "antigravity_viewer" in command_line
+# --------------------------------------------------------------------------
+# HTTP server
 
 
 class ViewerServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = os.name != "nt"
 
-    def __init__(self, address: tuple[str, int], context: ViewerContext):
+    def __init__(
+        self,
+        address: tuple[str, int],
+        context_factory: Callable[[int], ViewerContext],
+    ) -> None:
+        # Set before binding: socketserver creates the socket from this.
+        self.address_family = socket.AF_INET6 if ":" in address[0] else socket.AF_INET
         super().__init__(address, ViewerHandler)
-        self.context = context
+        try:
+            self.context = context_factory(int(self.server_address[1]))
+        except BaseException:
+            self.server_close()
+            raise
 
 
 class ViewerHandler(BaseHTTPRequestHandler):
     server_version = f"{SERVER_NAME}/{SERVER_VERSION}"
     protocol_version = "HTTP/1.1"
     timeout = 60
+    _body: bytes = b""
 
     @property
     def context(self) -> ViewerContext:
@@ -1021,17 +1090,44 @@ class ViewerHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:
         return
 
+    # ------------------------------------------------------------- responses
+
     def _security_headers(self) -> None:
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
 
-    def _authorized(self, query: Mapping[str, list[str]] | None = None) -> bool:
+    def _send_bytes(
+        self, status: int, body: bytes, content_type: str, cache: str = "no-store"
+    ) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", cache)
+        if self.close_connection:
+            self.send_header("Connection", "close")
+        self._security_headers()
+        self.end_headers()
+        try:
+            self.wfile.write(body)
+        except ConnectionError:
+            pass
+
+    def _send_json(self, status: int, payload: dict[str, Any]) -> None:
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self._send_bytes(status, body, "application/json; charset=utf-8")
+
+    def _send_html(self, status: int, html: str) -> None:
+        self._send_bytes(status, html.encode("utf-8"), "text/html; charset=utf-8")
+
+    # ----------------------------------------------------------------- guards
+
+    def _authorized(self, query: Query | None = None) -> bool:
         """Bearer-token gate; enforced only when the server bound non-loopback.
 
-        Query-string tokens are accepted ONLY on ``/events`` (EventSource
-        cannot set headers) and never on other routes, where a token in the
-        URL would leak into proxy logs and history (GATE-4 FL-006).
-        Comparisons are constant-time (CAN-003).
+        Query-string tokens are accepted only on ``/events`` (EventSource
+        cannot set headers); elsewhere a URL token would leak into proxy logs
+        and browser history. Comparisons use ``secrets.compare_digest`` to
+        avoid timing leaks.
         """
         token = self.context.auth_token
         if not token:
@@ -1055,28 +1151,47 @@ class ViewerHandler(BaseHTTPRequestHandler):
         host = _host_from_header(self.headers.get("Host") or "")
         if not host:
             return True
-        return host in {"127.0.0.1", "localhost", "::1"}
+        return host in LOOPBACK_HOSTS
 
-    def _send_bytes(
-        self, status: int, body: bytes, content_type: str, cache: str = "no-store"
-    ) -> None:
-        self.send_response(status)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", cache)
-        self._security_headers()
-        self.end_headers()
+    def _guard_post(self) -> bool:
+        """Session header, origin allow-list and bounded body; reads the body."""
+        if self.headers.get(SESSION_HEADER) != "1":
+            self._send_json(403, {"error": "missing local session header"})
+            return False
+        origin = self.headers.get("Origin")
+        if origin and origin not in allowed_origins(self.context.port):
+            self._send_json(403, {"error": "origin not allowed"})
+            return False
+        raw_length = (self.headers.get("Content-Length") or "").strip()
+        if not raw_length:
+            self._send_json(411, {"error": "Content-Length required"})
+            return False
         try:
-            self.wfile.write(body)
-        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
-            pass
+            length = int(raw_length)
+        except ValueError:
+            length = -1
+        if length < 0:
+            self._send_json(400, {"error": "invalid Content-Length"})
+            return False
+        if length > MAX_BODY_BYTES:
+            self._send_json(413, {"error": f"body exceeds {MAX_BODY_BYTES} byte limit"})
+            return False
+        self._body = self.rfile.read(length) if length else b""
+        return True
 
-    def _send_json(self, status: int, payload: dict[str, Any]) -> None:
-        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        self._send_bytes(status, body, "application/json; charset=utf-8")
+    def _json_body(self) -> dict[str, Any] | None:
+        """The request body as a JSON object; sends a 400 and returns None otherwise."""
+        try:
+            payload = json.loads(self._body or b"{}")
+        except ValueError:
+            self._send_json(400, {"error": "invalid JSON body"})
+            return None
+        if not isinstance(payload, dict):
+            self._send_json(400, {"error": "body must be an object"})
+            return None
+        return payload
 
-    def _send_html(self, status: int, html: str) -> None:
-        self._send_bytes(status, html.encode("utf-8"), "text/html; charset=utf-8")
+    # ---------------------------------------------------------------- routing
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
@@ -1093,105 +1208,28 @@ class ViewerHandler(BaseHTTPRequestHandler):
         if not self._authorized(query):
             self._send_json(401, {"error": "unauthorized"})
             return
-        if route == "/":
-            self._serve_html()
+        handler = self._GET_ROUTES.get(route)
+        if handler is not None:
+            handler(self, query)
             return
-        if route == "/health/details":
-            watched = self.context.watched_dirs()
-            run = newest_run_across(watched)
-            self._send_json(
-                200,
-                {
-                    "status": "ok",
-                    "watching": run.name if run else None,
-                    "live_dir": str(self.context.live_dir),
-                    "watched_dirs": [str(directory) for directory in watched],
-                    "port": self.context.port,
-                },
-            )
-            return
-        if route == "/api/status":
-            self._send_json(200, collect_status(self.context))
-            return
-        if route == "/api/runs":
-            watched = self.context.watched_dirs()
-            merged: list[dict[str, Any]] = []
-            for directory in watched:
-                workspace_root = str(Path(directory).parent.parent)
-                for record in list_runs(directory):
-                    record["workspace"] = workspace_root
-                    record["live_dir"] = str(directory)
-                    record["is_foreign"] = Path(directory) != self.context.live_dir
-                    merged.append(record)
-            merged.sort(
-                key=lambda record: (record.get("mtime") or 0, record.get("file") or ""),
-                reverse=True,
-            )
-            self._send_json(
-                200,
-                {
-                    "runs": merged[:60],
-                    "live_dir": str(self.context.live_dir),
-                    "watched_dirs": [str(directory) for directory in watched],
-                },
-            )
-            return
-        if route == "/api/assets":
-            self._send_json(200, {"assets": self.context.assets})
-            return
-        if route == "/api/models":
-            self._send_json(200, list_models())
-            return
-        if route == "/api/model":
-            settings = read_viewer_settings(self.context.live_dir)
-            self._send_json(200, settings)
-            return
-        if route == "/api/chat/threads":
-            store = ChatStore(self.context.live_dir)
-            self._send_json(200, {"threads": store.list_threads()})
-            return
-        if route.startswith("/api/chat/thread/"):
-            thread_id = route[len("/api/chat/thread/") :].strip("/").split("/")[0]
-            store = ChatStore(self.context.live_dir)
-            thread = store.load(thread_id) if valid_thread_id(thread_id) else None
-            if thread is None:
-                self._send_json(404, {"error": "thread not found"})
+        for prefix, prefix_handler in self._GET_PREFIX_ROUTES:
+            if route.startswith(prefix):
+                prefix_handler(self, route[len(prefix) :])
                 return
-            self._send_json(200, {"thread": thread})
-            return
-        if route.startswith("/captures/"):
-            name = unquote(route[len("/captures/") :])
-            safe = name.replace("\\", "/").rsplit("/", 1)[-1]
-            if not safe or safe != name:
-                self._send_json(404, {"error": "capture not found"})
-                return
-            path = Path(self.context.live_dir).parent / "captures" / safe
-            if path.suffix.lower() not in CAPTURE_EXTENSIONS or not path.is_file():
-                self._send_json(404, {"error": "capture not found"})
-                return
-            try:
-                body = path.read_bytes()
-            except OSError:
-                self._send_json(404, {"error": "capture unreadable"})
-                return
-            content_type = mimetypes.guess_type(safe)[0] or "application/octet-stream"
-            self._send_bytes(200, body, content_type, cache="no-store")
-            return
-        if route.startswith("/assets/"):
-            self._serve_asset(route[len("/assets/") :])
-            return
-        if route == "/events":
-            replay = query.get("file", [None])[0]
-            self._serve_events(replay)
-            return
         self._send_json(404, {"error": f"not found: {route}"})
 
     def do_POST(self) -> None:
-        parsed = urlparse(self.path)
+        route = urlparse(self.path).path
+        # Until _guard_post consumes the body, any response must close the
+        # connection: unread body bytes would otherwise be parsed as the next
+        # request on a keep-alive connection.
+        client_wants_close = self.close_connection
+        self.close_connection = True
         if not self._check_host():
             self._send_json(403, {"error": "host header not allowed"})
             return
-        if parsed.path == "/api/shutdown":
+        if route == "/api/shutdown":
+            # Authenticates with its own token scheme (see _handle_shutdown).
             self._handle_shutdown()
             return
         if not self._authorized():
@@ -1199,219 +1237,288 @@ class ViewerHandler(BaseHTTPRequestHandler):
             return
         if not self._guard_post():
             return
-        if parsed.path == "/api/account/switch":
-            self._send_json(200, switch_account())
+        self.close_connection = client_wants_close
+        handler = self._POST_ROUTES.get(route)
+        if handler is not None:
+            handler(self)
             return
-        if parsed.path == "/api/account/recheck":
-            self._send_json(200, {"auth": collect_auth_state()})
+        thread_prefix = "/api/chat/thread/"
+        for suffix, action in (("/pin", self._post_pin), ("/delete", self._post_delete)):
+            if route.startswith(thread_prefix) and route.endswith(suffix):
+                action(route[len(thread_prefix) : -len(suffix)].strip("/"))
+                return
+        self._send_json(404, {"error": f"not found: {route}"})
+
+    # ------------------------------------------------------------- GET routes
+
+    def _get_index(self, query: Query) -> None:
+        try:
+            html = HTML_PATH.read_text(encoding="utf-8")
+        except OSError as exc:
+            self._send_html(500, f"<h1>viewer html missing</h1><pre>{exc}</pre>")
             return
-        if parsed.path == "/api/model":
-            try:
-                payload = json.loads(getattr(self, "_body", b"") or b"{}")
-            except (ValueError, json.JSONDecodeError):
-                self._send_json(400, {"error": "invalid JSON body"})
-                return
-            if not isinstance(payload, dict):
-                self._send_json(400, {"error": "body must be an object"})
-                return
-            unknown = [
-                key
-                for key in ("model", "fallback_model", "chat_model")
-                if isinstance(payload.get(key), str)
-                and payload[key].strip()
-                and not _MODEL_NAME_PATTERN.match(payload[key].strip())
-            ]
-            if not unknown and not bool(payload.get("allow_custom")):
-                unknown = [
-                    key
-                    for key in ("model", "fallback_model", "chat_model")
-                    if isinstance(payload.get(key), str)
-                    and payload[key].strip()
-                    and not _model_known(payload[key].strip())[0]
-                ]
-            if unknown:
-                self._send_json(
-                    400,
-                    {
-                        "error": f"unknown model for: {', '.join(unknown)}",
-                        "known_models": list_models().get("models") or [],
-                        "hint": "resubmit with allow_custom=true to force a custom id",
-                    },
-                )
-                return
-            settings = write_viewer_settings(self.context.live_dir, payload)
-            inventory = list_models().get("models") or []
-            for key in ("model", "fallback_model", "chat_model"):
-                value = settings.get(key)
-                settings[f"{key}_known"] = bool(value) and value in inventory
-            self._send_json(200, settings)
+        self._send_html(200, html)
+
+    def _get_health_details(self, query: Query) -> None:
+        watched = self.context.watched_dirs()
+        run = newest_run_across(watched)
+        self._send_json(
+            200,
+            {
+                "status": "ok",
+                "watching": run.name if run else None,
+                "live_dir": str(self.context.live_dir),
+                "watched_dirs": [str(directory) for directory in watched],
+                "port": self.context.port,
+            },
+        )
+
+    def _get_status(self, query: Query) -> None:
+        self._send_json(200, collect_status(self.context))
+
+    def _get_runs(self, query: Query) -> None:
+        watched = self.context.watched_dirs()
+        merged: list[dict[str, Any]] = []
+        for directory in watched:
+            workspace_root = str(Path(directory).parent.parent)
+            for record in list_runs(directory):
+                record["workspace"] = workspace_root
+                record["live_dir"] = str(directory)
+                record["is_foreign"] = Path(directory) != self.context.live_dir
+                merged.append(record)
+        merged.sort(
+            key=lambda record: (record.get("mtime") or 0, record.get("file") or ""),
+            reverse=True,
+        )
+        self._send_json(
+            200,
+            {
+                "runs": merged[:RUN_LIST_LIMIT],
+                "live_dir": str(self.context.live_dir),
+                "watched_dirs": [str(directory) for directory in watched],
+            },
+        )
+
+    def _get_assets(self, query: Query) -> None:
+        self._send_json(200, {"assets": self.context.assets})
+
+    def _get_models(self, query: Query) -> None:
+        self._send_json(200, list_models())
+
+    def _get_model(self, query: Query) -> None:
+        self._send_json(200, read_viewer_settings(self.context.live_dir))
+
+    def _get_threads(self, query: Query) -> None:
+        store = ChatStore(self.context.live_dir)
+        self._send_json(200, {"threads": store.list_threads()})
+
+    def _get_events(self, query: Query) -> None:
+        self._serve_events(query.get("file", [None])[0])
+
+    def _get_thread(self, rest: str) -> None:
+        thread_id = rest.strip("/").split("/")[0]
+        store = ChatStore(self.context.live_dir)
+        thread = store.load(thread_id) if valid_thread_id(thread_id) else None
+        if thread is None:
+            self._send_json(404, {"error": "thread not found"})
             return
-        if parsed.path == "/api/capture":
-            payload = self._json_body()
-            if payload is None:
-                return
-            if not self.context.capture_lock.acquire(blocking=False):
-                self._send_json(
-                    409,
-                    {
-                        "error": "busy",
-                        "message": "A capture is already in progress.",
-                    },
-                )
-                return
-            try:
-                mode = str(payload.get("mode") or "auto")
-                result = capture_auto(
-                    self.context.live_dir, prefer_selection=(mode != "snip")
-                )
-                if result.get("kind") == "image" and result.get("path"):
-                    result["rel_path"] = relative_to_workspace(
-                        Path(result["path"]), self.context.workspace
-                    )
-            finally:
-                try:
-                    self.context.capture_lock.release()
-                except RuntimeError:
-                    pass
-            self._send_json(200, result)
+        self._send_json(200, {"thread": thread})
+
+    def _get_capture(self, rest: str) -> None:
+        name = unquote(rest)
+        safe = name.replace("\\", "/").rsplit("/", 1)[-1]
+        if not safe or safe != name:
+            self._send_json(404, {"error": "capture not found"})
             return
-        if parsed.path == "/api/chat/upload":
-            payload = self._json_body()
-            if payload is None:
-                return
-            data = str(payload.get("data") or "")
-            if not data:
-                self._send_json(400, {"error": "missing image data"})
-                return
-            try:
-                blob = base64.b64decode(data, validate=True)
-            except ValueError:
-                self._send_json(400, {"error": "invalid base64 image data"})
-                return
-            if not blob:
-                self._send_json(400, {"error": "empty image"})
-                return
-            if len(blob) > MAX_UPLOAD_BYTES:
-                self._send_json(413, {"error": "image exceeds 12 MB limit"})
-                return
-            saved = save_pasted_image(self.context.live_dir, blob)
-            if saved is None:
-                self._send_json(400, {"error": "unsupported image format"})
-                return
+        path = capture_dir(self.context.live_dir) / safe
+        if path.suffix.lower() not in CAPTURE_EXTENSIONS or not path.is_file():
+            self._send_json(404, {"error": "capture not found"})
+            return
+        try:
+            body = path.read_bytes()
+        except OSError:
+            self._send_json(404, {"error": "capture unreadable"})
+            return
+        content_type = mimetypes.guess_type(safe)[0] or "application/octet-stream"
+        self._send_bytes(200, body, content_type, cache="no-store")
+
+    def _get_asset(self, rest: str) -> None:
+        safe = unquote(rest).replace("\\", "/").rsplit("/", 1)[-1]
+        if safe not in self.context.assets.values():
+            self._send_json(404, {"error": "asset not found"})
+            return
+        try:
+            body = (ASSET_DIR / safe).read_bytes()
+        except OSError:
+            self._send_json(404, {"error": "asset unreadable"})
+            return
+        content_type = mimetypes.guess_type(safe)[0] or "application/octet-stream"
+        self._send_bytes(200, body, content_type, cache="public, max-age=3600")
+
+    # ------------------------------------------------------------ POST routes
+
+    def _post_account_switch(self) -> None:
+        self._send_json(200, switch_account())
+
+    def _post_account_recheck(self) -> None:
+        self._send_json(200, {"auth": collect_auth_state()})
+
+    def _post_model(self) -> None:
+        payload = self._json_body()
+        if payload is None:
+            return
+        requested = {
+            key: payload[key].strip()
+            for key in MODEL_SETTING_KEYS
+            if isinstance(payload.get(key), str) and payload[key].strip()
+        }
+        inventory = list_models()["models"]
+        unknown = [key for key, value in requested.items() if not _MODEL_NAME_PATTERN.match(value)]
+        if not unknown and not payload.get("allow_custom"):
+            unknown = [key for key, value in requested.items() if value not in inventory]
+        if unknown:
             self._send_json(
-                200,
+                400,
                 {
-                    "kind": "image",
-                    "path": str(saved),
-                    "rel_path": relative_to_workspace(saved, self.context.workspace),
-                    "name": saved.name,
+                    "error": f"unknown model for: {', '.join(unknown)}",
+                    "known_models": inventory,
+                    "hint": "resubmit with allow_custom=true to force a custom id",
                 },
             )
             return
-        if parsed.path == "/api/ask":
-            payload = self._json_body()
-            if payload is None:
-                return
-            self._handle_ask(payload)
-            return
-        if parsed.path.startswith("/api/chat/thread/") and parsed.path.endswith("/pin"):
-            thread_id = (
-                parsed.path[len("/api/chat/thread/") : -len("/pin")].strip("/")
-            )
-            payload = self._json_body()
-            if payload is None:
-                return
-            store = ChatStore(self.context.live_dir)
-            thread = (
-                store.set_pinned(thread_id, bool(payload.get("pinned")))
-                if valid_thread_id(thread_id)
-                else None
-            )
-            if thread is None:
-                self._send_json(404, {"error": "thread not found"})
-                return
-            self._send_json(200, {"thread": thread})
-            return
-        self._send_json(404, {"error": f"not found: {parsed.path}"})
+        settings = write_viewer_settings(self.context.live_dir, payload)
+        for key in MODEL_SETTING_KEYS:
+            value = settings.get(key)
+            settings[f"{key}_known"] = bool(value) and value in inventory
+        self._send_json(200, settings)
 
-    def _json_body(self) -> dict[str, Any] | None:
+    def _post_capture(self) -> None:
+        payload = self._json_body()
+        if payload is None:
+            return
+        if not self.context.capture_lock.acquire(blocking=False):
+            self._send_json(
+                409, {"error": "busy", "message": "A capture is already in progress."}
+            )
+            return
         try:
-            payload = json.loads(getattr(self, "_body", b"") or b"{}")
-        except (ValueError, json.JSONDecodeError):
-            self._send_json(400, {"error": "invalid JSON body"})
-            return None
-        if not isinstance(payload, dict):
-            self._send_json(400, {"error": "body must be an object"})
-            return None
-        return payload
+            mode = str(payload.get("mode") or "auto")
+            result = capture_auto(self.context.live_dir, prefer_selection=(mode != "snip"))
+            if result.get("kind") == "image" and result.get("path"):
+                result["rel_path"] = relative_to_workspace(
+                    Path(result["path"]), self.context.workspace
+                )
+        except OSError as exc:
+            self._send_json(500, {"error": f"capture failed: {exc}"})
+            return
+        finally:
+            _release(self.context.capture_lock)
+        self._send_json(200, result)
 
-    def _handle_ask(self, payload: dict[str, Any]) -> None:
+    def _post_upload(self) -> None:
+        payload = self._json_body()
+        if payload is None:
+            return
+        data = str(payload.get("data") or "")
+        if not data:
+            self._send_json(400, {"error": "missing image data"})
+            return
+        try:
+            blob = base64.b64decode(data, validate=True)
+        except ValueError:
+            self._send_json(400, {"error": "invalid base64 image data"})
+            return
+        if not blob:
+            self._send_json(400, {"error": "empty image"})
+            return
+        if len(blob) > MAX_UPLOAD_BYTES:
+            limit_mb = MAX_UPLOAD_BYTES // (1024 * 1024)
+            self._send_json(413, {"error": f"image exceeds {limit_mb} MB limit"})
+            return
+        try:
+            saved = save_pasted_image(self.context.live_dir, blob)
+        except OSError as exc:
+            self._send_json(500, {"error": f"could not save the image: {exc}"})
+            return
+        if saved is None:
+            self._send_json(400, {"error": "unsupported image format"})
+            return
+        self._send_json(
+            200,
+            {
+                "kind": "image",
+                "path": str(saved),
+                "rel_path": relative_to_workspace(saved, self.context.workspace),
+                "name": saved.name,
+            },
+        )
+
+    def _post_pin(self, thread_id: str) -> None:
+        payload = self._json_body()
+        if payload is None:
+            return
+        store = ChatStore(self.context.live_dir)
+        thread = (
+            store.set_pinned(thread_id, bool(payload.get("pinned")))
+            if valid_thread_id(thread_id)
+            else None
+        )
+        if thread is None:
+            self._send_json(404, {"error": "thread not found"})
+            return
+        self._send_json(200, {"thread": thread})
+
+    def _post_delete(self, thread_id: str) -> None:
+        """Deletes one chat thread; 400 for a malformed id, 404 when absent."""
+        if not valid_thread_id(thread_id):
+            self._send_json(400, {"error": "invalid thread id"})
+            return
+        store = ChatStore(self.context.live_dir)
+        if store.load(thread_id) is None or not store.delete_thread(thread_id):
+            self._send_json(404, {"error": "thread not found"})
+            return
+        self._send_json(200, {"deleted": thread_id})
+
+    def _post_ask(self) -> None:
+        payload = self._json_body()
+        if payload is None:
+            return
         context = self.context
         prompt = str(payload.get("prompt") or "").strip() or ASK_DEFAULT_PROMPT
         if len(prompt) > MAX_MESSAGE_CHARS:
-            # Reject BEFORE acquiring the ask lock: an unclamped oversized
-            # prompt used to raise inside append_message and permanently leak
-            # the acquired lock, bricking /api/ask with 409s (CAN-001).
+            # Validate before taking ask_lock: an oversized prompt would make
+            # append_message raise while the lock is held.
             self._send_json(
                 400,
                 {"error": f"prompt exceeds MAX_MESSAGE_CHARS ({MAX_MESSAGE_CHARS})"},
             )
             return
         context_text = str(payload.get("context_text") or "").strip()
-        image_path = str(payload.get("image_path") or "").strip()
-        image_paths: list[str] = []
-        images_raw = payload.get("images")
-        if isinstance(images_raw, list):
-            for item in images_raw:
-                candidate = str(item or "").strip()
-                if candidate:
-                    image_paths.append(candidate)
-        if image_path:
-            image_paths.insert(0, image_path)
-        seen: set[str] = set()
-        image_paths = [p for p in image_paths if not (p in seen or seen.add(p))]
-        rejected: list[str] = []
-        contained: list[str] = []
-        for raw_path in image_paths:
-            contained_rel = context.contain_artifact(raw_path)
-            if contained_rel is None:
-                rejected.append(raw_path)
-            else:
-                contained.append(contained_rel)
-        if rejected:
-            self._send_json(
-                400,
-                {
-                    "error": (
-                        "image paths must be existing files inside the workspace or "
-                        f"capture directory with one of: {', '.join(sorted(CAPTURE_EXTENSIONS))}"
-                    ),
-                    "rejected": rejected,
-                },
-            )
+        image_paths = self._contained_ask_images(payload)
+        if image_paths is None:
             return
-        image_paths = contained
         model = str(payload.get("model") or "").strip()
         if model:
             known, known_models = _model_known(model)
-            if not known and not bool(payload.get("allow_custom")):
+            if not known and not payload.get("allow_custom"):
                 self._send_json(
-                    400,
-                    {"error": f"unknown model: {model}", "known_models": known_models},
+                    400, {"error": f"unknown model: {model}", "known_models": known_models}
                 )
                 return
-        thread_id = str(payload.get("thread_id") or "").strip()
-        skills_raw = payload.get("skills")
         settings = read_viewer_settings(context.live_dir)
-        if isinstance(skills_raw, list):
-            skills = tuple(str(skill).strip() for skill in skills_raw if str(skill).strip())
-        else:
-            skills = tuple(settings.get("ask_skills") or ())
+        skills_raw = payload.get("skills")
+        skills = tuple(
+            _clean_skills(skills_raw)
+            if isinstance(skills_raw, list)
+            else settings.get("ask_skills") or ()
+        )
 
         store = ChatStore(context.live_dir)
+        thread_id = str(payload.get("thread_id") or "").strip()
+        existing: dict[str, Any] | None = None
         if thread_id:
-            thread = store.load(thread_id) if valid_thread_id(thread_id) else None
-            if thread is None:
+            existing = store.load(thread_id) if valid_thread_id(thread_id) else None
+            if existing is None:
                 self._send_json(404, {"error": "thread not found"})
                 return
 
@@ -1425,145 +1532,144 @@ class ViewerHandler(BaseHTTPRequestHandler):
                 },
             )
             return
-
-        try:
-            # The thread is created only after the lock is held, so a 409 can
-            # never litter the chat directory with orphaned empty threads
-            # (MISSED-004), and any failure below releases the lock instead of
-            # bricking the ask feature (CAN-001).
-            if thread_id:
-                thread = store.load(thread_id) or thread
-            else:
-                thread = store.create(prompt)
-            context.active_ask = {"thread_id": thread["id"], "started": time.time()}
-            store.append_message(
-                thread["id"],
-                "user",
-                prompt,
-                {
-                    "context_text": context_text[:4000],
-                    "image_path": image_path or (image_paths[0] if image_paths else ""),
-                    "image_paths": image_paths,
-                },
-            )
-            store.update_run(
-                thread["id"], {"status": "running", "started": time.time()}
-            )
-        except Exception as exc:
-            context.active_ask = {}
-            try:
-                context.ask_lock.release()
-            except RuntimeError:
-                pass
-            self._send_json(500, {"error": f"failed to record the ask: {exc}"})
+        thread = self._record_ask(store, thread_id, existing, prompt, context_text, image_paths)
+        if thread is None:
             return
-        worker = threading.Thread(
+        threading.Thread(
             target=_ask_worker,
-            args=(
-                context,
-                thread["id"],
-                prompt,
-                context_text,
-                tuple(image_paths),
-                model,
-                skills,
-            ),
+            args=(context, thread["id"], prompt, context_text, tuple(image_paths), model, skills),
             daemon=True,
-        )
-        worker.start()
+        ).start()
         self._send_json(
             200,
             {
                 "thread_id": thread["id"],
                 "status": "running",
-                "model": model
-                or settings.get("chat_model")
-                or settings["model"],
+                "model": _effective_ask_model(model, settings),
             },
         )
 
-    def _handle_shutdown(self) -> None:
-        """Authenticated shutdown handshake (audit finding #5).
+    def _contained_ask_images(self, payload: Mapping[str, Any]) -> list[str] | None:
+        """Workspace-relative paths for the ask's images (``image_path`` first,
+        then ``images``, deduplicated). Sends a 400 and returns None if any
+        path is not an approved image."""
+        requested: list[str] = []
+        image_path = str(payload.get("image_path") or "").strip()
+        if image_path:
+            requested.append(image_path)
+        images = payload.get("images")
+        if isinstance(images, list):
+            requested.extend(str(item or "").strip() for item in images)
+        contained: list[str] = []
+        rejected: list[str] = []
+        for raw in dict.fromkeys(path for path in requested if path):
+            relative = self.context.contain_artifact(raw)
+            if relative is None:
+                rejected.append(raw)
+            else:
+                contained.append(relative)
+        if rejected:
+            self._send_json(
+                400,
+                {
+                    "error": (
+                        "image paths must be existing files inside the workspace or "
+                        f"capture directory with one of: {', '.join(sorted(CAPTURE_EXTENSIONS))}"
+                    ),
+                    "rejected": rejected,
+                },
+            )
+            return None
+        return contained
 
-        Token scheme (GATE-4 reconciliation MISSED-001): when the server binds
-        with an operator bearer token, the request must carry ``Authorization:
-        Bearer <auth_token>`` AND the instance secret in the dedicated
-        ``X-Instance-Token`` header - a single Authorization header cannot
-        match two distinct secrets. Without an operator token, the bearer is
-        the instance token. A stale port shared by an unrelated process can
-        never produce the instance secret.
+    def _record_ask(
+        self,
+        store: ChatStore,
+        thread_id: str,
+        existing: dict[str, Any] | None,
+        prompt: str,
+        context_text: str,
+        image_paths: list[str],
+    ) -> dict[str, Any] | None:
+        """Records the user's message while the caller holds ``ask_lock``.
+
+        Create the thread only once the lock is held, so a 409 never leaves an
+        empty thread behind; any failure below releases the lock. Returns the
+        thread, or None after answering 500.
+        """
+        context = self.context
+        try:
+            # Reload a follow-up's thread: it may have changed while unlocked.
+            thread = (store.load(thread_id) or existing) if thread_id else store.create(prompt)
+            if thread is None:
+                raise OSError("the chat thread could not be saved")
+            context.active_ask = {"thread_id": thread["id"], "started": time.time()}
+            recorded = store.append_message(
+                thread["id"],
+                "user",
+                prompt,
+                {
+                    "context_text": context_text[:MAX_ASK_CONTEXT_CHARS],
+                    "image_path": image_paths[0] if image_paths else "",
+                    "image_paths": image_paths,
+                },
+            )
+            if recorded is None:
+                raise OSError("the chat thread could not be saved")
+            store.update_run(thread["id"], {"status": "running", "started": time.time()})
+        except Exception as exc:
+            # Deliberately broad: anything escaping here would leak ask_lock
+            # and wedge /api/ask with 409s until the viewer restarts.
+            context.active_ask = {}
+            _release(context.ask_lock)
+            self._send_json(500, {"error": f"failed to record the ask: {exc}"})
+            return None
+        return thread
+
+    def _handle_shutdown(self) -> None:
+        """Authenticated shutdown handshake used by ``--replace``.
+
+        With an operator bearer token, the request must carry ``Authorization:
+        Bearer <auth_token>`` AND the instance secret in ``X-Instance-Token``;
+        one Authorization header cannot match two distinct secrets. Without an
+        operator token, the bearer is the instance token. A stale port reused
+        by an unrelated process can never produce the instance secret.
         """
         expected = self.context.instance_token
         if not expected:
             self._send_json(404, {"error": "not found"})
             return
         auth_header = self.headers.get("Authorization") or ""
-        instance_header = self.headers.get("X-Instance-Token") or ""
         if self.context.auth_token:
             if not secrets.compare_digest(auth_header, f"Bearer {self.context.auth_token}"):
                 self._send_json(401, {"error": "unauthorized"})
                 return
-            supplied = instance_header
+            supplied = self.headers.get(INSTANCE_TOKEN_HEADER) or ""
         else:
-            supplied = auth_header[len("Bearer "):] if auth_header.startswith("Bearer ") else ""
+            supplied = auth_header[len("Bearer ") :] if auth_header.startswith("Bearer ") else ""
         if not supplied or not secrets.compare_digest(supplied, expected):
             self._send_json(403, {"error": "invalid instance token"})
             return
         self._send_json(200, {"status": "shutting-down"})
         threading.Thread(target=self.server.shutdown, daemon=True).start()
 
-    def _guard_post(self) -> bool:
-        if self.headers.get(SESSION_HEADER) != "1":
-            self._send_json(403, {"error": "missing local session header"})
-            return False
-        origin = self.headers.get("Origin")
-        if origin:
-            allowed = {
-                f"http://127.0.0.1:{self.context.port}",
-                f"http://localhost:{self.context.port}",
-            }
-            if origin not in allowed:
-                self._send_json(403, {"error": "origin not allowed"})
-                return False
-        raw_length = (self.headers.get("Content-Length") or "").strip()
-        if not raw_length:
-            self._send_json(411, {"error": "Content-Length required"})
-            return False
+    # ------------------------------------------------------------ live events
+
+    def _send_event(self, event: str, data: str) -> bool:
         try:
-            length = int(raw_length)
-        except ValueError:
-            self._send_json(400, {"error": "invalid Content-Length"})
+            self.wfile.write(f"event: {event}\ndata: {data}\n\n".encode())
+            self.wfile.flush()
+        except OSError:
             return False
-        if length < 0:
-            self._send_json(400, {"error": "invalid Content-Length"})
-            return False
-        if length > MAX_BODY_BYTES:
-            self._send_json(413, {"error": f"body exceeds {MAX_BODY_BYTES} byte limit"})
-            return False
-        self._body = self.rfile.read(length) if length else b""
         return True
 
-    def _serve_html(self) -> None:
+    def _send_keepalive(self) -> bool:
         try:
-            html = HTML_PATH.read_text(encoding="utf-8")
-        except OSError as exc:
-            self._send_html(500, f"<h1>viewer html missing</h1><pre>{exc}</pre>")
-            return
-        self._send_html(200, html)
-
-    def _serve_asset(self, name: str) -> None:
-        safe = unquote(name).replace("\\", "/").rsplit("/", 1)[-1]
-        if safe not in self.context.assets.values():
-            self._send_json(404, {"error": "asset not found"})
-            return
-        path = ASSET_DIR / safe
-        try:
-            body = path.read_bytes()
+            self.wfile.write(b": keepalive\n\n")
+            self.wfile.flush()
         except OSError:
-            self._send_json(404, {"error": "asset unreadable"})
-            return
-        content_type = mimetypes.guess_type(safe)[0] or "application/octet-stream"
-        self._send_bytes(200, body, content_type, cache="public, max-age=3600")
+            return False
+        return True
 
     def _serve_events(self, replay_file: str | None) -> None:
         self.send_response(200)
@@ -1573,15 +1679,7 @@ class ViewerHandler(BaseHTTPRequestHandler):
         self.send_header("X-Accel-Buffering", "no")
         self._security_headers()
         self.end_headers()
-
-        def send(event: str, data: str) -> bool:
-            try:
-                self.wfile.write(f"event: {event}\ndata: {data}\n\n".encode("utf-8"))
-                self.wfile.flush()
-                return True
-            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
-                return False
-
+        send: SendEvent = self._send_event
         if not send("hello", json.dumps({"status": "ready", "port": self.context.port})):
             return
         try:
@@ -1589,27 +1687,29 @@ class ViewerHandler(BaseHTTPRequestHandler):
                 self._stream_replay(replay_file, send)
             else:
                 self._stream_live(send)
-        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+        except OSError:
             return
 
-    def _stream_replay(self, replay_file: str, send: Any) -> None:
+    def _stream_replay(self, replay_file: str, send: SendEvent) -> None:
         safe = replay_file.replace("\\", "/").rsplit("/", 1)[-1]
-        if not re.fullmatch(r"run-[A-Za-z0-9\-_]+\.jsonl", safe):
+        if not _RUN_FILE_PATTERN.fullmatch(safe):
             send("replay_end", json.dumps({"error": "invalid run file"}))
             return
-        path: Path | None = None
-        for directory in self.context.watched_dirs():
-            candidate = directory / safe
-            if candidate.is_file():
-                path = candidate
-                break
+        path = next(
+            (
+                directory / safe
+                for directory in self.context.watched_dirs()
+                if (directory / safe).is_file()
+            ),
+            None,
+        )
         if path is None:
             send("replay_end", json.dumps({"error": "run file not found"}))
             return
         if not send("reset", json.dumps({"file": safe, "replay": True})):
             return
         try:
-            with open(path, "r", encoding="utf-8", errors="replace") as handle:
+            with open(path, encoding="utf-8", errors="replace") as handle:
                 for line in handle:
                     stripped = line.strip()
                     if not stripped:
@@ -1622,7 +1722,13 @@ class ViewerHandler(BaseHTTPRequestHandler):
             return
         send("replay_end", json.dumps({"file": safe}))
 
-    def _stream_live(self, send: Any) -> None:
+    def _stream_live(self, send: SendEvent) -> None:
+        """Tails the newest run, latching onto it until it ends or goes idle.
+
+        Latching keeps concurrent runs from thrashing the view: the stream
+        only switches files once the current run has finished or has been
+        silent for LIVE_LATCH_IDLE_SECONDS.
+        """
         current: Path | None = None
         offset = 0
         buffer = ""
@@ -1631,15 +1737,13 @@ class ViewerHandler(BaseHTTPRequestHandler):
         last_keepalive = time.time()
         while True:
             now = time.time()
-            idle = now - last_data
             candidate = newest_run_across(self.context.watched_dirs())
-            should_switch = False
             if current is None:
                 should_switch = candidate is not None
-            elif current_done or idle >= LIVE_LATCH_IDLE_SECONDS:
-                should_switch = (
-                    candidate is not None and candidate.name != current.name
-                )
+            elif current_done or now - last_data >= LIVE_LATCH_IDLE_SECONDS:
+                should_switch = candidate is not None and candidate.name != current.name
+            else:
+                should_switch = False
             if should_switch and candidate is not None:
                 current = candidate
                 offset = 0
@@ -1650,15 +1754,11 @@ class ViewerHandler(BaseHTTPRequestHandler):
                     return
             if current is None:
                 if now - last_keepalive > KEEPALIVE_SECONDS:
-                    try:
-                        self.wfile.write(b": keepalive\n\n")
-                        self.wfile.flush()
-                    except OSError:
+                    if not self._send_keepalive():
                         return
                     last_keepalive = now
                 time.sleep(POLL_INTERVAL_SECONDS * 2)
                 continue
-            chunk = b""
             try:
                 with open(current, "rb") as handle:
                     handle.seek(offset)
@@ -1667,355 +1767,87 @@ class ViewerHandler(BaseHTTPRequestHandler):
                 chunk = b""
             if chunk:
                 offset += len(chunk)
-                last_data = time.time()
+                last_data = last_keepalive = time.time()
                 buffer += chunk.decode("utf-8", errors="replace")
-                lines = buffer.split("\n")
-                buffer = lines.pop()
+                *lines, buffer = buffer.split("\n")
                 for line in lines:
                     stripped = line.strip()
                     if not stripped:
                         continue
-                    if '"run_end"' in stripped:
+                    if is_run_end_line(stripped):
                         current_done = True
                     if not send("live", stripped):
                         return
-                last_keepalive = time.time()
             elif time.time() - last_keepalive > KEEPALIVE_SECONDS:
-                try:
-                    self.wfile.write(b": keepalive\n\n")
-                    self.wfile.flush()
-                except OSError:
+                if not self._send_keepalive():
                     return
                 last_keepalive = time.time()
             time.sleep(POLL_INTERVAL_SECONDS)
+
+    # ----------------------------------------------------------- route tables
+
+    _GET_ROUTES: ClassVar[dict[str, Callable[[ViewerHandler, Query], None]]] = {
+        "/": _get_index,
+        "/health/details": _get_health_details,
+        "/api/status": _get_status,
+        "/api/runs": _get_runs,
+        "/api/assets": _get_assets,
+        "/api/models": _get_models,
+        "/api/model": _get_model,
+        "/api/chat/threads": _get_threads,
+        "/events": _get_events,
+    }
+    # Checked in order after the exact routes; the handler receives the path
+    # remainder after the prefix.
+    _GET_PREFIX_ROUTES: ClassVar[tuple[tuple[str, Callable[[ViewerHandler, str], None]], ...]] = (
+        ("/api/chat/thread/", _get_thread),
+        ("/captures/", _get_capture),
+        ("/assets/", _get_asset),
+    )
+    _POST_ROUTES: ClassVar[dict[str, Callable[[ViewerHandler], None]]] = {
+        "/api/account/switch": _post_account_switch,
+        "/api/account/recheck": _post_account_recheck,
+        "/api/model": _post_model,
+        "/api/capture": _post_capture,
+        "/api/chat/upload": _post_upload,
+        "/api/ask": _post_ask,
+    }
 
 
 def bind_server(
     host: str,
     preferred_port: int,
-    context_factory: Any,
+    context_factory: Callable[[int], ViewerContext],
     max_attempts: int = PORT_SCAN_RANGE,
 ) -> tuple[ViewerServer, int]:
+    """Binds the first free port from ``preferred_port`` upward."""
     last_error: OSError | None = None
     for candidate in range(preferred_port, preferred_port + max_attempts):
         try:
-            probe = ViewerServer.__new__(ViewerServer)
-            ThreadingHTTPServer.__init__(probe, (host, candidate), ViewerHandler)
-            probe.daemon_threads = True
-            actual_port = int(probe.server_address[1])
-            probe.context = context_factory(actual_port)
-            return probe, actual_port
+            server = ViewerServer((host, candidate), context_factory)
         except OSError as exc:
             last_error = exc
             continue
+        return server, int(server.server_address[1])
     raise OSError(
         f"no free port in {preferred_port}-{preferred_port + max_attempts - 1}: {last_error}"
     )
 
 
-def _browser_candidates() -> list[str]:
-    candidates: list[str] = []
-    for name in ("msedge", "chrome", "brave", "chromium"):
-        found = shutil.which(name)
-        if found:
-            candidates.append(found)
-    for path in (
-        Path(os.environ.get("PROGRAMFILES", "C:/Program Files"))
-        / "Microsoft"
-        / "Edge"
-        / "Application"
-        / "msedge.exe",
-        Path(os.environ.get("PROGRAMFILES(X86)", "C:/Program Files (x86)"))
-        / "Microsoft"
-        / "Edge"
-        / "Application"
-        / "msedge.exe",
-        Path(os.environ.get("PROGRAMFILES", "C:/Program Files"))
-        / "Google"
-        / "Chrome"
-        / "Application"
-        / "chrome.exe",
-        Path(os.environ.get("PROGRAMFILES(X86)", "C:/Program Files (x86)"))
-        / "Google"
-        / "Chrome"
-        / "Application"
-        / "chrome.exe",
-    ):
-        if path.is_file():
-            candidates.append(str(path))
-    return candidates
-
-
-class _RECT(ctypes.Structure):
-    _fields_ = [
-        ("left", ctypes.c_long),
-        ("top", ctypes.c_long),
-        ("right", ctypes.c_long),
-        ("bottom", ctypes.c_long),
-    ]
-
-
-def work_area() -> tuple[int, int, int, int]:
-    """Returns the desktop work area (excludes the taskbar) or a 1080p fallback."""
-    try:
-        rect = _RECT()
-        if ctypes.windll.user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(rect), 0):
-            if rect.right > rect.left and rect.bottom > rect.top:
-                return rect.left, rect.top, rect.right, rect.bottom
-    except Exception:
-        pass
-    return 0, 0, 1920, 1080
-
-
-def bottom_right_position(width: int, height: int, margin: int = 18) -> tuple[int, int]:
-    left, top, right, bottom = work_area()
-    x = max(left, right - width - margin)
-    y = max(top, bottom - height - margin)
-    return x, y
-
-
-def open_app_window(url: str, width: int, height: int) -> bool:
-    x, y = bottom_right_position(width, height)
-    profile = Path(os.environ.get("TEMP", ".")) / "wisp-app-profile"
-    for executable in _browser_candidates():
-        try:
-            subprocess.Popen(
-                [
-                    executable,
-                    f"--app={url}",
-                    f"--window-size={width},{height}",
-                    f"--window-position={x},{y}",
-                    f"--user-data-dir={profile}",
-                    "--no-first-run",
-                    "--no-default-browser-check",
-                    "--disable-features=Translate,AutofillServerCommunication",
-                ]
-            )
-            return True
-        except OSError:
-            continue
-    try:
-        return webbrowser.open(url)
-    except Exception:
-        return False
-
-
-_SHAPE_CIRCLE = "circle"
-_SHAPE_CARD = "card"
-_SHAPE_NONE = "none"
-
-
-def _apply_window_region(hwnd: int, shape: str, width: int, height: int) -> None:
-    """Clips the window to an ellipse or rounded card; outside stays click-through."""
-    if os.name != "nt" or not hwnd:
-        return
-    try:
-        gdi32 = ctypes.windll.gdi32
-        user32 = ctypes.windll.user32
-        gdi32.CreateEllipticRgn.restype = ctypes.c_void_p
-        gdi32.CreateEllipticRgn.argtypes = [
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-        ]
-        gdi32.CreateRoundRectRgn.restype = ctypes.c_void_p
-        gdi32.CreateRoundRectRgn.argtypes = [
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-        ]
-        gdi32.DeleteObject.argtypes = [ctypes.c_void_p]
-        user32.SetWindowRgn.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_bool]
-        if shape == _SHAPE_CIRCLE:
-            region = gdi32.CreateEllipticRgn(0, 0, int(width) + 1, int(height) + 1)
-        elif shape == _SHAPE_CARD:
-            region = gdi32.CreateRoundRectRgn(
-                0, 0, int(width) + 1, int(height) + 1, 26, 26
-            )
-        else:
-            region = gdi32.CreateRoundRectRgn(
-                0, 0, int(width) + 1, int(height) + 1, 0, 0
-            )
-        if region:
-            user32.SetWindowRgn(hwnd, region, True)
-    except Exception:
-        pass
-
-
-def open_native_window(url: str, width: int, height: int, transparent: bool = False) -> bool:
-    """Opens a frameless desktop widget via pywebview.
-
-    Blocks until the window closes. Returns ``False`` when pywebview (or the
-    WebView2 runtime) is unavailable so the caller can fall back. The window is
-    clipped with a native region (ellipse for the aura, rounded card for panels)
-    so only Wisp and his glow are visible on the desktop.
-    """
-    try:
-        import webview
-    except ImportError:
-        return False
-
-    x, y = bottom_right_position(width, height)
-
-    class WindowApi:
-        def __init__(self) -> None:
-            self.window: Any = None
-            self.user_positioned = False
-            self.shape = _SHAPE_NONE
-            self.applied_shape = None
-            self.window_size = (int(width), int(height))
-
-        def attach(self, window: Any) -> None:
-            self.window = window
-
-        def _handle(self) -> int | None:
-            try:
-                native = getattr(self.window, "native", None)
-                if native is None:
-                    return None
-                return int(native.Handle.ToInt64())
-            except Exception:
-                return None
-
-        def close(self) -> None:
-            if self.window is not None:
-                self.window.destroy()
-
-        def minimize(self) -> None:
-            if self.window is not None:
-                self.window.minimize()
-
-        def toggle_pin(self) -> bool:
-            if self.window is None:
-                return False
-            self.window.on_top = not bool(self.window.on_top)
-            return bool(self.window.on_top)
-
-        def move(self, dx: int, dy: int) -> list[int]:
-            if self.window is None:
-                return [0, 0]
-            try:
-                self.window.x = int(self.window.x or 0) + int(dx)
-                self.window.y = int(self.window.y or 0) + int(dy)
-                self.user_positioned = True
-                return [self.window.x, self.window.y]
-            except Exception:
-                return [0, 0]
-
-        def set_view(self, width: int, height: int) -> bool:
-            if self.window is None:
-                return False
-            try:
-                w = max(int(width), 240)
-                h = max(int(height), 200)
-                left, top, right, bottom = work_area()
-                if self.user_positioned:
-                    x = int(self.window.x or 0)
-                    y = int(self.window.y or 0)
-                    x = max(left, min(x, right - w))
-                    y = max(top, min(y, bottom - h))
-                else:
-                    x = max(left, right - w - 18)
-                    y = max(top, bottom - h - 18)
-                self.window.resize(w, h)
-                self.window.move(x, y)
-                self.window_size = (w, h)
-                self.applied_shape = None
-                return True
-            except Exception:
-                return False
-
-        def set_shape(self, shape: str) -> bool:
-            self.shape = str(shape or _SHAPE_NONE)
-            return True
-
-    api = WindowApi()
-
-    def region_keeper() -> None:
-        while True:
-            time.sleep(0.25)
-            if api.window is None:
-                continue
-            handle = api._handle()
-            if handle is None:
-                continue
-            if api.applied_shape != api.shape:
-                w, h = api.window_size
-                _apply_window_region(handle, api.shape, w, h)
-                api.applied_shape = api.shape
-
-    watcher = threading.Thread(target=region_keeper, daemon=True)
-    watcher.start()
-
-    try:
-        window = webview.create_window(
-            "Wisp",
-            url,
-            width=width,
-            height=height,
-            x=x,
-            y=y,
-            frameless=True,
-            easy_drag=False,
-            on_top=False,
-            transparent=False,
-            background_color="#000000",
-            resizable=False,
-        )
-    except Exception:
-        return False
-    api.attach(window)
-    webview.start(debug=False)
-    return True
-
-
-def electron_executable() -> Path | None:
-    if os.name == "nt":
-        candidate = SHELL_DIR / "node_modules" / "electron" / "dist" / "electron.exe"
-    else:
-        candidate = SHELL_DIR / "node_modules" / "electron" / "dist" / "electron"
-    return candidate if candidate.exists() else None
-
-
-def open_electron_window(url: str) -> subprocess.Popen | None:
-    """Spawns the frameless transparent Electron shell for the widget.
-
-    True per-pixel transparency and always-on-top control are only reliable in
-    Chromium-based shells on Windows; pywebview/WinForms cannot composite the
-    page over the desktop. Returns the Electron process, or ``None`` when the
-    shell is not installed so the caller can fall back.
-    """
-    executable = electron_executable()
-    if executable is None:
-        return None
-    env = os.environ.copy()
-    env["WISP_URL"] = url + ("&" if "?" in url else "?") + "transparent=1"
-    try:
-        return subprocess.Popen(
-            [str(executable), str(SHELL_DIR)],
-            cwd=str(SHELL_DIR),
-            env=env,
-        )
-    except OSError:
-        return None
+# --------------------------------------------------------------------------
+# Command line
 
 
 def _write_viewer_manifest(live_dir: Path, payload: dict[str, Any]) -> None:
+    """Best effort: without a manifest the viewer still serves, but
+    ``--replace`` and duplicate detection cannot find it."""
     try:
-        live_dir.mkdir(parents=True, exist_ok=True)
-        path = live_dir / "viewer.json"
-        temporary = path.with_name(path.name + ".tmp." + os.urandom(4).hex())
-        temporary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        os.replace(temporary, path)
+        write_json_atomic(manifest_path(live_dir), payload)
     except OSError:
         pass
 
 
-def main(argv: list[str] | None = None) -> int:
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="antigravity_viewer.py",
         description="Local live viewer for Antigravity delegation telemetry.",
@@ -2063,15 +1895,96 @@ def main(argv: list[str] | None = None) -> int:
         default=True,
         help="Open the widget window (default: on).",
     )
-    args = parser.parse_args(argv)
+    return parser
 
+
+def _replace_existing_viewer(
+    existing: dict[str, Any], live_dir: Path, auth_token: str
+) -> int | None:
+    """Stops the viewer described by ``existing``.
+
+    Returns None when startup may proceed, or an exit code when the viewer
+    must not start (the target could not be safely identified).
+    """
+    pid = existing["pid"]
+    instance = str(existing.get("token") or "")
+    # The target viewer's own auth token (from its manifest) outranks the new
+    # invocation's: it must match the running process, not these arguments.
+    target_auth = str(existing.get("auth_token") or "") or auth_token
+    if instance and request_shutdown(
+        existing["port"], instance, auth_token=target_auth, host=existing["host"]
+    ):
+        print(
+            f"[wisp-viewer] sent authenticated shutdown to the viewer on "
+            f"port {existing['port']}"
+        )
+        time.sleep(REPLACE_SETTLE_SECONDS)
+        return None
+    image = pid_image_name(pid)
+    if not looks_like_viewer_process(image, pid=pid):
+        print(
+            f"[wisp-viewer] refusing to replace: the manifest PID {pid} does not "
+            f"look like a viewer process ({image or 'gone'}) and no instance token "
+            f"is available; the port is likely owned by another program. Remove "
+            f"{manifest_path(live_dir)} if this is stale.",
+            file=sys.stderr,
+        )
+        return 2
+    print(
+        f"[wisp-viewer] legacy manifest without instance token; pid {pid} "
+        f"verified as a viewer process ({image}); forcing."
+    )
+    if terminate_process(pid):
+        time.sleep(REPLACE_SETTLE_SECONDS)
+    return None
+
+
+def _run_widget_shell(
+    shell: str, url: str, width: int, height: int, transparent: bool
+) -> bool:
+    """Opens the widget window for ``shell``.
+
+    Returns True when a blocking shell (Electron or pywebview) ran until its
+    window closed, meaning the viewer should exit; False when the page was
+    handed to a browser and the server should keep serving.
+    """
+    if shell in ("auto", "electron"):
+        electron = open_electron_window(url)
+        if electron is not None:
+            print(f"[wisp-viewer] electron widget on {url}")
+            try:
+                electron.wait()
+            except KeyboardInterrupt:
+                pass
+            return True
+        if shell == "electron":
+            print(
+                "[wisp-viewer] electron shell unavailable (run npm install in tools/wisp_shell)",
+                file=sys.stderr,
+            )
+    if shell in ("auto", "native"):
+        try:
+            if open_native_window(url, width, height, transparent=transparent):
+                return True
+        except Exception as exc:
+            # GUI backends fail in backend-specific ways; fall back to a browser.
+            print(f"[wisp-viewer] native shell failed: {exc}", file=sys.stderr)
+    if not open_app_window(url, *BROWSER_WINDOW_SIZE):
+        print(f"[wisp-viewer] open {url} in your browser", file=sys.stderr)
+    return False
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _build_parser().parse_args(argv)
     workspace = resolve_workspace(args.workspace)
     live_dir = resolve_live_dir(workspace, args.live_dir)
 
     auth_token = str(args.auth_token or "").strip()
     if args.generate_token:
         auth_token = secrets.token_urlsafe(32)
-    non_loopback = args.host not in LOOPBACK_HOSTS
+    # Accept "[::1]" as well as "::1"; sockets want the bare literal.
+    host = str(args.host or "").strip().strip("[]")
+    non_loopback = host not in LOOPBACK_HOSTS
     if non_loopback and not auth_token:
         print(
             "[wisp-viewer] refusing to bind a non-loopback host without an auth "
@@ -2081,61 +1994,22 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     existing = existing_viewer(live_dir)
-    if existing and not args.replace:
-        print(
-            f"[wisp-viewer] already running on port {existing['port']} "
-            f"(pid {existing['pid']}); use --replace to restart it."
-        )
-        return 0
-    if existing and args.replace:
-        instance = str(existing.get("token") or "")
-        # The target viewer's own auth token (from its manifest) outranks the
-        # new invocation's: they must match the running process, not the args.
-        target_auth = str(existing.get("auth_token") or "") or auth_token
-        replaced = False
-        if instance and request_shutdown(
-            existing["port"], instance, auth_token=target_auth
-        ):
-            replaced = True
+    if existing:
+        if not args.replace:
             print(
-                f"[wisp-viewer] sent authenticated shutdown to the viewer on "
-                f"port {existing['port']}"
+                f"[wisp-viewer] already running on port {existing['port']} "
+                f"(pid {existing['pid']}); use --replace to restart it."
             )
-        else:
-            image = pid_image_name(existing["pid"])
-            if looks_like_viewer_process(image, pid=existing["pid"]):
-                print(
-                    f"[wisp-viewer] legacy manifest without instance token; "
-                    f"pid {existing['pid']} verified as a viewer process "
-                    f"({image}); forcing."
-                )
-                try:
-                    subprocess.run(
-                        ["taskkill", "/PID", str(existing["pid"]), "/T", "/F"],
-                        capture_output=True,
-                        timeout=15,
-                    )
-                    replaced = True
-                except Exception:
-                    replaced = False
-            else:
-                print(
-                    f"[wisp-viewer] refusing to replace: the manifest PID "
-                    f"{existing['pid']} does not look like a viewer process "
-                    f"({image or 'gone'}) and no instance token is available; "
-                    f"the port is likely owned by another program. Remove "
-                    f"{live_dir / 'viewer.json'} if this is stale.",
-                    file=sys.stderr,
-                )
-                return 2
-        if replaced:
-            time.sleep(1.5)
+            return 0
+        refused = _replace_existing_viewer(existing, live_dir, auth_token)
+        if refused is not None:
+            return refused
 
     def context_factory(port: int) -> ViewerContext:
         return ViewerContext(workspace=workspace, live_dir=live_dir, port=port)
 
     try:
-        server, port = bind_server(args.host, args.port, context_factory)
+        server, port = bind_server(host, args.port, context_factory)
     except OSError as exc:
         print(f"[wisp-viewer] failed to bind: {exc}", file=sys.stderr)
         return 1
@@ -2144,8 +2018,9 @@ def main(argv: list[str] | None = None) -> int:
     server.context.auth_token = auth_token
     server.context.instance_token = instance_token
 
-    url = f"http://{args.host}:{port}/"
-    manifest_payload: dict[str, Any] = {
+    url = f"http://{url_host(host)}:{port}/"
+    manifest: dict[str, Any] = {
+        "host": host,
         "port": port,
         "url": url,
         "pid": os.getpid(),
@@ -2154,10 +2029,10 @@ def main(argv: list[str] | None = None) -> int:
         "started": time.time(),
     }
     if auth_token:
-        # Same local trust boundary as the instance token: without it, the
-        # --replace authenticated shutdown cannot authenticate (MISSED-001).
-        manifest_payload["auth_token"] = auth_token
-    _write_viewer_manifest(live_dir, manifest_payload)
+        # Same local trust boundary as the instance token; without it a later
+        # --replace could not authenticate its shutdown request.
+        manifest["auth_token"] = auth_token
+    _write_viewer_manifest(live_dir, manifest)
     print(f"[wisp-viewer] serving on {url} (live dir: {live_dir})")
     if non_loopback:
         print("[wisp-viewer] NON-LOOPBACK BINDING: bearer token required on every route.")
@@ -2173,47 +2048,18 @@ def main(argv: list[str] | None = None) -> int:
         if hasattr(signal, "SIGTERM"):
             signal.signal(signal.SIGTERM, _shutdown)
     except (ValueError, OSError):
+        # Not the main thread (e.g. embedded in a test); Ctrl+C still works.
         pass
 
     serving_thread = threading.Thread(
-        target=server.serve_forever, kwargs={"poll_interval": 0.3}, daemon=True
+        target=server.serve_forever, kwargs={"poll_interval": SERVE_POLL_SECONDS}, daemon=True
     )
     serving_thread.start()
-
-    if args.open and args.shell in ("auto", "electron"):
-        electron_proc = open_electron_window(url)
-        if electron_proc is not None:
-            print(f"[wisp-viewer] electron widget on {url}")
-            try:
-                electron_proc.wait()
-            except KeyboardInterrupt:
-                pass
-            server.shutdown()
-            server.server_close()
-            return 0
-        if args.shell == "electron":
-            print(
-                "[wisp-viewer] electron shell unavailable (run npm install in tools/wisp_shell)",
-                file=sys.stderr,
-            )
-
-    if args.open and args.shell in ("auto", "native"):
-        try:
-            if open_native_window(
-                url, args.width, args.height, transparent=args.transparent
-            ):
-                server.shutdown()
-                server.server_close()
-                return 0
-        except Exception as exc:
-            print(f"[wisp-viewer] native shell failed: {exc}", file=sys.stderr)
-
-    if args.open:
-        opened = open_app_window(url, 470, 452)
-        if not opened:
-            print(f"[wisp-viewer] open {url} in your browser", file=sys.stderr)
-
     try:
+        if args.open and _run_widget_shell(
+            args.shell, url, args.width, args.height, args.transparent
+        ):
+            return 0
         while serving_thread.is_alive():
             serving_thread.join(timeout=0.5)
     except KeyboardInterrupt:
