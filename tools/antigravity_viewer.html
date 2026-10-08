@@ -1310,18 +1310,20 @@ const KIND = {
 };
 const FILTER_OF = { think: 'thoughts', tool: 'tools', result: 'tools', text: 'output' };
 const FOCUS_LABEL = { think: 'Thinking', act: 'Tool call', done: 'Result', text: 'Answer' };
+// Plain-language label and description per creature state; the internal
+// state names (deliberating, triumph, ...) stay in CSS and the event model.
 const STATE_INFO = {
-  dormant: ['Dormant', 'resting'],
-  awakening: ['Awakening', 'a review just started'],
-  deliberating: ['Deliberating', 'thinking it through'],
-  reaching: ['Reaching', 'opening a file or running a command'],
-  absorbing: ['Absorbing', 'reading what came back'],
-  composing: ['Composing', 'writing up the answer'],
-  impatient: ['Impatient', 'no news for a while'],
-  strained: ['Strained', 'hit a hiccup, retrying'],
-  shifting: ['Shifting', 'switched to the backup model'],
-  triumph: ['Triumph', 'review complete'],
-  withered: ['Withered', 'the review failed'],
+  dormant: ['Idle', 'resting until the next review'],
+  awakening: ['Starting', 'a review just started'],
+  deliberating: ['Thinking', 'working through the problem'],
+  reaching: ['Checking', 'opening a file or running a command'],
+  absorbing: ['Reading', 'going through what came back'],
+  composing: ['Writing', 'putting the answer together'],
+  impatient: ['Waiting', 'no news for a while'],
+  strained: ['Retrying', 'hit a hiccup, trying again'],
+  shifting: ['Switching', 'moved to the backup model'],
+  triumph: ['Done', 'review complete'],
+  withered: ['Failed', 'the review did not finish'],
 };
 const WISP_THEMES = ['ember', 'aurora', 'moss'];
 const MOTION_LEVELS = ['full', 'gentle', 'off'];
