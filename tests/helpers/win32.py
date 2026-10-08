@@ -84,11 +84,32 @@ class _PROCESSENTRY32(ctypes.Structure):
     ]
 
 
+_KERNEL32 = None
+
+
+def _kernel32_instance():
+    """Lazily loads a PRIVATE kernel32 instance.
+
+    Created on first use (Windows-only paths) so importing this module never
+    touches Win32 on POSIX, and so its function prototypes stay private -
+    the shared ctypes.windll instances let one module's argtypes break
+    another module's calls.
+    """
+    global _KERNEL32
+    if _KERNEL32 is None:
+        _KERNEL32 = ctypes.WinDLL("kernel32")
+    return _KERNEL32
+
+
 def pid_alive(pid: int) -> bool:
     """True when a process with this PID still exists (Toolhelp snapshot)."""
-    kernel32 = ctypes.windll.kernel32
+    kernel32 = _kernel32_instance()
     kernel32.CreateToolhelp32Snapshot.restype = ctypes.c_void_p
     kernel32.CreateToolhelp32Snapshot.argtypes = [ctypes.c_uint32, ctypes.c_uint32]
+    kernel32.Process32First.restype = ctypes.c_int
+    kernel32.Process32First.argtypes = [ctypes.c_void_p, ctypes.POINTER(_PROCESSENTRY32)]
+    kernel32.Process32Next.restype = ctypes.c_int
+    kernel32.Process32Next.argtypes = [ctypes.c_void_p, ctypes.POINTER(_PROCESSENTRY32)]
     snapshot = kernel32.CreateToolhelp32Snapshot(_TH32CS_SNAPPROCESS, 0)
     # A c_void_p restype yields a pointer-sized int: INVALID_HANDLE_VALUE is
     # 0xFFFFFFFFFFFFFFFF on 64-bit Python, never the 32-bit 0xFFFFFFFF.
@@ -110,7 +131,7 @@ def pid_alive(pid: int) -> bool:
 
 def terminate_pids(pids: list[int]) -> None:
     """Best-effort TerminateProcess for every PID in ``pids``."""
-    kernel32 = ctypes.windll.kernel32
+    kernel32 = _kernel32_instance()
     kernel32.OpenProcess.restype = ctypes.c_void_p
     kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
     kernel32.TerminateProcess.restype = ctypes.c_int

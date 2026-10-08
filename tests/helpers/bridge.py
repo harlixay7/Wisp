@@ -16,17 +16,26 @@ def make_skill_yaml(
     payload: str = "UNIT_INSTRUCTIONS",
     kind: str = "skill",
     omit: str | None = None,
+    description: str = "A test skill.",
+    brief: str | None = None,
+    input_contract: dict[str, Any] | None = None,
 ) -> str:
-    """Renders a complete skill definition; ``omit`` drops one mandatory field."""
-    fields = {
+    """Renders a complete skill definition; ``omit`` drops one mandatory field.
+
+    ``brief`` adds the optional front-matter brief; ``input_contract``
+    replaces the default contract (e.g. to declare ``write_access``).
+    """
+    fields: dict[str, Any] = {
         "name": name,
         "version": version,
-        "description": "A test skill.",
+        "description": description,
         "activation_triggers": ["unit", "test"],
-        "input_contract": {"required": ["source_paths"]},
+        "input_contract": input_contract or {"required": ["source_paths"]},
         "output_contract": {"format": "markdown", "sections": ["Findings"]},
         "instructions_payload": payload,
     }
+    if brief is not None:
+        fields["brief"] = brief
     if omit:
         fields.pop(omit, None)
     lines = [f"kind: {kind}"]

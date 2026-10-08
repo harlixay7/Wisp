@@ -38,11 +38,21 @@ def _banned_patterns() -> tuple[str, ...]:
     )
 
 
-REQUIRED_MACHINERY = (
-    ("scratchpad", "every skill mandates a reasoning scratchpad block"),
-    ("EARS", "every skill expresses remediations in EARS syntax"),
-    ("do_not_use_when", "every skill carries routing disclaimers"),
+# Sections every skill body carries (see CONTRIBUTING.md, "Adding a review playbook").
+REQUIRED_BODY_SECTIONS = (
+    "## Mission",
+    "## Inputs to establish first",
+    "## Method",
+    "## Checklist",
+    "## Evidence standard",
+    "## Severity guide",
+    "## Skill-specific output",
+    "## Anti-patterns",
+    "## Done when",
 )
+VERDICTS = ("PASS", "PASS_WITH_FIXES", "BLOCK")
+BRIEF_CHARS = (600, 1800)
+EXPECTED_SKILL_COUNT = 17
 
 
 def _documents() -> dict[str, dict]:
@@ -65,9 +75,9 @@ def _activation(doc: dict, filename: str) -> dict:
 
 
 class TestRegistryGovernance:
-    def test_exactly_twelve_skills(self) -> None:
+    def test_expected_skill_count(self) -> None:
         files = [path for path in SKILLS_DIR.iterdir() if path.suffix in (".md", ".yaml", ".yml")]
-        assert len(files) == 12
+        assert len(files) == EXPECTED_SKILL_COUNT
 
     def test_frontmatter_complete(self) -> None:
         for name, doc in _documents().items():
@@ -109,32 +119,42 @@ class TestRegistryGovernance:
         for name, doc in _documents().items():
             assert _activation(doc, name).get("do_not_use_when"), name
 
-    def test_machinery_present_in_instructions(self) -> None:
-        for name, doc in _documents().items():
-            body = doc.get("instructions_payload") or ""
-            if not body:
-                # Markdown skills keep the mandate outside the frontmatter.
-                path = SKILLS_DIR / name
-                if path.suffix != ".yaml":
-                    body = path.read_text(encoding="utf-8")
-            lowered = body.lower()
-            for needle, why in REQUIRED_MACHINERY:
-                if needle == "do_not_use_when":
-                    continue  # frontmatter-level, checked above
-                assert needle.lower() in lowered, f"{name}: {why}"
+    def test_file_name_matches_skill_name(self) -> None:
+        for filename, doc in _documents().items():
+            assert re.match(r"^\d{2}_", filename), filename
+            assert Path(filename).stem.split("_", 1)[1] == doc["name"], filename
 
-    def test_verdict_enums_declared(self) -> None:
+    def test_body_has_required_sections(self) -> None:
+        for path in sorted(SKILLS_DIR.glob("*.md")):
+            body = path.read_text(encoding="utf-8")
+            missing = [section for section in REQUIRED_BODY_SECTIONS if section not in body]
+            assert not missing, f"{path.name}: missing {missing}"
+
+    def test_brief_is_standalone_and_bounded(self) -> None:
+        low, high = BRIEF_CHARS
         for name, doc in _documents().items():
-            path = SKILLS_DIR / name
-            body = str(doc.get("instructions_payload") or "") or path.read_text(encoding="utf-8")
-            assert "VERDICT" in body.upper(), f"{name}: no verdict contract"
-            assert "REGISTRY" in body.upper() or "MATRIX" in body.upper(), (
-                f"{name}: no registry/matrix deliverable"
-            )
+            brief = str(doc.get("brief") or "")
+            assert low <= len(brief) <= high, f"{name}: brief is {len(brief)} chars"
+            for verdict in VERDICTS:
+                assert verdict in brief, f"{name}: brief does not define {verdict}"
+
+    def test_only_the_implementation_skill_requests_write_access(self) -> None:
+        writers = sorted(
+            doc["name"]
+            for doc in _documents().values()
+            if (doc.get("input_contract") or {}).get("write_access") == "required"
+        )
+        assert writers == ["zero-regression-surgical-implementation"]
+
+    def test_skills_defer_to_the_shared_protocol(self) -> None:
+        """The bridge sends the review protocol once; skills must not restate it."""
+        for path in sorted(SKILLS_DIR.glob("*.md")):
+            body = path.read_text(encoding="utf-8")
+            assert "<<<WISP_VERDICT" not in body, f"{path.name}: restates the verdict block"
 
     def test_loader_loads_the_whole_registry_without_warnings(self) -> None:
         loader = SkillLoader(SKILLS_DIR)
-        assert len(loader.skills) == 12
+        assert len(loader.skills) == EXPECTED_SKILL_COUNT
         assert loader.warnings == []
 
     def test_every_shipped_skill_has_payload_and_triggers(self) -> None:
@@ -159,8 +179,9 @@ class TestRegistryHygiene:
             text = path.read_text(encoding="utf-8")
             patterns = list(_banned_patterns()) + list(USER_PROFILE_PATH_PATTERNS)
             if not os.environ.get("CI"):
-                # Personal usernames exist on developer machines only.
-                patterns.append(re.escape(Path.home().name))
+                # Personal usernames exist on developer machines only. Match them
+                # as a path segment so a common word ("root") is not a false hit.
+                patterns.append(rf"[\\/]{re.escape(Path.home().name)}[\\/]")
             for pattern in patterns:
                 assert not re.search(pattern, text), (
                     f"{path.name}: matches banned pattern {pattern}"

@@ -20,6 +20,7 @@ from tests.helpers.viewer import (
     ViewerProcess,
     http_request,
     ipv6_loopback_available,
+    poll_thread,
     post_json,
     serving,
     write_run,
@@ -1392,18 +1393,12 @@ class TestChatModelScoping:
 
         status, data = post_json(base, "/api/ask", {"prompt": "quick one"})
         assert status == 200
-        deadline = time.time() + 30
-        thread = None
-        while time.time() < deadline:
-            thread = json.loads(
-                urllib.request.urlopen(
-                    base + "/api/chat/thread/" + data["thread_id"], timeout=10
-                ).read()
-            )["thread"]
-            if len(thread["messages"]) >= 2:
-                break
-            time.sleep(0.3)
-
+        thread = poll_thread(
+            base,
+            data["thread_id"],
+            timeout=30,
+            until=lambda th: len(th["messages"]) >= 2,
+        )
         assert thread["messages"][1]["meta"]["model"] == "claude-opus-4-6-thinking"
 
     def test_ask_falls_back_to_global_model(self, fake_viewer) -> None:
@@ -1411,18 +1406,12 @@ class TestChatModelScoping:
 
         status, data = post_json(base, "/api/ask", {"prompt": "quick two"})
         assert status == 200
-        deadline = time.time() + 30
-        thread = None
-        while time.time() < deadline:
-            thread = json.loads(
-                urllib.request.urlopen(
-                    base + "/api/chat/thread/" + data["thread_id"], timeout=10
-                ).read()
-            )["thread"]
-            if len(thread["messages"]) >= 2:
-                break
-            time.sleep(0.3)
-
+        thread = poll_thread(
+            base,
+            data["thread_id"],
+            timeout=30,
+            until=lambda th: len(th["messages"]) >= 2,
+        )
         assert thread["messages"][1]["meta"]["model"] == "gemini-3.8-flash-high"
 
 
