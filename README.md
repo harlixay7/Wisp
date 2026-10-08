@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://github.com/harlixay7/Wisp/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/harlixay7/Wisp/ci.yml?branch=main&style=flat-square&label=tests&labelColor=0d1117&color=2ea043" alt="Test status"></a>
   <img src="https://img.shields.io/badge/python-3.10%2B-0d1117?style=flat-square&labelColor=0d1117&color=3b82c4" alt="Python 3.10 or newer">
-  <img src="https://img.shields.io/badge/built_for-Windows-0d1117?style=flat-square&labelColor=0d1117&color=6e7681" alt="Built for Windows">
+  <img src="https://img.shields.io/badge/runs_on-Windows%20%7C%20Linux%20%7C%20macOS-0d1117?style=flat-square&labelColor=0d1117&color=6e7681" alt="Runs on Windows, Linux and macOS">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0d1117?style=flat-square&labelColor=0d1117&color=8957e5" alt="MIT license"></a>
 </p>
 
@@ -53,8 +53,8 @@ ran. You can check any of it yourself in a minute.
 file it opens and every command it runs streams into the widget as it happens,
 and nothing is cut short.
 
-**It stays on your machine.** The widget only listens on your own computer,
-your conversations and reports are saved inside your project, and Wisp never
+**Your records stay with you.** The widget only listens on your own computer,
+reviews and conversations are saved as files on your disk, and Wisp never
 handles your passwords or API keys.
 
 ## What the owl is telling you
@@ -92,7 +92,8 @@ here. <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>E</kbd> does the same but lets
 you add your own question first. If nothing is selected, you get to snip part
 of the screen instead. You can paste screenshots straight into the message
 box, and every conversation is saved so follow-up questions keep their
-context. The capture hotkeys work on Windows.
+context. The capture hotkeys need Windows and the desktop overlay; on other
+systems you type or paste into the chat instead.
 
 <p align="center">
   <img src="docs/assets/wisp-verdict.webp" width="100%" alt="Verdict view: a Review complete banner, counters for thoughts, tool calls and retries, a summary of the answer, and buttons to ask a follow-up, copy the answer or replay the run.">
@@ -144,55 +145,126 @@ reviewer and everything it started are shut down together.
 
 **You'll need:**
 
-- **Windows 10 or 11.** The engine also runs on Linux; see the note below.
-- **Python 3.10 or newer.**
-- **The [Google Antigravity CLI](https://antigravity.google)**, installed and
+- **Windows 10 or 11, macOS, or Linux.** See [what works where](#what-works-where)
+  below.
+- **Python 3.10 or newer** and **Git**. On Debian or Ubuntu, also install
+  `python3-venv`. On a Mac, the Python that comes with Apple's command-line
+  tools may be older than 3.10; setup tells you if it is, and
+  [python.org](https://www.python.org/downloads/) or Homebrew has a current one.
+- **The [Google Antigravity CLI](https://antigravity.google)** (`agy`),
   signed in with your Google account. Wisp uses your existing sign-in and
-  never sees your password.
-- **Node.js** (optional). With it, the widget floats on your desktop as a
-  transparent overlay. Without it, the widget opens in a browser window.
+  never sees your password. You can install it before or after Wisp; setup
+  tells you if it's missing.
+- **Node.js 18 or newer** (optional, Windows). With it, the widget floats on
+  your desktop as a transparent overlay. Without it, the widget opens in a
+  browser window.
 
-**Install and run on Windows:**
+### 1. Clone Wisp and run setup
+
+On Windows (you can also double-click `setup.bat`):
 
 ```bat
 git clone https://github.com/harlixay7/Wisp.git
 cd Wisp
 setup.bat
+```
+
+On macOS or Linux:
+
+```bash
+git clone https://github.com/harlixay7/Wisp.git
+cd Wisp
+./setup.sh
+```
+
+Setup finds a suitable Python, creates a virtual environment in `.venv`,
+installs the pinned dependencies, checks the review playbooks, and looks for
+the Antigravity CLI. On Windows it also installs the desktop overlay if
+Node.js is available. Each step prints `[ok]`, or a short note that says what
+is missing and how to fix it. At the end it prints your next steps, with the
+paths on your machine already filled in.
+
+Setup never asks for administrator rights, installs nothing globally, and
+doesn't touch your Antigravity sign-in. It only writes inside the Wisp
+folder: `.venv/` and, for the overlay, `tools/wisp_shell/node_modules/`. You
+can run it again whenever you like.
+
+| Option | What it does |
+| --- | --- |
+| `--check` | Reports on your setup without changing anything. |
+| `--dev` | Also installs pytest and ruff, then runs the test suite. |
+| `--widget` | Installs the desktop overlay on macOS or Linux too (untested there). |
+| `--no-widget` | Never installs the desktop overlay. |
+| `--recreate-venv` | Deletes `.venv` and builds it again. It refuses to delete a folder that isn't a virtual environment. |
+
+For example, `./setup.sh --check` (or `setup.bat --check`) tells you whether
+everything is still in place after you update Python or move the folder.
+
+### 2. Sign in to Antigravity and trust your project
+
+Run `agy` once and follow the prompt to sign in with your Google account.
+Then open `agy` once inside each project you want reviewed and accept its
+workspace-trust prompt. Until you do, the reviewer isn't allowed to read that
+project.
+
+### 3. Open the widget
+
+On Windows:
+
+```bat
 tools\antigravity_viewer.cmd
 ```
 
-`setup.bat` does the setup for you. It checks your Python version, creates a
-virtual environment, installs the dependencies, finds the Antigravity CLI,
-validates the review playbooks, runs the test suite, and installs the desktop
-widget if Node.js is available. The last line opens the owl.
+On macOS or Linux:
 
-The first time, open `agy` once in your project folder and accept its
-workspace-trust prompt, so the reviewer is allowed to read your code.
-
-**Your first review:**
-
-```bat
-.venv\Scripts\python tools\antigravity_bridge.py --prompt "Review my plan to upgrade to pydantic v2" --skills adversarial-plan-hardening-engine
+```bash
+.venv/bin/python tools/antigravity_viewer.py
 ```
 
-To sharpen it, add `--claim "..."` for each statement you want tested and
-`--artifact "path/to/file.py"` for each file the reviewer should read first.
+Without the overlay, the widget opens as a small app window in Edge, Chrome,
+Brave or Chromium if you have one of them, and in your default browser
+otherwise. On macOS and Linux, stop it with <kbd>Ctrl</kbd> + <kbd>C</kbd>
+in the terminal you started it from.
 
-Watch the owl while it runs. The full critique prints in your terminal and a
-complete report is saved in `.antigravity-reports/`. Add `--dry-run` to see
-exactly what would be sent without sending it.
+### 4. Run your first review
 
-> [!NOTE]
-> **On Linux,** the engine, the MCP server and the viewer all run, and the
-> continuous-integration tests run on Ubuntu as well as Windows. The
-> screen-capture hotkeys are Windows-only, and the desktop overlay hasn't
-> been tested off Windows. macOS isn't tested at all yet.
->
-> ```bash
-> python3 -m venv .venv && . .venv/bin/activate
-> pip install -r requirements-dev.txt
-> python tools/antigravity_bridge.py --status
-> ```
+Point Wisp at one of your projects with `--workspace`. On Windows:
+
+```bat
+.venv\Scripts\python tools\antigravity_bridge.py --workspace C:\code\my-app --prompt "Review my plan to upgrade to pydantic v2" --skills adversarial-plan-hardening-engine
+```
+
+On macOS or Linux:
+
+```bash
+.venv/bin/python tools/antigravity_bridge.py --workspace ~/code/my-app --prompt "Review my plan to upgrade to pydantic v2" --skills adversarial-plan-hardening-engine
+```
+
+Without `--workspace`, Wisp reviews the folder you run the command from. To
+sharpen the request, add `--claim "..."` for each statement you want tested
+and `--artifact "path/to/file.py"` for each file the reviewer should read
+first.
+
+Watch the owl while it runs. The full critique prints in your terminal, and a
+complete report is saved in `.antigravity-reports/` inside the project. Add
+`--dry-run` to see exactly what would be sent without sending it. That works
+even before `agy` is installed.
+
+### What works where
+
+| | Windows 10 / 11 | Linux | macOS |
+| --- | --- | --- | --- |
+| Setup, reviews, MCP server | Yes | Yes | Yes |
+| Widget in a browser window | Yes | Yes | Yes |
+| Transparent desktop overlay | Yes (installed by default) | With `--widget`, untested | With `--widget`, untested |
+| Screen-capture hotkeys | Yes, with the overlay | No | No |
+| Checked in CI on every change | Setup and full test suite | Setup and full test suite | Setup only |
+
+Wisp is built and used on Windows. On Linux, the engine, the MCP server
+and the widget work, and the test suite runs on Ubuntu for every change. On
+macOS, CI runs the setup from a clean checkout, but the test suite doesn't run
+there and nobody has tried Wisp on a real Mac yet. If you do, please
+[tell us how it went](https://github.com/harlixay7/Wisp/issues/new/choose).
 
 ## Register the MCP server
 
@@ -200,17 +272,84 @@ Wisp speaks the [Model Context Protocol](https://modelcontextprotocol.io), the
 standard way coding assistants call outside tools. Register it once and your
 assistant can ask for a review whenever it wants a second opinion.
 
+The easiest way is to copy what setup printed at the end. It shows the exact
+registration for Claude Code, Codex and other MCP clients, with the full
+paths on your machine filled in. Run `./setup.sh --check` (or
+`setup.bat --check`) to print it again. Restart your assistant afterwards,
+because assistants only load MCP servers when they start.
+
+The paths have to be absolute. Your assistant starts the server from whatever
+project it's working in, so a relative path such as
+`tools/antigravity_mcp_server.py` only works inside the Wisp folder. In the
+examples below, `<wisp>` stands for the folder you cloned Wisp into.
+
 **Claude Code**
 
 ```bash
-claude mcp add antigravity -- python tools/antigravity_mcp_server.py
+claude mcp add --scope user -e ANTIGRAVITY_HARNESS=claude-code antigravity -- \
+  <wisp>/.venv/bin/python <wisp>/tools/antigravity_mcp_server.py
 ```
 
-**opencode** picks it up automatically from the `opencode.json` in this
-repository. Ready-made entries for **Codex**, **Cline**, **Cursor** and
-**Roo Code** are in [AgentSkill.md](AgentSkill.md#32-mcp-registration-per-harness).
-Assistants without MCP support, such as Aider, can call the command line
-shown above instead.
+On Windows the Python path is `<wisp>\.venv\Scripts\python.exe`. `--scope
+user` makes Wisp available in every project, not only the current one.
+
+**Codex** (add to `~/.codex/config.toml`)
+
+```toml
+[mcp_servers.antigravity]
+command = "<wisp>/.venv/bin/python"
+args = ["<wisp>/tools/antigravity_mcp_server.py"]
+tool_timeout_sec = 3600
+env = { ANTIGRAVITY_HARNESS = "codex" }
+```
+
+Reviews often take several minutes, and Wisp lets a single attempt run for up
+to 20 minutes by default. The long `tool_timeout_sec` keeps Codex from giving
+up first.
+
+**Cline, Cursor, Roo Code and other MCP clients** take an `mcpServers` block:
+
+```json
+{
+  "mcpServers": {
+    "antigravity": {
+      "command": "<wisp>/.venv/bin/python",
+      "args": ["<wisp>/tools/antigravity_mcp_server.py"],
+      "env": { "ANTIGRAVITY_HARNESS": "mcp-client" }
+    }
+  }
+}
+```
+
+**opencode** reads the `opencode.json` in this repository when you run it
+inside the Wisp folder. That file starts the server through `cmd.exe`, so it
+only works on Windows. On macOS or Linux, or to use Wisp from your own
+projects, put an entry like this in your project's `opencode.json` or in your
+global opencode config:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "antigravity": {
+      "type": "local",
+      "command": ["<wisp>/.venv/bin/python", "<wisp>/tools/antigravity_mcp_server.py"],
+      "enabled": true,
+      "timeout": 3600000,
+      "environment": { "ANTIGRAVITY_HARNESS": "opencode" }
+    }
+  }
+}
+```
+
+**Assistants without MCP support**, such as Aider, can run the command from
+[step 4](#4-run-your-first-review) instead.
+
+The server reviews the folder your assistant is working in. Your assistant
+can name a different folder in the `workspace` field of a request, or you can
+pin one by adding `ANTIGRAVITY_WORKSPACE` to the registration's environment.
+[AgentSkill.md](AgentSkill.md#32-mcp-registration-per-harness) has more
+detail for each assistant.
 
 Once it's registered, your assistant gets three tools:
 
@@ -277,47 +416,60 @@ You can write your own: add a Markdown file to `Skills/` and check it with
 
 ## Privacy and safety
 
-- **The widget is local.** It listens on `127.0.0.1` (port 48477) and
-  refuses to bind to any other address unless you set an access token.
-- **Your files stay put.** Conversations, screenshots and reports are saved
-  under `.antigravity-reports/` inside your project. The only thing that
-  leaves your machine is the review request sent to Google Antigravity.
+- **The widget is local.** It listens on `127.0.0.1`, port 48477 (or the
+  next free port), and refuses to bind to any other address unless you set
+  an access token.
+- **What Wisp saves stays on your disk.** Everything goes into a
+  `.antigravity-reports/` folder: review reports in the project that was
+  reviewed, and widget chats and screenshots in the folder the widget runs
+  from (the Wisp folder, if you start it as shown above). Reports contain
+  your full requests, so add `.antigravity-reports/` to your project's
+  `.gitignore`. What leaves your machine is what the reviewer sends to its
+  model: your request and whatever files it reads while checking.
 - **Credentials are left out.** Before starting the reviewer, Wisp removes
   credential variables from its environment: cloud keys, GitHub and SSH
   tokens, OpenAI, Anthropic and Hugging Face keys, and similar.
 - **Nothing is left running.** The reviewer runs inside a Windows Job Object
-  (a process group on Linux), so stopping a review stops everything it
-  started.
+  (a process group on macOS and Linux), so stopping a review stops everything
+  it started.
 
-Be clear about what this means, though. It's careful housekeeping, not a
-sandbox. The reviewer can read your project and run commands without asking
-first, because that's how it checks claims. Only point Wisp at projects whose
-code you'd be comfortable running yourself. [SECURITY.md](SECURITY.md) has
-the full details.
+To be clear about what this means: it's careful housekeeping, not a sandbox.
+The reviewer can read your project and run commands without asking first,
+because that's how it checks claims. Only point Wisp at projects whose code
+you'd be comfortable running yourself. [SECURITY.md](SECURITY.md) has the
+full details.
 
 ## Good to know
 
-- **It's built for Windows first.** The screen-capture hotkeys are
-  Windows-only, and the desktop overlay is only tested there.
 - **Very large requests can hit a Windows limit.** The request travels on
-  the `agy` command line, which Windows caps at about 32,000 characters.
-  Long prompts combined with many playbooks can reach it, and Wisp stops with
-  a clear message when they do.
+  the `agy` command line, which Windows caps at 32,767 characters. Wisp stops
+  a little before that, with a message saying what to shorten. Moving long
+  material into files and listing them as artifacts fixes it.
 - **It uses your Antigravity quota.** Every review counts against your Google
   account's limits. When the main model runs out, Wisp switches to the backup
   model and tells you so.
+- **Switching Google accounts from the widget is Windows-only.** Elsewhere,
+  switch accounts through `agy` itself.
 
 ## For contributors
 
 The test suite runs offline and never calls the real reviewer, so it costs no
-quota. Continuous integration runs it on Windows and Ubuntu with Python 3.10
-and 3.13.
+quota and needs no Google account. CI runs it on Windows and Ubuntu with
+Python 3.10 and 3.13.
+
+`./setup.sh --dev` (or `setup.bat --dev`) installs the test tools and runs
+the suite. After that:
 
 ```bash
 python -m pytest tests/ -q                # 438 test cases
-ruff check tools tests                    # lint
+ruff check .                              # lint
 python -m tools.skill_loader --validate   # check the playbooks
 ```
+
+Use the Python inside `.venv`, or activate it first. [CONTRIBUTING.md](CONTRIBUTING.md)
+covers the rest, and everyone taking part is expected to follow the
+[code of conduct](CODE_OF_CONDUCT.md). Please report security problems
+privately, as described in [SECURITY.md](SECURITY.md#reporting-a-vulnerability).
 
 ## Documentation
 
@@ -326,7 +478,9 @@ python -m tools.skill_loader --validate   # check the playbooks
 | [AgentSkill.md](AgentSkill.md) | Setup for every supported assistant and every command-line option |
 | [docs/delegation-playbook.md](docs/delegation-playbook.md) | How to write requests that get useful answers |
 | [AGENTS.md](AGENTS.md) | The rules coding assistants follow when they delegate to Wisp |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to set up a development copy and send a change |
 | [SECURITY.md](SECURITY.md) | What is contained, what isn't, and how to report a problem |
+| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | How we expect people to treat each other here |
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each release |
 
 ## License

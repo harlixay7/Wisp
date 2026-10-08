@@ -8,6 +8,8 @@ rem which does the real work. Arguments are forwarded unchanged:
 rem   setup.bat              set up .venv, dependencies and the desktop widget
 rem   setup.bat --check      report on the setup without changing anything
 rem   setup.bat --dev        also install the test tools and run the suite
+rem   setup.bat --no-widget  skip the Electron desktop overlay
+rem   setup.bat --recreate-venv  delete and rebuild .venv first
 rem   setup.bat --no-pause   do not wait for a key press at the end
 
 set "NOPAUSE="

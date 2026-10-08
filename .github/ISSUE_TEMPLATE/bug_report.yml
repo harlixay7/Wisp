@@ -14,23 +14,33 @@ body:
     attributes:
       label: Steps to reproduce
       placeholder: |
-        1. Start the widget with tools\antigravity_viewer.cmd
-        2. ...
-  - type: input
-    id: version
-    attributes:
-      label: Wisp version or commit
-      description: Output of `python tools/antigravity_bridge.py --status`, or the commit hash.
+        1. Run ./setup.sh (or setup.bat)
+        2. Start the widget
+        3. ...
   - type: dropdown
     id: os
     attributes:
       label: Operating system
-      options: [Windows 11, Windows 10, Linux, macOS, Other]
+      options: [Windows 11, Windows 10, macOS, Linux, Other]
     validations:
       required: true
+  - type: input
+    id: assistant
+    attributes:
+      label: Coding assistant
+      description: Which assistant sent the request, if any (Claude Code, Codex, opencode, Cline, the command line, the widget chat...).
+  - type: textarea
+    id: setup-check
+    attributes:
+      label: Setup check
+      description: >-
+        Output of `./setup.sh --check` (macOS/Linux) or `setup.bat --check` (Windows).
+        It shows your Python, agy and widget setup. Remove anything private, such as
+        folder names you don't want to share.
+      render: text
   - type: textarea
     id: logs
     attributes:
       label: Logs or report
-      description: Relevant output, or the JSON report from .antigravity-reports/. Remove anything private first.
+      description: Relevant output, or the JSON report from .antigravity-reports/. Reports contain your full request, so remove anything private first.
       render: text
