@@ -53,8 +53,8 @@ ran. You can check any of it yourself in a minute.
 file it opens and every command it runs streams into the widget as it happens,
 and nothing is cut short.
 
-**It stays on your machine.** The widget only listens on your own computer,
-your conversations and reports are saved inside your project, and Wisp never
+**Your records stay with you.** The widget only listens on your own computer,
+reviews and conversations are saved as files on your disk, and Wisp never
 handles your passwords or API keys.
 
 ## What the owl is telling you
@@ -449,7 +449,7 @@ full details.
   account's limits. When the main model runs out, Wisp switches to the backup
   model and tells you so.
 - **Switching Google accounts from the widget is Windows-only.** Elsewhere,
-  sign out and back in with `agy` yourself.
+  switch accounts through `agy` itself.
 
 ## For contributors
 
