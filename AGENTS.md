@@ -56,14 +56,17 @@ Hard rules for these modules:
 The calling agent **MUST** invoke the bridge before proceeding when any gate fires:
 
 1. **Plan generation gate** — before starting any multi-file feature, refactor, or
-   architectural change. Delegate the plan itself, not its completion.
+   architectural change. Delegate the plan itself, not its completion
+   (`adversarial-plan-hardening-engine`; add `independent-design-second-opinion`
+   when the approach itself is open).
 2. **High-risk seam gate** — any change touching concurrency, async scheduling,
    persistence/transactions, process spawning, IPC, caching, or destructive
-   filesystem operations.
+   filesystem operations (the matching domain skill from §6).
 3. **Pre-commit audit gate** — before declaring a task complete or merging, delegate
-   the diff plus the acceptance criteria for a wiring and falsification audit.
+   the diff plus the acceptance criteria (`pre-merge-diff-audit`).
 4. **Repeated-failure gate** — after **two** consecutive failed attempts to fix the
-   same root-cause area, stop writing code and delegate with the failure evidence.
+   same root-cause area, stop writing code and delegate with the failure evidence
+   (`root-cause-failure-investigation`).
 
 Delegation is **not** required for trivial edits (docs, typos, formatting) or when the
 critique received in the last 30 minutes already covers the exact change set.
@@ -90,6 +93,7 @@ The standardized JSON prompt wrapper (`--envelope envelope.json`):
   ],
   "skills": ["adversarial-plan-hardening-engine"],
   "recommended_skills": ["zero-trust-ast-wiring-verifier"],
+  "mode": "review",
   "notes": "Operator steering that must not be ignored."
 }
 ```
@@ -101,9 +105,15 @@ Field rules:
 - `skills` is optional: the necessary/primary selection (one or more names, or
   `"all"`); these render as mandatory instructions.
 - `recommended_skills` is optional: up to 3 task-dependent names; they render as
-  apply-when-relevant guidance and are deduplicated against `skills`. The payload
-  also always carries the full registry manifest (name/version/description/
-  triggers/source path) so Antigravity can read any additional skill in full.
+  apply-when-relevant guidance and are deduplicated against `skills`. Each selected
+  skill travels as its `brief` plus the absolute path of its full file, which
+  Antigravity reads from disk; the payload also carries a compact index of every
+  skill (name, purpose, path). Briefs beyond the inline budget degrade to
+  path-only entries with a warning, so no selection can overflow the command line.
+- `mode` is optional: `review` (default; read-only, changes are proposed as
+  unified diffs) or `implement` (the reviewer may modify files inside the
+  workspace). A skill whose `input_contract` declares `write_access: required`
+  stays in review mode unless `implement` is requested, and a warning is recorded.
 - Unknown fields are ignored (forward compatible).
 
 Preferred transport: the MCP tool `antigravity_review` (registered via `opencode.json`),
@@ -152,16 +162,21 @@ complete report under `.antigravity-reports/`.
 
 When Antigravity returns, the calling agent MUST:
 
-1. **Display the complete raw critique** in its working context. Never truncate,
+1. **Start from the verdict.** The reviewer ends with a `WISP_VERDICT` block that
+   the bridge parses into `review_verdict` (PASS, PASS_WITH_FIXES or BLOCK, the
+   severity counts and the `must_fix` list) and shows at the top of the critique.
+   A successful run without it is an incomplete review: re-delegate.
+2. **Display the complete raw critique** in its working context. Never truncate,
    summarize away, or elide the critique, stdout, or stderr. The bridge already
    appends the verbatim streams; present them.
-2. **Enumerate every objection** as an explicit reconciliation row:
-   `OBJECTION → VERDICT (ACCEPTED | REJECTED) → EVIDENCE → ACTION`.
-3. **Never silently drop an objection.** A rejection requires a counter-citation
+3. **Enumerate every objection** as an explicit reconciliation row keyed by its
+   finding ID: `F-00N → VERDICT (ACCEPTED | REJECTED) → EVIDENCE → ACTION`. Every
+   `must_fix` ID must end ACCEPTED with a landed fix or REJECTED with evidence.
+4. **Never silently drop an objection.** A rejection requires a counter-citation
    (file:line, command output, or recomputation), not an assertion.
-4. **Apply accepted fixes** before re-running the deterministic verification gates.
-5. **Re-delegate** only the unresolved deltas, citing the prior critique.
-6. **Fail loudly** if the bridge reports `FAILED`: surface the full exit code, the
+5. **Apply accepted fixes** before re-running the deterministic verification gates.
+6. **Re-delegate** only the unresolved deltas, citing the prior critique.
+7. **Fail loudly** if the bridge reports `FAILED`: surface the full exit code, the
    bridge error, and the preserved streams — do not proceed as if review happened.
 
 A delegation is only complete when every row has a verdict and every ACCEPTED row has
@@ -189,24 +204,32 @@ values are flattened.
 
 Core roster:
 
-| Skill | Use when |
+| Situation | Primary skill |
 | --- | --- |
-| `adversarial-plan-hardening-engine` | Before implementing any plan or architecture; concurrency, lifecycle, and exhaustion failure vectors. |
-| `zero-trust-ast-wiring-verifier` | Auditing on-disk wiring, call graphs, stubs, and type boundaries. |
-| `empirical-claim-falsification-engine` | Performance, latency, roofline, and hardware claims needing independent recomputation. |
-| `zero-regression-surgical-implementation` | RED → GREEN minimal patching with blast-radius mapping. |
-| `data-contract-state-integrity-engine` | Schemas, migrations, serialization, transactions, state machines. |
-| `ai-eval-regression-engine` | Prompt or model changes needing golden sets and eval gates. |
-| `runtime-security-vault-engine` | Tool/MCP surfaces, prompt injection, secret leakage, filesystem scope. |
-| `telemetry-hardware-profiling-gate` | Runtime profiling, event-loop stalls, memory thrash, hardware telemetry. |
-| `git-hygiene-portability-gate` | Hardcoded paths, dependency pins, repository portability. |
-| `documentation-retraction-ledger-engine` | Documentation accuracy, marketing slop, code/doc drift. |
-| `hybrid-rag-retrieval-grounding-engine` | Chunking, hybrid retrieval, RRF, rerankers, grounding. |
-| `agentic-tool-dag-orchestration-engine` | MCP tool schemas, DAG task loops, cycles, execution ordering. |
+| Plan, RFC or architecture before code is written (plan gate) | `adversarial-plan-hardening-engine` |
+| You want an independent alternative and a recommendation, not an attack | `independent-design-second-opinion` |
+| A diff is ready to commit or merge (pre-commit gate) | `pre-merge-diff-audit` |
+| Two failed fixes on the same problem (repeated-failure gate) | `root-cause-failure-investigation` |
+| Existing code: is every feature really wired end to end | `zero-trust-ast-wiring-verifier` |
+| Make the change itself (implement mode; diffs only in review mode) | `zero-regression-surgical-implementation` |
+| Schemas, migrations, serialization, transactions, state machines | `data-contract-state-integrity-engine` |
+| Trust boundaries, injection, secrets, authorization, agent permissions | `runtime-security-vault-engine` |
+| A performance, cost or accuracy number that needs re-deriving | `empirical-claim-falsification-engine` |
+| Slow code, stalls, memory or tail latency that needs profiling | `telemetry-hardware-profiling-gate` |
+| Agent loops, tool schemas, MCP surfaces, budgets, handoffs | `agentic-tool-dag-orchestration-engine` |
+| Prompts, system prompts, AGENTS.md / CLAUDE.md, tool descriptions, skills | `prompt-context-engineering-audit` |
+| A prompt or model change that needs eval evidence before shipping | `ai-eval-regression-engine` |
+| Retrieval-augmented generation: chunking, retrieval, grounding | `hybrid-rag-retrieval-grounding-engine` |
+| UI changes, screenshots, visual and interaction quality | `interface-craft-audit` |
+| README, guides and quickstarts versus actual behavior | `documentation-retraction-ledger-engine` |
+| Fresh-clone setup, portability, lockfiles, release hygiene | `git-hygiene-portability-gate` |
 
-Authoring a new skill: create `Skills/NN_<name>.md` with YAML front matter (or `.yaml`),
-fill every required field, and put the operating procedure in
-`instructions_payload`. Files marked `kind: template` are never auto-selected by
+Authoring a new skill: create `Skills/NN_<name>.md` with YAML front matter, fill
+every required field plus a standalone `brief` (600–1800 characters, defining what
+PASS, PASS_WITH_FIXES and BLOCK mean for the task), and write the body in the
+standard sections (Mission, Inputs to establish first, Method, Checklist, Evidence
+standard, Severity guide, Skill-specific output, Anti-patterns, Done when). Skills
+never restate the shared review protocol; the bridge sends it once. Files marked `kind: template` are never auto-selected by
 `--skills all`.
 
 The bridge embeds the registry path in the Antigravity payload; the workspace is

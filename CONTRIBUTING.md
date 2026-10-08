@@ -78,8 +78,18 @@ unless there's a strong reason; everything else uses the standard library.
 
 Create `Skills/NN_<name>.md` with YAML front matter that includes every
 required field (`name`, `version`, `description`, `activation_triggers`,
-`input_contract`, `output_contract`). The Markdown body becomes the
-instructions. Run `python -m tools.skill_loader --validate` to check it.
+`input_contract`, `output_contract`) plus a `brief`: a standalone summary of
+600 to 1,800 characters that is sent to the reviewer inline and must define what
+PASS, PASS_WITH_FIXES and BLOCK mean for the task. The full body is read from
+disk and uses the standard sections: Mission, Inputs to establish first, Method,
+Checklist, Evidence standard, Severity guide, Skill-specific output,
+Anti-patterns and Done when.
+
+Write for the domain: concrete checks a strong generalist would miss, what counts
+as proof, and the specific ways reviewers go wrong. Don't restate the shared
+review protocol (finding format, verdict block, evidence rules); the bridge sends
+it once for every review. Run `python -m tools.skill_loader --validate` and the
+registry tests (`python -m pytest tests/test_skill_registry.py -q`).
 [AGENTS.md](AGENTS.md#6-skill-registry) describes the format in full.
 
 ## Reporting security issues

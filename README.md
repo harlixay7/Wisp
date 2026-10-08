@@ -238,32 +238,39 @@ requests that get sharp answers instead of polite agreement.
 
 ## Review playbooks
 
-Wisp ships with twelve playbooks, which the code calls *skills*. Each is a
-written procedure the reviewer has to follow, with its own rules about what
-counts as evidence and what a finished answer looks like. Pick the ones that
-fit the job, or pass `--skills all`.
+Wisp ships with seventeen playbooks, which the code calls *skills*. Each is a
+written procedure the reviewer follows, with its own checklist, its own rules
+about what counts as evidence, and a clear definition of when the work passes
+or should be blocked. Every playbook reports findings in the same format and
+ends with the same verdict, so your agent can act on the answer point by point.
+Pick the one that fits the job.
 
 <details>
-<summary><b>See all twelve playbooks</b></summary>
+<summary><b>See all seventeen playbooks</b></summary>
 <br>
 
 | Playbook | Reach for it when |
 | --- | --- |
+| `pre-merge-diff-audit` | A change is ready and you want it checked before it's committed or merged |
+| `root-cause-failure-investigation` | Two fixes have failed and you need the real cause, not another guess |
 | `adversarial-plan-hardening-engine` | You have a plan or design and want it attacked before anyone builds it |
+| `independent-design-second-opinion` | You want a second mind to solve the problem independently and recommend an approach |
 | `zero-trust-ast-wiring-verifier` | You want proof that the code is really connected the way it claims |
-| `empirical-claim-falsification-engine` | Someone made a speed, memory or hardware claim that needs re-checking |
-| `zero-regression-surgical-implementation` | You're fixing a bug and can't afford to break anything else |
+| `zero-regression-surgical-implementation` | You want the reviewer to make the change itself, test first, without breaking anything |
 | `data-contract-state-integrity-engine` | Schemas, migrations, saved data or transactions are changing |
-| `ai-eval-regression-engine` | You're changing prompts or models and need tests to catch regressions |
-| `runtime-security-vault-engine` | Tools, secrets, file access or prompt injection are in play |
+| `runtime-security-vault-engine` | Untrusted input, secrets, permissions or agent tools are involved |
+| `empirical-claim-falsification-engine` | Someone made a speed, cost or accuracy claim that needs re-checking |
 | `telemetry-hardware-profiling-gate` | Something is slow, stalls, or eats memory |
-| `git-hygiene-portability-gate` | The project should work on someone else's machine, not just yours |
-| `documentation-retraction-ledger-engine` | The docs may no longer match what the code does |
-| `hybrid-rag-retrieval-grounding-engine` | You're building search or retrieval for an AI system |
 | `agentic-tool-dag-orchestration-engine` | You're designing tool calls or multi-step agent workflows |
+| `prompt-context-engineering-audit` | A prompt, system prompt, AGENTS.md or skill needs to be sharper |
+| `ai-eval-regression-engine` | You're changing prompts or models and need evidence before shipping |
+| `hybrid-rag-retrieval-grounding-engine` | You're building search or retrieval for an AI system |
+| `interface-craft-audit` | A UI change needs a careful review of craft, accessibility and motion |
+| `documentation-retraction-ledger-engine` | The docs may no longer match what the code does |
+| `git-hygiene-portability-gate` | The project should work on someone else's machine, not just yours |
 
-You can write your own: add a YAML or Markdown file to `Skills/` and check it
-with `python -m tools.skill_loader --validate`. The format is described in
+You can write your own: add a Markdown file to `Skills/` and check it with
+`python -m tools.skill_loader --validate`. The format is described in
 [AGENTS.md](AGENTS.md#6-skill-registry).
 
 </details>

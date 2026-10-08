@@ -157,11 +157,16 @@ Field rules:
 5. `skills` — the 1–2 primary skills for the task, routed via the §4 table plus each
    registry entry's `do_not_use_when` descriptions. Rendered as mandatory
    instructions. `["all"]` only for audits that genuinely span most domains — it
-   activates all twelve mandates and dilutes specificity.
+   activates every skill and dilutes specificity.
 6. `recommended_skills` — **0–3** additional task-dependent skills; rendered as
-   apply-when-relevant. More than 3 is a validation error. The payload always
-   includes the full registry manifest, so Antigravity can read any other skill
-   file in full when the task touches its domain.
+   apply-when-relevant. More than 3 is a validation error. Each selected skill is
+   sent as a short brief plus the path of its full file, which Antigravity reads
+   from disk; the payload also lists every skill with its path, so the reviewer
+   can open any other skill when the task touches its domain.
+7. `mode` — `review` (default: read-only, changes come back as diffs) or
+   `implement` (the reviewer may edit files in the workspace). Use `implement`
+   only with `zero-regression-surgical-implementation` and only when you want
+   the reviewer to make the change.
 
 Auxiliary tools: `antigravity_status` (binary/config/registry health) and
 `antigravity_skills` (registry listing with triggers). CLI equivalent for status:
@@ -220,23 +225,29 @@ it only on "attack this plan" wastes a third of its value. Full guide:
 
 ## 4. Skill selection registry
 
-| Task under review | Skill identifier |
+| Situation | Primary skill |
 | --- | --- |
-| New plan / architecture | `adversarial-plan-hardening-engine` |
-| Code wiring, AST, stubs, call graph | `zero-trust-ast-wiring-verifier` |
-| Performance, compute, roofline claims | `empirical-claim-falsification-engine` |
-| Bug fixes, regressions, patching | `zero-regression-surgical-implementation` |
-| DB, migrations, state mutation | `data-contract-state-integrity-engine` |
-| AI evals, prompt/model changes | `ai-eval-regression-engine` |
-| Tools, MCP, secrets, injection | `runtime-security-vault-engine` |
-| Runtime stalls, telemetry, memory | `telemetry-hardware-profiling-gate` |
-| Packaging, portability, paths | `git-hygiene-portability-gate` |
-| Documentation accuracy | `documentation-retraction-ledger-engine` |
-| RAG, retrieval, grounding | `hybrid-rag-retrieval-grounding-engine` |
-| Multi-agent workflows, MCP schemas | `agentic-tool-dag-orchestration-engine` |
+| Plan, RFC or architecture before code is written (plan gate) | `adversarial-plan-hardening-engine` |
+| You want an independent alternative and a recommendation, not an attack | `independent-design-second-opinion` |
+| A diff is ready to commit or merge (pre-commit gate) | `pre-merge-diff-audit` |
+| Two failed fixes on the same problem (repeated-failure gate) | `root-cause-failure-investigation` |
+| Existing code: is every feature really wired end to end | `zero-trust-ast-wiring-verifier` |
+| Make the change itself (implement mode; diffs only in review mode) | `zero-regression-surgical-implementation` |
+| Schemas, migrations, serialization, transactions, state machines | `data-contract-state-integrity-engine` |
+| Trust boundaries, injection, secrets, authorization, agent permissions | `runtime-security-vault-engine` |
+| A performance, cost or accuracy number that needs re-deriving | `empirical-claim-falsification-engine` |
+| Slow code, stalls, memory or tail latency that needs profiling | `telemetry-hardware-profiling-gate` |
+| Agent loops, tool schemas, MCP surfaces, budgets, handoffs | `agentic-tool-dag-orchestration-engine` |
+| Prompts, system prompts, AGENTS.md / CLAUDE.md, tool descriptions, skills | `prompt-context-engineering-audit` |
+| A prompt or model change that needs eval evidence before shipping | `ai-eval-regression-engine` |
+| Retrieval-augmented generation: chunking, retrieval, grounding | `hybrid-rag-retrieval-grounding-engine` |
+| UI changes, screenshots, visual and interaction quality | `interface-craft-audit` |
+| README, guides and quickstarts versus actual behavior | `documentation-retraction-ledger-engine` |
+| Fresh-clone setup, portability, lockfiles, release hygiene | `git-hygiene-portability-gate` |
 
 Pick the single most relevant skill for `skills`; add up to three adjacent ones to
-`recommended_skills`. When uncertain, resolve the choice through the
+`recommended_skills` (for example `pre-merge-diff-audit` with
+`runtime-security-vault-engine` for a change that touches authentication). When uncertain, resolve the choice through the
 `do_not_use_when` routing baked into every registry entry rather than defaulting
 to `["all"]`; reserve `["all"]` for audits that genuinely span most domains. The
 registry ships with the bridge, so delegations from any workspace fall back to it
@@ -266,21 +277,28 @@ automatically (a warning is recorded in the report).
 ## 6. Mandatory reconciliation (closing the loop)
 
 ```
-1. Surface raw critique  -> display critique_markdown unabridged
-2. Discrepancy matrix    -> map every objection to an explicit verdict
-3. Design verdicts       -> adopt PREFER_ALTERNATIVE items on merit; route
-                            NEEDS_USER_FIRST items to the operator as questions
-4. Execute corrections   -> apply accepted fixes with TDD
-5. Re-verify artifacts   -> run compiler / linter / test suites
-6. Delta re-delegation   -> re-delegate only unresolved deltas
+1. Read the verdict      -> review_verdict: PASS | PASS_WITH_FIXES | BLOCK,
+                            severity counts and the must_fix list
+2. Surface raw critique  -> display critique_markdown unabridged
+3. Discrepancy matrix    -> one row per finding ID (F-001, F-002, ...)
+4. Design verdicts       -> adopt recommended alternatives on merit; route
+                            questions for the user to the operator
+5. Execute corrections   -> apply accepted fixes with a failing test first
+6. Re-verify artifacts   -> run compiler / linter / test suites
+7. Delta re-delegation   -> re-delegate only unresolved deltas
 ```
 
-Enumerate **every** finding in a matrix:
+Every reviewer finding uses the same format (`### F-001 · P1 · high · <category>`
+with Where, Claim, Evidence, Failure scenario, Fix, Verify) and the answer ends
+with a `<<<WISP_VERDICT ... WISP_VERDICT>>>` block, which the bridge parses into
+`review_verdict`. If `review_verdict` is missing, treat the review as incomplete
+and re-delegate. Every ID in `must_fix` must end ACCEPTED with a landed fix or
+REJECTED with evidence. Enumerate **every** finding in a matrix:
 
-| Finding ID | Antigravity Objection | Verdict (ACCEPTED / REJECTED) | Empirical Evidence / Rationale | Corrective Action |
+| Finding | Objection | Verdict (ACCEPTED / REJECTED) | Evidence / rationale | Corrective action |
 | --- | --- | --- | --- | --- |
-| `FL-001` | "Missing join timeout" | `ACCEPTED` | `supervisor.py:84` has no timeout | Add 30s timeout + SIGKILL fallback |
-| `CLM-001` | "4x speedup invalid" | `REJECTED` | Roofline recomputation: bandwidth-bound at 0.61 GiB/s | Attach derivation |
+| `F-001` (P1) | "Missing join timeout" | `ACCEPTED` | `supervisor.py:84` has no timeout | Add 30 s timeout + SIGKILL fallback |
+| `F-002` (P2) | "4x speedup claim invalid" | `REJECTED` | Recomputed: bandwidth-bound at 0.61 GiB/s, claim holds | Attach the derivation |
 
 **Rejection rule** — a rejection requires verified empirical evidence: exact file and
 line, deterministic command output, or a physical/hardware recalculation. Subjective
@@ -464,29 +482,34 @@ python tools/antigravity_bridge.py \
 | `--status`, `--list-skills` | Health check / registry listing. |
 | `--executable`, `--harness` | Binary override / harness tag in the envelope. |
 
-### 4.6 The 12-skill adversarial registry
+### 4.6 The skill registry (17 skills)
 
-| Skill | Use when |
+| Situation | Primary skill |
 | --- | --- |
-| `adversarial-plan-hardening-engine` | Before implementing plans/architecture; failure vectors, EARS specs. |
-| `zero-trust-ast-wiring-verifier` | Wiring, call graphs, stubs, type boundaries on disk. |
-| `empirical-claim-falsification-engine` | Perf/roofline/hardware claims needing recomputation. |
-| `zero-regression-surgical-implementation` | RED → GREEN minimal patching. |
-| `data-contract-state-integrity-engine` | Schemas, migrations, transactions, state machines. |
-| `ai-eval-regression-engine` | Prompt/model changes; golden sets and eval gates. |
-| `runtime-security-vault-engine` | Tool/MCP surfaces, injection, secrets, filesystem scope. |
-| `telemetry-hardware-profiling-gate` | Stalls, memory thrash, event-loop and hardware telemetry. |
-| `git-hygiene-portability-gate` | Hardcoded paths, dependency pins, portability. |
-| `documentation-retraction-ledger-engine` | Docs accuracy, marketing slop, doc/code drift. |
-| `hybrid-rag-retrieval-grounding-engine` | Chunking, hybrid retrieval, RRF, rerankers, grounding. |
-| `agentic-tool-dag-orchestration-engine` | MCP tool schemas, DAG loops, cycles, execution ordering. |
+| Plan, RFC or architecture before code is written (plan gate) | `adversarial-plan-hardening-engine` |
+| You want an independent alternative and a recommendation, not an attack | `independent-design-second-opinion` |
+| A diff is ready to commit or merge (pre-commit gate) | `pre-merge-diff-audit` |
+| Two failed fixes on the same problem (repeated-failure gate) | `root-cause-failure-investigation` |
+| Existing code: is every feature really wired end to end | `zero-trust-ast-wiring-verifier` |
+| Make the change itself (implement mode; diffs only in review mode) | `zero-regression-surgical-implementation` |
+| Schemas, migrations, serialization, transactions, state machines | `data-contract-state-integrity-engine` |
+| Trust boundaries, injection, secrets, authorization, agent permissions | `runtime-security-vault-engine` |
+| A performance, cost or accuracy number that needs re-deriving | `empirical-claim-falsification-engine` |
+| Slow code, stalls, memory or tail latency that needs profiling | `telemetry-hardware-profiling-gate` |
+| Agent loops, tool schemas, MCP surfaces, budgets, handoffs | `agentic-tool-dag-orchestration-engine` |
+| Prompts, system prompts, AGENTS.md / CLAUDE.md, tool descriptions, skills | `prompt-context-engineering-audit` |
+| A prompt or model change that needs eval evidence before shipping | `ai-eval-regression-engine` |
+| Retrieval-augmented generation: chunking, retrieval, grounding | `hybrid-rag-retrieval-grounding-engine` |
+| UI changes, screenshots, visual and interaction quality | `interface-craft-audit` |
+| README, guides and quickstarts versus actual behavior | `documentation-retraction-ledger-engine` |
+| Fresh-clone setup, portability, lockfiles, release hygiene | `git-hygiene-portability-gate` |
 
 ---
 
 ## 5. Verification checklist
 
 - [ ] `python tools/antigravity_bridge.py --status` resolves `agy`, shows
-      `gemini-3.8-flash-high → claude-opus-4-6-thinking`, and 12 skills.
+      `gemini-3.8-flash-high → claude-opus-4-6-thinking`, and 17 skills.
 - [ ] `python -m pytest tests/ -q` → all tests pass.
 - [ ] Harness restarted after any config/skill change.
 - [ ] Repository root present in `trustedWorkspaces` (or trust prompt accepted).
