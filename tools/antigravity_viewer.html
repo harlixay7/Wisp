@@ -197,9 +197,18 @@ svg{flex:0 0 auto}
 .scroll::-webkit-scrollbar{width:6px}
 .scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:99px}
 .scroll::-webkit-scrollbar-track{background:transparent}
-.fade-top{
+/* Edge fades appear only where more content continues (updateFades). */
+.scroll.more-above{
   -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 28px);
   mask-image:linear-gradient(to bottom,transparent 0,#000 28px);
+}
+.scroll.more-below{
+  -webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 22px),transparent);
+  mask-image:linear-gradient(to bottom,#000 calc(100% - 22px),transparent);
+}
+.scroll.more-above.more-below{
+  -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 28px,#000 calc(100% - 22px),transparent);
+  mask-image:linear-gradient(to bottom,transparent 0,#000 28px,#000 calc(100% - 22px),transparent);
 }
 
 /* ================================================================
@@ -391,7 +400,7 @@ svg{flex:0 0 auto}
 /* ================================================================
    View: Focus
    ================================================================ */
-.focus-body{flex:1;display:flex;flex-direction:column;gap:12px;padding:0 var(--gutter) 18px;min-height:0}
+.focus-body{flex:1;display:flex;flex-direction:column;gap:12px;padding:0 var(--gutter) 18px;min-height:0;overflow:hidden}
 .f-current{
   display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-radius:var(--r-lg);
   background:color-mix(in srgb,var(--k) 7%,rgba(255,255,255,.02));border:1px solid var(--hairline);
@@ -400,7 +409,7 @@ svg{flex:0 0 auto}
 .f-label .f-time{margin-left:auto;font-family:var(--mono);font-weight:400;color:var(--text-3)}
 .f-text{
   font-size:var(--fs-lead);line-height:1.5;color:var(--text-1);overflow-wrap:anywhere;
-  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:6;overflow:hidden;
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:5;overflow:hidden;
 }
 .f-prev{display:flex;flex-direction:column;gap:2px}
 .f-prev-title{font-size:var(--fs-label);color:var(--text-3);padding:0 2px 4px}
@@ -616,6 +625,10 @@ svg{flex:0 0 auto}
 .search svg{width:14px;height:14px}
 .search input{flex:1;min-width:0;border:0;outline:none;background:transparent;font-size:var(--fs-body);color:var(--text-1)}
 .search input::placeholder{color:var(--text-3)}
+.search input::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none;display:none}
+.search-x{width:20px;height:20px;flex:0 0 auto;border-radius:50%;display:grid;place-items:center;color:var(--text-2);transition:background var(--d-micro),color var(--d-micro)}
+.search-x:hover{background:var(--fill-3);color:var(--text-1)}
+.search-x svg{width:11px;height:11px}
 .hsec-title{display:flex;align-items:center;gap:6px;padding:10px var(--gutter) 4px;font-size:var(--fs-label);font-weight:500;color:var(--text-3)}
 .hlist{display:flex;flex-direction:column;padding:0 8px}
 .hempty{padding:10px 10px 6px;font-size:var(--fs-meta);color:var(--text-3)}
@@ -922,7 +935,7 @@ body.electron .menu.on,body.electron .palette.on,body.electron .toast.on .toast-
               <span class="e-main"><span class="e-head"><span class="e-kind">Task</span><span class="e-time" id="taskTime"></span></span><span class="e-body" id="taskText"></span></span>
             </button>
             <div class="stream-wrap">
-              <div class="scroll fade-top" id="streamScroll">
+              <div class="scroll" id="streamScroll">
                 <div class="entries" id="streamLines" data-filter="all"></div>
                 <div class="empty" id="streamEmpty"><b>Nothing yet</b>Every thought, tool call and answer appears here, untruncated.</div>
               </div>
@@ -934,7 +947,7 @@ body.electron .menu.on,body.electron .palette.on,body.electron .toast.on .toast-
 
           <!-- Chat -->
           <div class="view" id="chatWrap" data-view="chat">
-            <div class="scroll fade-top" id="chatScroll">
+            <div class="scroll" id="chatScroll">
               <div class="chat-messages" id="chatMessages"></div>
               <div class="empty" id="chatEmpty">
                 <b>Ask Wisp anything</b>
@@ -1001,8 +1014,11 @@ body.electron .menu.on,body.electron .palette.on,body.electron .toast.on .toast-
             <label class="search">
               <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
               <input id="histSearch" type="search" placeholder="Search reviews and conversations" aria-label="Search history" autocomplete="off" spellcheck="false">
+              <button class="search-x" id="histClear" type="button" title="Clear search" aria-label="Clear search" hidden>
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+              </button>
             </label>
-            <div class="scroll fade-top" id="histScroll">
+            <div class="scroll" id="histScroll">
               <div class="hsec-title" id="chatSecTitle">Conversations</div>
               <div class="hlist" id="chatList"></div>
               <div class="hsec-title" id="runSecTitle">Reviews</div>
@@ -1012,7 +1028,7 @@ body.electron .menu.on,body.electron .palette.on,body.electron .toast.on .toast-
 
           <!-- Settings -->
           <div class="view" id="settingsWrap" data-view="settings" aria-label="Settings">
-            <div class="scroll fade-top">
+            <div class="scroll">
               <div class="set-body">
                 <div class="set-card">
                   <div class="set-title">Appearance</div>
@@ -1217,7 +1233,7 @@ const LAYOUT = {
   gap: 12, dockH: 46, stageH: 262,
 };
 // Height of each view's body inside the panel.
-const BODY_H = { focus: 256, stream: 312, chat: 332, verdict: 330, history: 332, settings: 340 };
+const BODY_H = { focus: 284, stream: 312, chat: 332, verdict: 330, history: 332, settings: 340 };
 function footprint(view) {
   const width = LAYOUT.padLeft + LAYOUT.panelW + LAYOUT.padRight;
   const tail = LAYOUT.gap + LAYOUT.dockH + LAYOUT.padBottom;
@@ -1368,6 +1384,7 @@ const fx = {
   viewCleanup: null,                       // settles the running view switch
   settleTimer: 0,
   chatRendered: { id: null, count: 0 },
+  chatAnchor: false,                       // scroll a newly opened thread to its last question
   palette: { items: [], index: 0, restore: null },
 };
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -1913,6 +1930,33 @@ function armConfirm(button, label, action) {
     button.classList.remove('armed');
     button._armRestore();
   }, TIMING.confirm);
+}
+
+// Toggles the top and bottom edge fades of a scroll area.
+function updateFades(node) {
+  const above = node.scrollTop > 2;
+  const below = node.scrollHeight - node.scrollTop - node.clientHeight > 2;
+  if (node.classList.contains('more-above') !== above) node.classList.toggle('more-above', above);
+  if (node.classList.contains('more-below') !== below) node.classList.toggle('more-below', below);
+}
+
+function bindFades() {
+  const observer = typeof ResizeObserver === 'function'
+    ? new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const node = entry.target.closest('.scroll');
+        if (node) updateFades(node);
+      }
+    })
+    : null;
+  for (const node of document.querySelectorAll('.scroll')) {
+    node.addEventListener('scroll', () => updateFades(node), { passive: true });
+    if (observer) {
+      observer.observe(node);
+      for (const child of node.children) observer.observe(child);
+    }
+    updateFades(node);
+  }
 }
 
 function nearBottom(node) {
@@ -2534,7 +2578,10 @@ function renderVerdict(animateIn) {
     summary.innerHTML = renderMarkdown(S.answer);
   } else {
     summary.classList.add('placeholder');
-    summary.textContent = S.runActive ? 'The answer appears here once Wisp writes it up.' : 'The final answer of the last review appears here.';
+    let placeholder = 'The final answer of the last review appears here.';
+    if (S.runActive) placeholder = 'The answer appears here once Wisp writes it up.';
+    else if (run && !run.success) placeholder = 'The review ended before Wisp wrote an answer.';
+    summary.textContent = placeholder;
   }
   requestAnimationFrame(() => {
     const clamped = summary.scrollHeight > summary.clientHeight + 2;
@@ -3350,7 +3397,25 @@ function renderChat() {
   if (!sameThread && messages.length && app.dataset.view === 'chat') {
     animate(container, [{ opacity: 0 }, { opacity: 1 }], { duration: MOTION.ui });
   }
-  chatScroll(true);
+  if (!sameThread) fx.chatAnchor = messages.length > 0;
+  if (fx.chatAnchor && app.dataset.view === 'chat') {
+    fx.chatAnchor = false;
+    if (S.chatPending) chatScroll(true); else anchorLastQuestion();
+  } else {
+    chatScroll(true);
+  }
+}
+
+// Opening a conversation shows its latest question at the top, with the
+// start of the answer below it, instead of the tail of a long answer.
+function anchorLastQuestion() {
+  const node = $('chatScroll');
+  const questions = $('chatMessages').querySelectorAll('.msg.user');
+  const last = questions[questions.length - 1];
+  if (!last) { chatScroll(true); return; }
+  const offset = last.getBoundingClientRect().top - node.getBoundingClientRect().top;
+  node.scrollTop = Math.max(0, node.scrollTop + offset - 12);
+  S.chatAutoscroll = nearBottom(node);
 }
 
 function chatScroll(force) {
@@ -4061,12 +4126,23 @@ function bind() {
   $('showFull').addEventListener('click', () => { setMode('stream'); setFilter('output'); });
   $('replayLast').addEventListener('click', () => { if (S.currentFile) { startReplay(S.currentFile); setMode('stream'); } });
   for (const button of document.querySelectorAll('[data-replay-exit]')) button.addEventListener('click', exitReplay);
-  $('histSearch').addEventListener('input', renderHistory);
+  $('histSearch').addEventListener('input', () => {
+    $('histClear').hidden = !$('histSearch').value;
+    renderHistory();
+  });
+  $('histClear').addEventListener('click', (event) => {
+    event.preventDefault();
+    $('histSearch').value = '';
+    $('histClear').hidden = true;
+    renderHistory();
+    $('histSearch').focus();
+  });
   bindPalette();
   bindChat();
   bindSettings();
   bindKeys();
   bindHover();
+  bindFades();
 }
 
 /* ================================================================
