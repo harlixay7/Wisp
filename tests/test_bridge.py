@@ -10,6 +10,7 @@ import sys
 import time
 import typing
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -53,7 +54,7 @@ from tools.antigravity_bridge import (
     sanitize_environment,
     write_report,
 )
-from tools.skill_loader import ALL_SELECTOR, SHIPPED_SKILL_DIR
+from tools.skill_loader import ALL_SELECTOR, SHIPPED_SKILL_DIR, SkillLoader, render_skill_block
 
 
 def _fake_result() -> BridgeResult:
@@ -315,8 +316,8 @@ class TestRecommendedSkillsContract:
         )
         assert exit_code == 0
         payload = json.loads(capsys.readouterr().out)
-        assert "EMPIRICAL CLAIM FALSIFICATION" in payload["payload"].upper()
-        assert "RECOMMENDED ADVERSARIAL SKILLS" in payload["payload"]
+        assert "### empirical-claim-falsification-engine (v" in payload["payload"]
+        assert "\u2014 recommended\nFull procedure: " in payload["payload"]
 
     def test_cli_flag_reaches_config(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
@@ -337,7 +338,7 @@ class TestRecommendedSkillsContract:
         )
         assert exit_code == 0
         payload = json.loads(capsys.readouterr().out)
-        assert "ZERO-TRUST AST" in payload["payload"].upper()
+        assert "### zero-trust-ast-wiring-verifier (v" in payload["payload"]
 
 
 class TestWorkspaceTrustFraming:
@@ -435,9 +436,13 @@ class TestBridgeOrchestration:
 
         assert result.success
         payload = launcher.calls[0][launcher.calls[0].index("-p") + 1]
-        assert "CRASH_OPS_INSTRUCTIONS" in payload
-        assert "AST_AUDIT_INSTRUCTIONS" in payload
-        assert "TEMPLATE_ONLY_INSTRUCTIONS" not in payload
+        active = payload.split("## Active skills", 1)[1].split("## Skill registry", 1)[0]
+        assert "### crash_ops (v1.2.3) \u2014 mandatory" in active
+        assert "### ast_audit (v1.2.3) \u2014 mandatory" in active
+        assert str(registry / "01_crash_ops.yaml") in active
+        assert "template_custom_skill" not in active
+        # Full bodies stay on disk; the reviewer is told to read them.
+        assert "CRASH_OPS_INSTRUCTIONS" not in payload
 
     def test_missing_skill_registry_fails_before_spawning(self) -> None:
         launcher = ScriptedLauncher([successful_attempt()])
@@ -919,14 +924,7 @@ class TestRegistryMounting:
         assert str(tmp_path) in dirs
         assert str(registry) in dirs
 
-    def test_foreign_workspace_falls_back_and_mounts_registry(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        # This test verifies fallback + mounting logic, not payload size; the
-        # shipped registry's two-skill render exceeds the real Windows command
-        # line, so neutralize the preflight (its behavior has dedicated tests
-        # in tests/test_bridge.py::TestCommandLineLimit).
-        monkeypatch.setattr("tools.antigravity_bridge._WINDOWS_COMMAND_LINE_LIMIT", 10**9)
+    def test_foreign_workspace_falls_back_and_mounts_registry(self, tmp_path: Path) -> None:
         launcher = ScriptedLauncher([successful_attempt("CRITIQUE")])
         config = BridgeConfig(
             envelope=envelope(),
@@ -944,19 +942,27 @@ class TestRegistryMounting:
         assert len(add_dirs) == 2
         assert str(SHIPPED_SKILL_DIR) in add_dirs
         payload = command[command.index("-p") + 1]
-        assert "## ACTIVE ADVERSARIAL SKILLS (MANDATORY)" in payload
-        assert "## RECOMMENDED ADVERSARIAL SKILLS (TASK-DEPENDENT)" in payload
-        assert "## ADVERSARIAL SKILL REGISTRY MANIFEST" in payload
+        assert "### adversarial-plan-hardening-engine (v" in payload
+        assert "\u2014 mandatory\nFull procedure: " in payload
+        assert "### zero-trust-ast-wiring-verifier (v" in payload
+        assert "\u2014 recommended\nFull procedure: " in payload
+        assert f"## Skill registry\nEvery registered skill under `{SHIPPED_SKILL_DIR}`" in payload
 
     def test_payload_points_antigravity_at_registry_on_disk(self) -> None:
         registry = Path("C:/ws/Skills")
         config = BridgeConfig(envelope=envelope())
 
-        payload = build_prompt_payload(config, "SKILL BLOCK", registry)
+        payload = build_prompt_payload(
+            config,
+            bridge.SkillSections(
+                active="SKILL BLOCK", index="- INDEX LINE", registry_path=registry
+            ),
+        )
 
-        assert "SKILL REGISTRY ON DISK" in payload
-        assert str(registry) in payload
+        assert "## Skill registry" in payload
+        assert f"under `{registry}`" in payload
         assert "SKILL BLOCK" in payload
+        assert "- INDEX LINE" in payload
 
     def test_default_registry_is_workspace_skills_directory(self, tmp_path: Path) -> None:
         skill_dir = tmp_path / "Skills"
@@ -972,8 +978,8 @@ class TestRegistryMounting:
 
         assert result.success
         payload = launcher.calls[0][launcher.calls[0].index("-p") + 1]
-        assert "DEFAULT_REGISTRY_INSTRUCTIONS" in payload
-        assert "SKILL REGISTRY ON DISK" in payload
+        assert f"Full procedure: {skill_dir.resolve() / 'plan.yaml'}" in payload
+        assert f"under `{skill_dir.resolve()}`" in payload
 
     def test_critique_renders_warnings(self, tmp_path: Path) -> None:
         config = BridgeConfig(envelope=envelope(), workspace=tmp_path)
@@ -1115,7 +1121,8 @@ class TestRegistryResolutionParity:
         )
         assert exit_code == 0
         payload = json.loads(capsys.readouterr().out)
-        assert "ADVERSARIAL ARCHITECTURAL STRESS-TESTING" in payload["payload"].upper()
+        assert f"Full procedure: {SHIPPED_SKILL_DIR}" in payload["payload"]
+        assert "### adversarial-plan-hardening-engine (v" in payload["payload"]
 
 
 class TestDryRunMatchesDispatch:
@@ -1123,14 +1130,8 @@ class TestDryRunMatchesDispatch:
     RECOMMENDED = ("zero-trust-ast-wiring-verifier",)
 
     def test_dry_run_prints_the_command_run_bridge_executes(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-        capsys: pytest.CaptureFixture[str],
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        # The shipped two-skill render exceeds the real Windows command line;
-        # this test is about parity, not the size preflight.
-        monkeypatch.setattr(bridge, "_WINDOWS_COMMAND_LINE_LIMIT", 10**9)
         exit_code = bridge.main(
             [
                 "--prompt",
@@ -1162,7 +1163,7 @@ class TestDryRunMatchesDispatch:
         dispatched = launcher.calls[0]
         assert dry_run["command"] == dispatched
         assert dry_run["payload"] == dispatched[dispatched.index("-p") + 1]
-        assert "## ADVERSARIAL SKILL REGISTRY MANIFEST" in dry_run["payload"]
+        assert "## Skill registry" in dry_run["payload"]
         # The workspace has no Skills/, so the shipped registry must be mounted.
         assert dry_run["command"].count("--add-dir") == 2
 
@@ -1177,3 +1178,364 @@ class TestDryRunMatchesDispatch:
         exit_code = bridge.main(["--prompt", "x" * 200, "--workspace", str(tmp_path), "--dry-run"])
         assert exit_code == 2
         assert "command line" in capsys.readouterr().err
+
+
+# A realistic delegation prompt: a plan plus a diff summary of about 4,000 chars.
+REALISTIC_PROMPT = ("Review this plan and diff summary for wiring and failure modes. " * 63)[:4000]
+
+
+def _windows_command_chars(config: BridgeConfig, workspace: Path) -> tuple[int, Any]:
+    """Size of the dispatched command as CreateProcess would see it, on any OS."""
+    plan = bridge._plan_dispatch(config, workspace)
+    command = build_agy_command(
+        "agy",
+        plan.payload,
+        workspace,
+        config.model,
+        config.print_timeout_seconds,
+        extra_add_dirs=plan.extra_add_dirs,
+    )
+    return len(subprocess.list2cmdline(command)), plan
+
+
+def _briefed_registry(root: Path, count: int, brief_chars: int) -> Path:
+    """A registry of ``count`` skills whose briefs are ``brief_chars`` long."""
+    skill_dir = root / "Skills"
+    skill_dir.mkdir(parents=True)
+    for index in range(count):
+        name = f"skill_{index:02d}"
+        (skill_dir / f"{index:02d}_{name}.yaml").write_text(
+            make_skill_yaml(
+                name,
+                description=f"Use when checking area {index}. Not for other areas.",
+                brief=f"BRIEF_{index:02d} " + "x" * brief_chars,
+                payload=f"BODY_{index:02d}",
+            ),
+            encoding="utf-8",
+        )
+    return skill_dir
+
+
+class TestPayloadBudget:
+    def test_three_largest_shipped_skills_with_a_realistic_prompt_fit_windows(
+        self, tmp_path: Path
+    ) -> None:
+        loader = SkillLoader(SHIPPED_SKILL_DIR)
+        largest = sorted(
+            loader.skills,
+            key=lambda skill: len(render_skill_block(skill, "mandatory")),
+            reverse=True,
+        )[:3]
+        config = bridge_config(
+            envelope=DelegationEnvelope(prompt=REALISTIC_PROMPT, context="SQLite WAL, one writer"),
+            workspace=tmp_path,
+            skills=tuple(skill.name for skill in largest),
+            skill_dir=SHIPPED_SKILL_DIR,
+        )
+
+        chars, plan = _windows_command_chars(config, tmp_path)
+
+        assert chars < bridge._WINDOWS_COMMAND_LINE_LIMIT
+        for skill in largest:
+            assert f"### {skill.name} (v{skill.version}) — mandatory" in plan.payload
+
+    def test_all_shipped_skills_fit_windows(self, tmp_path: Path) -> None:
+        config = bridge_config(
+            envelope=DelegationEnvelope(prompt=REALISTIC_PROMPT),
+            workspace=tmp_path,
+            skills=(ALL_SELECTOR,),
+            skill_dir=SHIPPED_SKILL_DIR,
+        )
+
+        chars, _plan = _windows_command_chars(config, tmp_path)
+
+        assert chars < bridge._WINDOWS_COMMAND_LINE_LIMIT
+
+    def test_all_with_overflowing_briefs_uses_pointers_and_warns(self, tmp_path: Path) -> None:
+        # 17 skills with ~1,800-char briefs (the authoring maximum) far exceed
+        # the inline budget; the remainder must become path-only pointers.
+        skill_dir = _briefed_registry(tmp_path, count=17, brief_chars=1_800)
+        config = bridge_config(
+            envelope=DelegationEnvelope(prompt=REALISTIC_PROMPT),
+            workspace=tmp_path,
+            skills=(ALL_SELECTOR,),
+        )
+
+        chars, plan = _windows_command_chars(config, tmp_path)
+
+        assert chars < bridge._WINDOWS_COMMAND_LINE_LIMIT
+        assert any("Inline skill budget" in warning for warning in plan.warnings)
+        active = plan.payload.split(bridge.ACTIVE_SKILLS_HEADING, 1)[1].split(
+            bridge.SKILL_REGISTRY_HEADING, 1
+        )[0]
+        assert "BRIEF_00" in active
+        assert "BRIEF_16" not in active
+        assert "- **skill_16** (v1.2.3) — mandatory" in active
+        assert str(skill_dir / "16_skill_16.yaml") in active
+        assert "BODY_" not in plan.payload
+
+    def test_budget_overflow_warning_reaches_the_result(self, tmp_path: Path) -> None:
+        _briefed_registry(tmp_path, count=17, brief_chars=1_800)
+        launcher = ScriptedLauncher([successful_attempt()])
+        config = bridge_config(
+            envelope=DelegationEnvelope(prompt="p"), workspace=tmp_path, skills=(ALL_SELECTOR,)
+        )
+
+        result = run_bridge(config, launcher=launcher)
+
+        assert any("Inline skill budget" in warning for warning in result.warnings)
+
+    def test_a_lower_priority_skill_never_displaces_a_higher_one(self, tmp_path: Path) -> None:
+        skill_dir = _briefed_registry(tmp_path, count=3, brief_chars=10)
+        loader = SkillLoader(skill_dir)
+        first, second, third = loader.skills
+        budget = len(render_skill_block(first, "mandatory")) + 5
+
+        text, overflow = bridge._render_active_skills(
+            [(first, "mandatory"), (second, "mandatory"), (third, "recommended")], budget=budget
+        )
+
+        assert overflow == [second, third]
+        assert "BRIEF_00" in text
+        assert "BRIEF_02" not in text
+        assert text.index("- **skill_01**") < text.index("- **skill_02**")
+
+
+class TestPayloadStructure:
+    @staticmethod
+    def _payload(workspace: Path, **overrides: Any) -> str:
+        config = bridge_config(
+            envelope=DelegationEnvelope(
+                prompt="Review the plan", context="ctx", claims_to_falsify=("claim",)
+            ),
+            workspace=workspace,
+            **overrides,
+        )
+        return bridge._plan_dispatch(config, workspace).payload
+
+    def test_sections_appear_once_and_in_order(self, registry: Path) -> None:
+        payload = self._payload(
+            registry.parent,
+            skills=("crash_ops",),
+            recommended_skills=("ast_audit",),
+            skill_dir=registry,
+        )
+
+        headings = [
+            "## Request / plan under review",
+            "## Context and prior art",
+            "## Claims to falsify",
+            bridge.REVIEW_PROTOCOL_HEADING,
+            bridge.ACTIVE_SKILLS_HEADING,
+            bridge.SKILL_REGISTRY_HEADING,
+            bridge.OUTPUT_REMINDER_HEADING,
+        ]
+        for heading in headings:
+            assert payload.count(f"\n{heading}\n") == 1, heading
+        positions = [payload.index(f"\n{heading}\n") for heading in headings]
+        assert positions == sorted(positions)
+        assert payload.count("<<<WISP_VERDICT") == 1
+        assert payload.count("Finding format:") == 1
+        assert payload.index("crash_ops (v1.2.3) — mandatory") < payload.index(
+            "ast_audit (v1.2.3) — recommended"
+        )
+        # The old per-skill and mandate sections are gone.
+        for retired in ("OUTPUT MANDATE", "REGISTRY MANIFEST", "SKILL REGISTRY ON DISK"):
+            assert retired not in payload
+
+    def test_registry_index_lists_every_shipped_skill_with_its_path(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        exit_code = main(
+            [
+                "--prompt",
+                "p",
+                "--workspace",
+                str(tmp_path),
+                "--skills",
+                "adversarial-plan-hardening-engine",
+                "--dry-run",
+            ]
+        )
+        assert exit_code == 0
+        payload = json.loads(capsys.readouterr().out)["payload"]
+        index = payload.split(bridge.SKILL_REGISTRY_HEADING, 1)[1]
+        for skill in SkillLoader(SHIPPED_SKILL_DIR).skills:
+            assert f"- **{skill.name}** — " in index
+            assert f" · {skill.absolute_path}" in index
+            # Bodies stay on disk.
+            assert skill.instructions_payload[200:400] not in payload
+
+    def test_no_skills_means_no_skill_sections(self, tmp_path: Path) -> None:
+        payload = self._payload(tmp_path)
+
+        assert bridge.REVIEW_PROTOCOL_HEADING in payload
+        assert bridge.ACTIVE_SKILLS_HEADING not in payload
+        assert bridge.SKILL_REGISTRY_HEADING not in payload
+        assert "Skills: before starting" not in payload
+        assert payload.rstrip().endswith("nothing may follow it.")
+
+
+class TestDelegationMode:
+    REVIEW_LINE = "Workspace access: review mode, read-only. Do not create, modify or delete files"
+    IMPLEMENT_LINE = "Workspace access: implement mode. You may modify files inside the workspace"
+
+    def test_envelope_defaults_to_review(self) -> None:
+        assert DelegationEnvelope(prompt="p").mode == "review"
+        assert DelegationEnvelope.from_mapping({"prompt": "p"}).mode == "review"
+        assert DelegationEnvelope.from_mapping({"prompt": "p", "mode": None}).mode == "review"
+
+    def test_envelope_normalizes_and_validates_mode(self) -> None:
+        assert DelegationEnvelope.from_mapping({"prompt": "p", "mode": " Implement "}).mode == (
+            "implement"
+        )
+        with pytest.raises(ValueError, match="mode"):
+            DelegationEnvelope.from_mapping({"prompt": "p", "mode": "write"})
+        with pytest.raises(ValueError, match="mode"):
+            DelegationEnvelope(prompt="p", mode="yolo")
+
+    def test_review_and_implement_render_different_access_rules(self) -> None:
+        review = build_prompt_payload(BridgeConfig(envelope=DelegationEnvelope(prompt="p")))
+        implement = build_prompt_payload(
+            BridgeConfig(envelope=DelegationEnvelope(prompt="p", mode="implement"))
+        )
+
+        assert self.REVIEW_LINE in review
+        assert "propose every change as a unified diff" in review
+        assert self.IMPLEMENT_LINE not in review
+        assert "**Mode**: review (read-only)" in review
+        assert self.IMPLEMENT_LINE in implement
+        assert "never create, modify or delete anything outside it" in implement
+        assert "list every file you changed" in implement
+        assert self.REVIEW_LINE not in implement
+
+    def test_cli_flag_selects_implement(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        exit_code = main(
+            ["--prompt", "p", "--workspace", str(tmp_path), "--mode", "implement", "--dry-run"]
+        )
+        assert exit_code == 0
+        assert self.IMPLEMENT_LINE in json.loads(capsys.readouterr().out)["payload"]
+
+    def test_cli_rejects_unknown_mode(self, tmp_path: Path) -> None:
+        with pytest.raises(SystemExit) as excinfo:
+            main(["--prompt", "p", "--workspace", str(tmp_path), "--mode", "write", "--dry-run"])
+        assert excinfo.value.code == 2
+
+    def test_envelope_mode_applies_and_cli_flag_overrides(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        envelope_path = tmp_path / "envelope.json"
+        envelope_path.write_text(json.dumps({"prompt": "p", "mode": "implement"}), encoding="utf-8")
+        base = ["--envelope", str(envelope_path), "--workspace", str(tmp_path), "--dry-run"]
+
+        assert main(base) == 0
+        assert self.IMPLEMENT_LINE in json.loads(capsys.readouterr().out)["payload"]
+        assert main([*base, "--mode", "review"]) == 0
+        assert self.REVIEW_LINE in json.loads(capsys.readouterr().out)["payload"]
+
+    def test_invalid_envelope_mode_is_a_usage_error(self, tmp_path: Path) -> None:
+        envelope_path = tmp_path / "envelope.json"
+        envelope_path.write_text(json.dumps({"prompt": "p", "mode": "write"}), encoding="utf-8")
+        with pytest.raises(SystemExit) as excinfo:
+            main(["--envelope", str(envelope_path), "--workspace", str(tmp_path), "--dry-run"])
+        assert excinfo.value.code == 2
+
+    def test_write_access_skill_keeps_review_mode_with_a_warning(self, tmp_path: Path) -> None:
+        skill_dir = tmp_path / "Skills"
+        skill_dir.mkdir()
+        (skill_dir / "01_fixer.yaml").write_text(
+            make_skill_yaml("fixer", input_contract={"write_access": "required"}),
+            encoding="utf-8",
+        )
+
+        def plan_for(mode: str) -> Any:
+            config = bridge_config(
+                envelope=DelegationEnvelope(prompt="p", mode=mode),
+                workspace=tmp_path,
+                skills=("fixer",),
+            )
+            return bridge._plan_dispatch(config, tmp_path)
+
+        review = plan_for("review")
+        implement = plan_for("implement")
+
+        assert any("'fixer' requires write access" in warning for warning in review.warnings)
+        assert self.REVIEW_LINE in review.payload
+        assert not any("requires write access" in warning for warning in implement.warnings)
+        assert self.IMPLEMENT_LINE in implement.payload
+
+
+VERDICT_RESPONSE = (
+    "### F-001 · P1 · high · concurrency\n...\n\n"
+    "<<<WISP_VERDICT\nverdict: PASS_WITH_FIXES\nconfidence: high\n"
+    "summary: One race to fix.\ncounts: P0=0 P1=1 P2=0 P3=0\nmust_fix: F-001\n"
+    "WISP_VERDICT>>>"
+)
+
+
+def _result_stdout(response: str) -> str:
+    return json.dumps({"event": "result", "result": {"status": "SUCCESS", "response": response}})
+
+
+class TestReviewVerdict:
+    def test_report_schema_version_covers_the_verdict(self) -> None:
+        assert REPORT_SCHEMA_VERSION == 2
+
+    def test_verdict_is_parsed_into_result_report_and_critique(self, tmp_path: Path) -> None:
+        stdout = _result_stdout(VERDICT_RESPONSE)
+        launcher = ScriptedLauncher([successful_attempt(stdout)])
+        config = bridge_config(workspace=tmp_path)
+
+        result = run_bridge(config, launcher=launcher)
+
+        expected = {
+            "verdict": "PASS_WITH_FIXES",
+            "confidence": "high",
+            "summary": "One race to fix.",
+            "counts": {"P0": 0, "P1": 1, "P2": 0, "P3": 0},
+            "must_fix": ["F-001"],
+        }
+        assert result.success
+        assert result.review_verdict == expected
+        assert result.to_dict()["review_verdict"] == expected
+        assert result.to_mcp_dict()["review_verdict"] == expected
+        saved = json.loads(write_report(tmp_path, result).read_text(encoding="utf-8"))
+        assert saved["review_verdict"] == expected
+        critique = result.critique_markdown
+        assert critique.index("## Review verdict") < critique.index("## Antigravity Critique")
+        assert "PASS_WITH_FIXES (confidence: high)" in critique
+        assert not any("verdict" in warning.lower() for warning in result.warnings)
+
+    def test_missing_block_is_none_with_a_warning(self, tmp_path: Path) -> None:
+        launcher = ScriptedLauncher([successful_attempt(_result_stdout("No verdict here."))])
+
+        result = run_bridge(bridge_config(workspace=tmp_path), launcher=launcher)
+
+        assert result.success
+        assert result.review_verdict is None
+        assert result.to_dict()["review_verdict"] is None
+        assert any("the reviewer did not emit a verdict block" in w for w in result.warnings)
+        assert "## Review verdict" not in result.critique_markdown
+
+    def test_failed_run_has_no_verdict_and_no_verdict_warning(self, tmp_path: Path) -> None:
+        launcher = ScriptedLauncher([AttemptResult(exit_code=3, stdout="", stderr="boom")])
+
+        result = run_bridge(
+            bridge_config(workspace=tmp_path, retries=0, fallback_model=""), launcher=launcher
+        )
+
+        assert not result.success
+        assert result.review_verdict is None
+        assert not any("verdict" in warning.lower() for warning in result.warnings)
+
+    def test_invalid_verdict_value_is_flagged(self, tmp_path: Path) -> None:
+        block = "<<<WISP_VERDICT\nverdict: MAYBE\nWISP_VERDICT>>>"
+        launcher = ScriptedLauncher([successful_attempt(_result_stdout(block))])
+
+        result = run_bridge(bridge_config(workspace=tmp_path), launcher=launcher)
+
+        assert result.review_verdict is not None
+        assert result.review_verdict["verdict"] is None
+        assert any("Review verdict invalid" in warning for warning in result.warnings)
