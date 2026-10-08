@@ -369,16 +369,9 @@ svg{flex:0 0 auto}
 .btn svg{width:14px;height:14px}
 .btn.primary{background:var(--accent);color:var(--accent-ink);border-color:transparent}
 .btn.primary:hover{background:var(--accent);filter:brightness(1.08)}
-.btn.accent{background:var(--accent);color:var(--accent-ink);border-color:transparent}
 .btn.small{height:26px;padding:0 10px;border-radius:8px;font-size:var(--fs-label)}
 .btn.icon{width:32px;padding:0}
 .btn.armed{background:rgba(224,142,142,.16);border-color:rgba(224,142,142,.4);color:#f2b8b8}
-.ghost-btn{
-  display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 8px;border-radius:var(--r-sm);
-  font-size:var(--fs-label);color:var(--text-2);transition:background var(--d-micro),color var(--d-micro);
-}
-.ghost-btn:hover{background:var(--fill-2);color:var(--text-1)}
-.ghost-btn svg{width:13px;height:13px}
 .icon-btn{
   width:26px;height:26px;display:grid;place-items:center;border-radius:var(--r-sm);color:var(--text-2);
   transition:background var(--d-micro),color var(--d-micro),opacity var(--d-micro);
@@ -772,7 +765,6 @@ kbd{display:inline-flex;align-items:center;height:20px;padding:0 6px;border-radi
 .mi .mi-del{margin-left:auto;opacity:0}
 .mi:hover .mi-del,.mi .mi-del.armed{opacity:1}
 .menu-sep{height:1px;margin:5px 6px;background:var(--hairline);flex:0 0 auto}
-.menu-label{padding:6px 10px 4px;font-size:var(--fs-label);color:var(--text-3)}
 .menu-empty{padding:10px;font-size:var(--fs-meta);color:var(--text-3)}
 .thread-item .hint{font-family:var(--sans)}
 
@@ -1259,7 +1251,6 @@ function footprint(view) {
 }
 // Window footprint per view (pywebview and the opaque debug shell resize to it).
 const SIZES = Object.fromEntries(VIEWS.map((view) => [view, footprint(view)]));
-const SETTINGS_SIZE = SIZES.settings;
 const MAX_SIZE = [SIZES.emotion[0], Math.max(...VIEWS.map((view) => SIZES[view][1]))];
 
 const MOTION = {
@@ -1409,10 +1400,15 @@ const fx = {
 };
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
+// Human-readable text of a thrown value, without the "Error: " prefix.
+function errorText(err) {
+  return String(err && err.message ? err.message : err);
+}
+
 // Swallowed-but-recorded failures; WISP_DIAG in the Electron shell collects them.
 function report(err) {
   const log = window.__wispErrors;
-  log.push(String(err && err.message ? err.message : err));
+  log.push(errorText(err));
   if (log.length > LIMITS.errorLog) log.splice(0, log.length - LIMITS.errorLog);
 }
 
@@ -1938,7 +1934,7 @@ async function copyText(text, okMessage) {
     let ok = false;
     try { ok = document.execCommand('copy'); } catch (inner) { report(inner); }
     area.remove();
-    if (!ok) { toast('Copy failed.'); return false; }
+    if (!ok) { toast('Could not copy: the clipboard is not available.'); return false; }
   }
   toast(okMessage || 'Copied.', 1800, 'ok');
   return true;
@@ -2974,7 +2970,7 @@ async function selectModel(name) {
     toast((chatTab ? 'Chat model: ' : 'Model for the next review: ') + name, undefined, 'ok');
   } catch (err) {
     report(err);
-    toast('Could not save model selection.');
+    toast('Could not save the model choice: ' + errorText(err));
   }
   loadStatus();
 }
@@ -3286,7 +3282,7 @@ async function deleteThread(id) {
     toast('Conversation deleted.', undefined, 'ok');
   } catch (err) {
     report(err);
-    toast(err.status === 404 ? 'Conversation not found.' : 'Delete failed.');
+    toast(err.status === 404 ? 'Conversation not found.' : 'Could not delete the conversation: ' + errorText(err));
   }
   loadChatThreads();
 }
@@ -3297,7 +3293,7 @@ async function togglePin(item) {
     loadChatThreads();
   } catch (err) {
     report(err);
-    toast('Pin failed.');
+    toast('Could not update the pin: ' + errorText(err));
   }
 }
 
@@ -3504,7 +3500,7 @@ async function openThread(id) {
     setMode('chat');
   } catch (err) {
     report(err);
-    toast(err.status === 404 ? 'Conversation not found.' : 'Could not load conversation.');
+    toast(err.status === 404 ? 'Conversation not found.' : 'Could not load the conversation: ' + errorText(err));
   }
 }
 
@@ -3667,8 +3663,7 @@ async function sendAsk(prompt, captureOverride) {
     S.askAwaitingRun = false;
     report(err);
     if (err.status === 409) toast(err.data.message || 'Wisp is busy.');
-    else if (err.status) toast(err.data.error || 'Ask failed.');
-    else toast('Ask failed: ' + err);
+    else toast('Could not send the question: ' + errorText(err));
     return;
   }
   S.chatPending = true;
@@ -3873,7 +3868,7 @@ async function handleHotkey(payload) {
     }
   } catch (err) {
     report(err);
-    toast('Capture failed: ' + err);
+    toast('Capture failed: ' + errorText(err));
   } finally {
     S.capturing = false;
   }
@@ -4096,7 +4091,7 @@ function bindSettings() {
       await api('/api/model', { ask_skills: button.dataset.ask === 'all' ? ['all'] : [] });
     } catch (err) {
       report(err);
-      toast('Could not save ask settings.');
+      toast('Could not save the ask setting: ' + errorText(err));
     }
   });
   bindSegment('animSeg', (button) => applyMotion(button.dataset.anim));
@@ -4109,7 +4104,7 @@ function bindSettings() {
         setTimeout(loadStatus, 3500);
       } catch (err) {
         report(err);
-        toast('Switch failed: ' + err);
+        toast('Account switch failed: ' + errorText(err));
       }
     });
   });
@@ -4120,7 +4115,7 @@ function bindSettings() {
       loadStatus();
     } catch (err) {
       report(err);
-      toast('Recheck failed: ' + err);
+      toast('Could not recheck the sign-in: ' + errorText(err));
     }
   });
   $('btnSkillToggle').addEventListener('click', () => toggleCollapse($('btnSkillToggle'), $('skillCollapse'), ['Show skills', 'Hide skills']));
