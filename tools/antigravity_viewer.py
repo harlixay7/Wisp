@@ -280,10 +280,12 @@ def _clean_skills(raw: Sequence[Any]) -> list[str]:
 
 
 def settings_path(live_dir: Path) -> Path:
+    """Where the widget's settings live inside ``live_dir``."""
     return Path(live_dir) / SETTINGS_NAME
 
 
 def manifest_path(live_dir: Path) -> Path:
+    """Where the running viewer's manifest (port, pid, tokens) lives."""
     return Path(live_dir) / MANIFEST_NAME
 
 
@@ -911,6 +913,8 @@ def _release(lock: threading.Lock) -> None:
 
 @dataclass
 class ViewerContext:
+    """State shared by every request handler of one viewer instance."""
+
     workspace: Path
     live_dir: Path
     port: int
@@ -1074,6 +1078,8 @@ def request_shutdown(
 
 
 class ViewerServer(ThreadingHTTPServer):
+    """Threaded HTTP server that owns the :class:`ViewerContext` for its port."""
+
     daemon_threads = True
     allow_reuse_address = os.name != "nt"
 
@@ -1093,6 +1099,8 @@ class ViewerServer(ThreadingHTTPServer):
 
 
 class ViewerHandler(BaseHTTPRequestHandler):
+    """Routes the widget's HTTP API, static assets and the SSE live feed."""
+
     server_version = f"{SERVER_NAME}/{SERVER_VERSION}"
     protocol_version = "HTTP/1.1"
     timeout = 60
@@ -2002,6 +2010,7 @@ def _run_widget_shell(
 
 
 def main(argv: list[str] | None = None) -> int:
+    """CLI entry point: serves the widget and opens its window; returns the exit code."""
     args = _build_parser().parse_args(argv)
     workspace = resolve_workspace(args.workspace)
     live_dir = resolve_live_dir(workspace, args.live_dir)

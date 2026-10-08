@@ -88,6 +88,7 @@ def work_area() -> tuple[int, int, int, int]:
 def bottom_right_position(
     width: int, height: int, margin: int = WIDGET_MARGIN
 ) -> tuple[int, int]:
+    """Top-left corner that places a ``width`` x ``height`` window bottom-right."""
     left, top, right, bottom = work_area()
     x = max(left, right - width - margin)
     y = max(top, bottom - height - margin)

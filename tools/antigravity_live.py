@@ -573,11 +573,8 @@ class LiveEmitter:
         self._seq = 0
         self._lock = threading.Lock()
 
-    @property
-    def active(self) -> bool:
-        return bool(self._sinks)
-
     def emit(self, kind: str, text: str = "", model: str = "", **meta: Any) -> None:
+        """Stamps and writes one event to every sink; never raises."""
         if not self._sinks:
             return
         # Stamp seq and write to every sink under one lock so on-disk order

@@ -67,14 +67,18 @@ def write_json_atomic(path: Path, payload: Any) -> None:
 
 
 def new_thread_id() -> str:
+    """A sortable thread id: ``YYYYmmdd-HHMMSS-<6 hex>``."""
     return time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
 
 
 def valid_thread_id(thread_id: str) -> bool:
+    """True for ids shaped like :func:`new_thread_id` output (safe as a filename)."""
     return bool(_THREAD_ID_PATTERN.match(str(thread_id or "")))
 
 
 class ChatStore:
+    """Chat threads stored as one JSON file each under ``<live_dir>/chat/``."""
+
     def __init__(self, live_dir: Path | str) -> None:
         self.directory = Path(live_dir) / CHAT_DIR_NAME
 
@@ -118,6 +122,7 @@ class ChatStore:
         return clean
 
     def load(self, thread_id: str) -> dict[str, Any] | None:
+        """The thread with defaults filled in; ``None`` when missing or malformed."""
         try:
             path = self._path(thread_id)
         except ValueError:
@@ -156,6 +161,7 @@ class ChatStore:
             return False
 
     def delete_thread(self, thread_id: str) -> bool:
+        """Deletes the thread file; ``False`` when the id is invalid or nothing was deleted."""
         try:
             path = self._path(thread_id)
         except ValueError:
@@ -221,6 +227,11 @@ class ChatStore:
         content: str,
         meta: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
+        """Appends a message and returns the updated thread (``None`` if unsaved).
+
+        Raises ``ValueError`` for an unknown role or content longer than
+        ``MAX_MESSAGE_CHARS``; callers clamp or reject long text first.
+        """
         if role not in VALID_ROLES:
             raise ValueError(
                 f"invalid message role {role!r}; expected one of {VALID_ROLES}"
@@ -228,7 +239,7 @@ class ChatStore:
         text = str(content or "")
         if len(text) > MAX_MESSAGE_CHARS:
             raise ValueError(
-                f"message exceeds MAX_MESSAGE_CHARS ({MAX_MESSAGE_CHARS})"
+                f"message is {len(text)} characters; the limit is {MAX_MESSAGE_CHARS}"
             )
         message = {
             "role": role,
@@ -250,9 +261,11 @@ class ChatStore:
     def update_run(
         self, thread_id: str, run: dict[str, Any] | None
     ) -> dict[str, Any] | None:
+        """Replaces the thread's run status record; returns the thread or ``None``."""
         return self._mutate(thread_id, lambda thread: thread.update(run=run))
 
     def set_pinned(self, thread_id: str, pinned: bool) -> dict[str, Any] | None:
+        """Pins or unpins the thread; returns the thread or ``None``."""
         return self._mutate(thread_id, lambda thread: thread.update(pinned=bool(pinned)))
 
     def _mutate(
@@ -272,6 +285,7 @@ class ChatStore:
             return thread if self.save(thread) else None
 
     def list_threads(self, limit: int = MAX_THREADS_LISTED) -> list[dict[str, Any]]:
+        """Thread summaries, pinned first, then most recently updated."""
         try:
             files = [path for path in self.directory.glob("thread-*.json") if path.is_file()]
         except OSError:
