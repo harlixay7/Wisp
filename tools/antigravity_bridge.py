@@ -425,9 +425,37 @@ def _string_tuple(value: Any, field_name: str) -> tuple[str, ...]:
     raise ValueError(f"Envelope field '{field_name}' must be a string or list of strings")
 
 
+REVIEW_MODE = "review"
+IMPLEMENT_MODE = "implement"
+DELEGATION_MODES: tuple[str, ...] = (REVIEW_MODE, IMPLEMENT_MODE)
+
+
+def normalize_mode(value: Any) -> str:
+    """Returns the canonical delegation mode; blank means review.
+
+    Raises ``ValueError`` for anything else so a typo such as ``implment``
+    can never silently fall back to a mode the caller did not ask for.
+    """
+    text = "" if value is None else str(value).strip().lower()
+    if not text:
+        return REVIEW_MODE
+    if text not in DELEGATION_MODES:
+        raise ValueError(
+            f"Envelope field 'mode' must be one of {', '.join(DELEGATION_MODES)}; got {value!r}"
+        )
+    return text
+
+
 @dataclass(frozen=True)
 class DelegationEnvelope:
-    """Structured input contract between Agent 1 and the Antigravity sub-agent."""
+    """Structured input contract between Agent 1 and the Antigravity sub-agent.
+
+    ``mode`` tells the reviewer whether it may change the workspace: review
+    (default) is read-only with changes proposed as diffs; implement lets it
+    edit files inside the workspace. The mode is an instruction in the
+    payload, not an enforced sandbox: agy runs with the same tool permissions
+    either way.
+    """
 
     prompt: str
     harness: str = "agent-1"
@@ -436,6 +464,10 @@ class DelegationEnvelope:
     artifacts: tuple[str, ...] = ()
     recommended_skills: tuple[str, ...] = ()
     notes: str = ""
+    mode: str = REVIEW_MODE
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "mode", normalize_mode(self.mode))
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> DelegationEnvelope:
@@ -459,6 +491,7 @@ class DelegationEnvelope:
             artifacts=_string_tuple(data.get("artifacts"), "artifacts"),
             recommended_skills=recommended,
             notes=str(data.get("notes") or "").strip(),
+            mode=normalize_mode(data.get("mode")),
         )
 
 
@@ -784,10 +817,21 @@ OUTPUT_REMINDER_HEADING = "## Output reminder"
 # as path-only pointers, which are just as binding.
 SKILL_INLINE_BUDGET = 12_000
 
-_WORKSPACE_ACCESS_REVIEW = (
-    "Workspace access: review mode, read-only. Do not create, modify or delete "
-    "files; propose every change as a unified diff in your answer."
-)
+_WORKSPACE_ACCESS: dict[str, str] = {
+    REVIEW_MODE: (
+        "Workspace access: review mode, read-only. Do not create, modify or delete "
+        "files; propose every change as a unified diff in your answer."
+    ),
+    IMPLEMENT_MODE: (
+        "Workspace access: implement mode. You may modify files inside the workspace "
+        "to complete the task; never create, modify or delete anything outside it. "
+        "Leave the workspace in a test-passing state and list every file you changed."
+    ),
+}
+_MODE_LABELS: dict[str, str] = {
+    REVIEW_MODE: "review (read-only)",
+    IMPLEMENT_MODE: "implement (may modify files inside the workspace)",
+}
 
 _VERDICT_TEMPLATE = (
     "<<<WISP_VERDICT\n"
@@ -900,6 +944,7 @@ def build_prompt_payload(config: BridgeConfig, skills: SkillSections | None = No
         ),
         "",
         f"**Originating harness**: {envelope.harness}",
+        f"**Mode**: {_MODE_LABELS[envelope.mode]}",
         "",
         "## Request / plan under review",
         envelope.prompt,
@@ -914,7 +959,10 @@ def build_prompt_payload(config: BridgeConfig, skills: SkillSections | None = No
         parts += [f"- `{artifact}`" for artifact in envelope.artifacts]
     if envelope.notes.strip():
         parts += ["", "## Operator notes", envelope.notes.strip()]
-    parts += ["", *_review_protocol(_WORKSPACE_ACCESS_REVIEW, bool(sections.active.strip()))]
+    parts += [
+        "",
+        *_review_protocol(_WORKSPACE_ACCESS[envelope.mode], bool(sections.active.strip())),
+    ]
     if sections.active.strip():
         parts += [
             "",
@@ -1097,6 +1145,7 @@ def render_critique(
         f"- **Workspace mounted**: `{config.resolved_workspace()}`",
         f"- **Model chain**: {' -> '.join(attempt.model for attempt in attempts)}",
         f"- **Failover engaged**: {'YES' if failover_used else 'NO'}",
+        f"- **Mode**: {config.envelope.mode}",
         f"- **Verdict**: {'SUCCESS' if success else 'FAILED'} (exit code {final.exit_code})",
         f"- **Duration**: {final.duration_seconds:.2f}s",
         f"- **Containment**: {containment}",
@@ -1185,6 +1234,17 @@ def _render_skill_sections(
             for skill in loader.select(list(config.recommended_skills))
             if skill.name not in active_names
         ]
+    if config.envelope.mode == REVIEW_MODE:
+        # Review mode stays read-only even when a skill wants to edit files:
+        # silently escalating would let a skill selection grant write access.
+        for skill, _role in entries:
+            if skill.requires_write_access:
+                warnings.append(
+                    f"Skill '{skill.name}' requires write access (input_contract "
+                    "write_access: required) but this delegation runs in review mode; "
+                    "the reviewer will deliver unified diffs instead. Use mode "
+                    "'implement' to let it modify files."
+                )
     active_text, overflow = _render_active_skills(entries)
     if overflow:
         warnings.append(
@@ -1487,6 +1547,7 @@ def run_bridge(config: BridgeConfig, launcher: LaunchFn | None = None) -> Bridge
         fallback_model=config.fallback_model,
         skills=list(config.skills),
         harness=config.envelope.harness,
+        mode=config.envelope.mode,
         prompt_chars=len(config.envelope.prompt),
     )
     # Show what was asked in the live feed, not only the reviewer's reactions.
@@ -1736,6 +1797,8 @@ def _build_config(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
         if name and name not in recommended:
             recommended.append(name)
 
+    mode = args.mode or (envelope.mode if envelope else REVIEW_MODE)
+
     claims = tuple(envelope.claims_to_falsify if envelope else ()) + tuple(args.claim or ())
     artifacts = tuple(envelope.artifacts if envelope else ()) + tuple(args.artifact or ())
 
@@ -1748,6 +1811,7 @@ def _build_config(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
         artifacts=artifacts,
         recommended_skills=envelope_recommended,
         notes=(envelope.notes if envelope else ""),
+        mode=mode,
     )
 
     return BridgeConfig(
@@ -1786,6 +1850,15 @@ def _build_parser() -> argparse.ArgumentParser:
     add("--claim", action="append", default=[], help="Empirical claim to falsify (repeatable).")
     add("--artifact", action="append", default=[], help="Artifact path to audit (repeatable).")
     add("--skills", default="", help="Comma-separated skill names, or 'all' for the full registry.")
+    add(
+        "--mode",
+        choices=DELEGATION_MODES,
+        default=None,
+        help=(
+            "review (default): read-only, changes proposed as diffs; implement: the "
+            "reviewer may modify files inside the workspace. Overrides the envelope."
+        ),
+    )
     add(
         "--recommended-skills",
         default="",

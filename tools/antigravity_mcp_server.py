@@ -38,6 +38,8 @@ from tools.antigravity_bridge import (
     DEFAULT_FALLBACK_MODEL,
     DEFAULT_PRIMARY_MODEL,
     DEFAULT_PRINT_TIMEOUT_SECONDS,
+    DELEGATION_MODES,
+    REVIEW_MODE,
     WISP_VERSION,
     BridgeConfig,
     DelegationEnvelope,
@@ -124,6 +126,16 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                         f"0-{MAX_RECOMMENDED_SKILLS} task-dependent recommended skills from "
                         "the registry; they are rendered as apply-when-relevant guidance. "
                         f"Exceeding {MAX_RECOMMENDED_SKILLS} is an error."
+                    ),
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": list(DELEGATION_MODES),
+                    "default": REVIEW_MODE,
+                    "description": (
+                        "review (default): read-only, changes proposed as unified diffs. "
+                        "implement: the reviewer may modify files inside the workspace, "
+                        "must leave it test-passing and lists every file it changed."
                     ),
                 },
                 "workspace": {
@@ -253,6 +265,17 @@ def _env_path(name: str) -> Path | None:
     return Path(raw).expanduser().resolve() if raw else None
 
 
+def _mode(value: Any) -> str:
+    """Runtime mirror of the ``mode`` enum; absent means review."""
+    if value is None:
+        return REVIEW_MODE
+    if not isinstance(value, str) or value not in DELEGATION_MODES:
+        raise InvalidParams(
+            f"'mode' must be one of {', '.join(DELEGATION_MODES)} (received {value!r})"
+        )
+    return value
+
+
 def _workspace(override: str | None = None) -> Path:
     if override and override.strip():
         return Path(override.strip()).expanduser().resolve()
@@ -380,6 +403,7 @@ def _tool_review(arguments: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     fallback_arg = _bounded_str(
         arguments.get("fallback_model"), limit=MAX_MODEL_CHARS, name="fallback_model"
     )
+    mode = _mode(arguments.get("mode"))
     raw_skills = _bounded_list(
         arguments.get("skills"), limit=MAX_SKILLS, name="skills", split_commas=True
     )
@@ -408,6 +432,7 @@ def _tool_review(arguments: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         context=(context or "").strip(),
         claims_to_falsify=tuple(str(item) for item in raw_claims if str(item).strip()),
         artifacts=tuple(str(item) for item in raw_artifacts if str(item).strip()),
+        mode=mode,
     )
     selected = _selected_models(workspace)
     config = BridgeConfig(
