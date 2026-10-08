@@ -1085,7 +1085,7 @@ class TestRegistryResolutionParity:
         assert exit_code == 0
         status = json.loads(capsys.readouterr().out)
         assert status["registry_fell_back"] is True
-        assert len(status["skills"]) == 12
+        assert len(status["skills"]) == len(SkillLoader(SHIPPED_SKILL_DIR).skills)
 
     def test_status_nonzero_when_registry_broken(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
@@ -1539,3 +1539,66 @@ class TestReviewVerdict:
         assert result.review_verdict is not None
         assert result.review_verdict["verdict"] is None
         assert any("Review verdict invalid" in warning for warning in result.warnings)
+
+
+class TestConsultation:
+    """Widget chat and hotkey asks get an answer, not a formal review."""
+
+    @staticmethod
+    def _envelope(**overrides: Any) -> DelegationEnvelope:
+        fields: dict[str, Any] = {
+            "prompt": "Why does this fail on CI?",
+            "harness": bridge.CONSULTATION_HARNESS,
+            "artifacts": (".antigravity-reports/captures/snip.png",),
+        }
+        fields.update(overrides)
+        return DelegationEnvelope(**fields)
+
+    def test_chat_ask_without_skills_gets_consultation_rules(self, tmp_path: Path) -> None:
+        config = bridge_config(envelope=self._envelope(), workspace=tmp_path)
+
+        assert bridge.is_consultation(config)
+        payload = bridge._plan_dispatch(config, tmp_path).payload
+        assert payload.startswith("# Wisp consultation\n")
+        assert "Why does this fail on CI?" in payload
+        assert "- `.antigravity-reports/captures/snip.png`" in payload
+        assert bridge.CONSULTATION_RULES_HEADING in payload
+        assert TestDelegationMode.REVIEW_LINE in payload
+        assert "No findings format and no verdict block." in payload
+        for review_only in (
+            bridge.REVIEW_PROTOCOL_HEADING,
+            bridge.SKILL_REGISTRY_HEADING,
+            bridge.OUTPUT_REMINDER_HEADING,
+            "<<<WISP_VERDICT",
+            "Finding format:",
+        ):
+            assert review_only not in payload
+
+    def test_chat_ask_with_skills_runs_the_full_review(self, registry: Path) -> None:
+        config = bridge_config(
+            envelope=self._envelope(),
+            workspace=registry.parent,
+            skills=("crash_ops",),
+            skill_dir=registry,
+        )
+
+        assert not bridge.is_consultation(config)
+        payload = bridge._plan_dispatch(config, registry.parent).payload
+        assert bridge.REVIEW_PROTOCOL_HEADING in payload
+        assert payload.count("<<<WISP_VERDICT") == 1
+
+    def test_other_harnesses_always_get_the_review_protocol(self, tmp_path: Path) -> None:
+        config = bridge_config(envelope=self._envelope(harness="opencode"), workspace=tmp_path)
+
+        assert not bridge.is_consultation(config)
+        assert bridge.REVIEW_PROTOCOL_HEADING in bridge._plan_dispatch(config, tmp_path).payload
+
+    def test_consultation_answer_needs_no_verdict(self, tmp_path: Path) -> None:
+        launcher = ScriptedLauncher([successful_attempt(_result_stdout("It is the cache key."))])
+        config = bridge_config(envelope=self._envelope(), workspace=tmp_path)
+
+        result = run_bridge(config, launcher=launcher)
+
+        assert result.success
+        assert result.review_verdict is None
+        assert not any("verdict" in warning.lower() for warning in result.warnings)

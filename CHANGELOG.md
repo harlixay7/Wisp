@@ -54,10 +54,31 @@ independently; the Electron shell versions with the viewer.
 - Tests are organized by subject with shared helpers; `pyproject.toml`
   replaces `ruff.toml` and the lint rule set is wider.
 - README rewritten; the example delegation is now synthetic.
+- Skill registry v4: all twelve playbooks rewritten to one authoring contract
+  (Mission, Method, Checklist, Evidence standard, Severity guide,
+  Skill-specific output, Anti-patterns, Done when), each with a standalone
+  `brief` and routing rules that name the right skill for adjacent tasks.
+- Payloads are compact: each active skill sends its brief and the path to its
+  full file, the registry is a one-line-per-skill index, and one shared review
+  protocol replaces the per-skill output mandates. Selecting every skill now
+  fits the Windows command-line limit with room to spare.
+- Reviews use one finding format (`F-001 · P1 · high · <category>`) and end
+  with a machine-readable verdict block. Report schema version 2.
+- Widget chat and hotkey asks without skills get short consultation rules
+  instead of the review protocol, so a quick question gets a direct answer.
 
 ### Added
 - `CONTRIBUTING.md`, issue and pull request templates, Dependabot, and
   `.editorconfig`.
+- Five new playbooks: `pre-merge-diff-audit`,
+  `root-cause-failure-investigation`, `prompt-context-engineering-audit`,
+  `interface-craft-audit` and `independent-design-second-opinion`.
+- Envelope `mode` (`review`, the read-only default, or `implement`), also as
+  `--mode` and the MCP `mode` parameter. A skill that requires write access
+  warns when run in review mode.
+- `review_verdict` (verdict, confidence, summary, P0-P3 counts, must-fix IDs)
+  is parsed into results, reports and MCP output, and shown at the top of the
+  critique; a missing or invalid block is a warning.
 
 ## [1.1.0] — 2026-10-07
 

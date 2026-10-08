@@ -59,6 +59,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tools.antigravity_bridge import (
+    CONSULTATION_HARNESS,
     DEFAULT_FALLBACK_MODEL,
     DEFAULT_PRIMARY_MODEL,
     WISP_VERSION,
@@ -815,7 +816,7 @@ def _ask_worker(
         config = BridgeConfig(
             envelope=DelegationEnvelope(
                 prompt=build_ask_prompt(prompt, context_text, artifacts),
-                harness="wisp-hotkey",
+                harness=CONSULTATION_HARNESS,
                 artifacts=artifacts,
             ),
             workspace=context.workspace,
