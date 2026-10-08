@@ -52,6 +52,8 @@ _REGISTRY_LOCK = threading.Lock()
 _REGISTRY_LOCK_ATTEMPTS = 100
 _REGISTRY_LOCK_RETRY_SECONDS = 0.02
 _REGISTRY_TEMP_MAX_AGE_SECONDS = 3600
+_REGISTRY_WRITE_ATTEMPTS = 5
+_REGISTRY_WRITE_BACKOFF_SECONDS = 0.01
 
 
 if sys.platform == "win32":
@@ -237,7 +239,7 @@ def register_live_dir(
         payload = json.dumps(alive, indent=2, ensure_ascii=False)
         path = registry_path()
         _sweep_stale_registry_temps(path)
-        for attempt in range(5):
+        for attempt in range(_REGISTRY_WRITE_ATTEMPTS):
             temporary: Path | None = None
             try:
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -251,7 +253,7 @@ def register_live_dir(
                         temporary.unlink()
                     except OSError:
                         pass
-                time.sleep(0.01 * (2 ** attempt))
+                time.sleep(_REGISTRY_WRITE_BACKOFF_SECONDS * (2 ** attempt))
 
 
 def known_live_dirs() -> list[dict[str, Any]]:

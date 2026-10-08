@@ -32,6 +32,7 @@ MAX_TITLE_CHARS = 72
 MAX_THREADS_LISTED = 60
 MAX_MESSAGE_CHARS = 100_000
 MAX_MESSAGES_PER_THREAD = 500
+THREAD_PREVIEW_CHARS = 120
 VALID_ROLES = ("user", "assistant")
 FAKE_MESSAGE_MARKERS = (
     "[TEST MODE]",
@@ -300,7 +301,7 @@ class ChatStore:
             preview = ""
             for message in reversed(messages):
                 if message.get("role") == "assistant" and message.get("content"):
-                    preview = str(message["content"])[:120]
+                    preview = str(message["content"])[:THREAD_PREVIEW_CHARS]
                     break
             summaries.append(
                 {
