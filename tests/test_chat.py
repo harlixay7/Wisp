@@ -234,8 +234,8 @@ class TestFakeThreadCleanup:
             assert store.load(survivor["id"]) is not None
 
         # Legacy content matching is an explicit migration mode: it matches
-        # every canned-marker thread (including quoted text) by design — that
-        # is exactly why it is no longer the default.
+        # every canned-marker thread (including quoted text) by design, which
+        # is why it is opt-in.
         removed_legacy = store.clean_fake_threads(include_legacy_markers=True)
         assert set(removed_legacy) == {legacy["id"], modern["id"], quoted["id"]}
         assert store.load(genuine["id"]) is not None

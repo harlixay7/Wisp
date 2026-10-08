@@ -1,5 +1,7 @@
 ---
-name: adversarial-plan-hardening-engine
+name: plan-review
+aliases:
+  - adversarial-plan-hardening-engine
 version: 4.0.0
 description: >-
   Use when an implementation plan, RFC, design document or architecture proposal
@@ -7,9 +9,9 @@ description: >-
   repository, enumerating how each step fails, and fixing the build order.
   Produces a premise table, a failure-mode registry, EARS hardening requirements
   and a reversible build sequence. Not for choosing between alternative designs
-  (use independent-design-second-opinion), auditing code that already exists (use
-  zero-trust-ast-wiring-verifier), or migration and schema detail (use
-  data-contract-state-integrity-engine).
+  (use design-second-opinion), auditing code that already exists (use
+  wiring-audit), or migration and schema detail (use
+  data-integrity-review).
 brief: |
   Mission: find how this plan fails before anyone builds it, and turn each gap into a requirement or a change of order.
   - Check every premise the plan states or silently relies on about the repository (symbols, signatures, call sites, config keys, dependency versions, platform behaviour) by reading files or running probes. A false premise outranks any speculative failure mode.
@@ -37,10 +39,10 @@ activation_triggers:
     - rollout plan
     - one-way door
   do_not_use_when:
-    - The caller wants alternatives compared or a direction chosen (route to independent-design-second-opinion).
-    - The code already exists and the question is whether it is wired correctly (route to zero-trust-ast-wiring-verifier).
-    - The plan is only a schema or migration change (route to data-contract-state-integrity-engine).
-    - The plan's core claim is a performance or capacity number (route to empirical-claim-falsification-engine).
+    - The caller wants alternatives compared or a direction chosen (route to design-second-opinion).
+    - The code already exists and the question is whether it is wired correctly (route to wiring-audit).
+    - The plan is only a schema or migration change (route to data-integrity-review).
+    - The plan's core claim is a performance or capacity number (route to claim-check).
 input_contract:
   requires_worktree: true
   required_inputs:
@@ -173,7 +175,7 @@ handle errors) that would fit any plan and changes none of this one's decisions.
   clipboard, model output): who controls it, and does it reach a shell, a path
   join, a template, a deserializer or a prompt? A localhost HTTP endpoint that
   mutates state is reachable from any web page via CSRF or DNS rebinding.
-- Flag these and route depth to runtime-security-vault-engine.
+- Flag these and route depth to security-review.
 
 ### Dependencies, environment, platform
 - A new dependency: maintained, pinned, license-compatible, available as wheels
@@ -250,7 +252,7 @@ handle errors) that would fit any plan and changes none of this one's decisions.
   evidence or is marked UNVERIFIABLE.
 - **Redesigning.** Replacing the plan with a preferred architecture. Rule: propose
   the minimal change; if the approach itself is unsound, BLOCK with the reason and
-  recommend independent-design-second-opinion.
+  recommend design-second-opinion.
 - **Reporting what is already handled.** Rule: search for an existing mitigation
   (helpers, wrappers, containment code) first; if present, list it under
   "Checked and cleared".

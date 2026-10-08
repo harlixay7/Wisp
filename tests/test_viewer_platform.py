@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import time
 from typing import Any
 
 import pytest
@@ -15,11 +16,27 @@ POSIX_ONLY = pytest.mark.skipif(os.name == "nt", reason="POSIX process inspectio
 WINDOWS_ONLY = pytest.mark.skipif(os.name != "nt", reason="Windows account switching")
 
 
+EXEC_SETTLE_SECONDS = 5.0
+
+
 def _sleeper(*extra: str) -> subprocess.Popen:
-    return subprocess.Popen(
+    """A sleeping Python child whose command line is readable when this returns.
+
+    Popen can return while the kernel is still inside execve, when
+    /proc/<pid>/cmdline briefly reads empty; inspecting the PID in that
+    window made these tests flaky under load.
+    """
+    proc = subprocess.Popen(
         [sys.executable, "-c", "import time; time.sleep(30)", *extra],
         stdout=subprocess.DEVNULL,
     )
+    if os.name != "nt":
+        deadline = time.monotonic() + EXEC_SETTLE_SECONDS
+        while time.monotonic() < deadline:
+            if "time.sleep(30)" in (platform_helpers.pid_command_line(proc.pid) or ""):
+                break
+            time.sleep(0.01)
+    return proc
 
 
 @POSIX_ONLY

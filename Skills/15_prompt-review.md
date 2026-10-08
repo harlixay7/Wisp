@@ -1,5 +1,7 @@
 ---
-name: prompt-context-engineering-audit
+name: prompt-review
+aliases:
+  - prompt-context-engineering-audit
 version: 4.0.0
 description: >-
   Use when reviewing or rewriting a system prompt, prompt template, agent
@@ -9,9 +11,9 @@ description: >-
   untrusted-content handling, reasoning-before-format, examples, output
   contracts and token budget. Produces a rule inventory, a context layout, the
   rewritten prompt or a diff, and a plan to measure the change. Not for whether
-  agent tools are exploitable (use runtime-security-vault-engine), running and
-  scoring the evaluation (use ai-eval-regression-engine), or tool-schema and
-  orchestration correctness (use agentic-tool-dag-orchestration-engine).
+  agent tools are exploitable (use security-review), running and
+  scoring the evaluation (use ai-eval-review), or tool-schema and
+  orchestration correctness (use agent-workflow-review).
 brief: |
   Mission: make every instruction in the prompt earn its tokens, remove conflicts and ambiguity, and leave a measurable way to tell whether the rewrite is better.
   - Audit the rendered prompt, not the template: the exact text and order the model receives, including interpolated parts and other layers (harness prompt, tool definitions).
@@ -39,9 +41,9 @@ activation_triggers:
     - progressive disclosure
     - prompt rewrite
   do_not_use_when:
-    - The question is what an agent's tools can do once hijacked (use runtime-security-vault-engine).
-    - The task is to run an eval, compute uncertainty or decide promotion (use ai-eval-regression-engine).
-    - The concern is tool JSON schema validity, step budgets or DAG ordering (use agentic-tool-dag-orchestration-engine).
+    - The question is what an agent's tools can do once hijacked (use security-review).
+    - The task is to run an eval, compute uncertainty or decide promotion (use ai-eval-review).
+    - The concern is tool JSON schema validity, step budgets or DAG ordering (use agent-workflow-review).
 input_contract:
   requires_worktree: false
   required_inputs:
@@ -109,7 +111,7 @@ A prompt is a program run by a probabilistic interpreter. An excellent audit lea
 ### Authority and untrusted content
 - The hierarchy is explicit: platform or developer instructions, then user, then tool results and documents as data.
 - Untrusted text sits inside delimiters labeled with its source, after the instructions, with a statement that it carries no authority. Check whether content can contain the closing delimiter and whether the assembler escapes it.
-- Prompt-level quarantine reduces but does not prevent injection. When the prompt alone stands between injected text and a consequential tool, record a finding and route the capability question to runtime-security-vault-engine.
+- Prompt-level quarantine reduces but does not prevent injection. When the prompt alone stands between injected text and a consequential tool, record a finding and route the capability question to security-review.
 
 ### Reasoning, format and examples
 - Demanding a strict schema as the very first output degrades reasoning-heavy tasks. Prefer reasoning first (native thinking, or a notes section) and a structured block last; or two passes (free analysis, then extraction into the schema); or native structured outputs for pure extraction. In single-pass JSON, put evidence and reasoning fields before verdict fields.
@@ -138,7 +140,7 @@ Proof is the rendered prompt bytes, grep output for stale references, token or b
 2. Conflict matrix, only for conflicting pairs: Rule A | Rule B | Input where both cannot hold | Resolution.
 3. Context layout diagram in text: one line per block in order, tagged static, semi-static or dynamic, with approximate size and the cache boundary marked; show before and after when the order changes.
 4. Rewritten prompt or unified diff. Prefer a diff for files in the repository; give a full rewrite when restructuring. State the net change in rule count and estimated tokens.
-5. Evaluation plan: cases (observed failures, one per changed rule, adversarial inputs for trust boundaries), the deterministic checks (parser acceptance, regex or schema checks), paired comparison of old and new prompt on the same inputs with repeated samples, and the result that would trigger a revert. Statistical promotion belongs to ai-eval-regression-engine.
+5. Evaluation plan: cases (observed failures, one per changed rule, adversarial inputs for trust boundaries), the deterministic checks (parser acceptance, regex or schema checks), paired comparison of old and new prompt on the same inputs with repeated samples, and the result that would trigger a revert. Statistical promotion belongs to ai-eval-review.
 
 ## Anti-patterns
 - Rewriting by taste. Corrective: every change maps to an inventory row with a reason.

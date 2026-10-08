@@ -1,5 +1,7 @@
 ---
-name: documentation-retraction-ledger-engine
+name: docs-accuracy-review
+aliases:
+  - documentation-retraction-ledger-engine
 version: 4.0.0
 description: >-
   Use when documentation must be checked against the code and made trustworthy
@@ -8,8 +10,8 @@ description: >-
   them. Produces a doc-to-code parity table from executed commands and code
   lookups, a corrections ledger that records each falsified statement, and
   findings. Not for recomputing benchmark or performance numbers (use
-  empirical-claim-falsification-engine) or for packaging, paths and
-  dependency pins (use git-hygiene-portability-gate).
+  claim-check) or for packaging, paths and
+  dependency pins (use portability-review).
 brief: |
   Mission: make the documentation true and usable: every command works as written, every stated flag, default, environment variable and version matches the code, every claim is calibrated to evidence, and every correction is recorded.
   - Execute each documented command and snippet in a clean context (fresh clone or worktree, new virtual environment, project variables unset) and compare actual output and side effects with what the doc says. Skip destructive, paid or publishing commands and mark them not run with the reason.
@@ -38,9 +40,9 @@ activation_triggers:
     - documentation accuracy
     - stale screenshot
   do_not_use_when:
-    - A number in the docs needs independent recomputation or reproduction (use empirical-claim-falsification-engine, then record its result here).
-    - The problem is hardcoded paths, dependency pins or release packaging (use git-hygiene-portability-gate).
-    - The artifact is an interface whose visual craft is under review (use interface-craft-audit).
+    - A number in the docs needs independent recomputation or reproduction (use claim-check, then record its result here).
+    - The problem is hardcoded paths, dependency pins or release packaging (use portability-review).
+    - The artifact is an interface whose visual craft is under review (use ui-review).
 input_contract:
   requires_worktree: true
   required_inputs:
@@ -106,7 +108,7 @@ misses missing prerequisites, shell differences and output that changed.
    or `curl -sI`, when the network is permitted). Done when every image, diagram and
    link has a status.
 5. **Calibrate claims and language.** Mark each absolute or quantitative claim with its
-   evidence or its absence; route recomputation to empirical-claim-falsification-engine
+   evidence or its absence; route recomputation to claim-check
    and record the outcome. Rewrite only text that misleads or blocks the audience. Done
    when every claim has evidence, a calibrated rewrite, or a removal proposal.
 6. **Write the ledger.** One entry per corrected statement, with evidence and whether

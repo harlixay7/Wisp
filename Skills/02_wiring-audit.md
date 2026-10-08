@@ -1,5 +1,7 @@
 ---
-name: zero-trust-ast-wiring-verifier
+name: wiring-audit
+aliases:
+  - zero-trust-ast-wiring-verifier
 version: 4.0.0
 description: >-
   Use when auditing code that already exists, a module or a whole repository,
@@ -8,9 +10,9 @@ description: >-
   reachable in production, dead exports, swallowed errors, cross-module or
   cross-language type mismatches, and tests that never execute what they claim
   to cover. Produces a wiring map and a surface parity matrix. Not for judging
-  a specific diff before merge (use pre-merge-diff-audit), not for plans that
-  are not yet code (use adversarial-plan-hardening-engine), and not for
-  security exploitability (use runtime-security-vault-engine).
+  a specific diff before merge (use pre-merge-review), not for plans that
+  are not yet code (use plan-review), and not for
+  security exploitability (use security-review).
 brief: |
   Mission: establish, read-only, which features are really connected from entry point to effect, and which are half-wired, stubbed, dead or silently failing.
   - Inventory every ingress from manifests and launchers, not just source: console scripts, package bin and main fields, CLI parsers, HTTP routes, IPC and RPC channels, queue consumers, UI events, scheduled jobs, MCP tools.
@@ -40,9 +42,9 @@ activation_triggers:
     - swallowed error
     - import graph
   do_not_use_when:
-    - The subject is a specific change set awaiting merge (use pre-merge-diff-audit).
-    - The artifact is a plan or design with no code on disk (use adversarial-plan-hardening-engine).
-    - The question is whether data schemas, migrations or transactions are correct (use data-contract-state-integrity-engine).
+    - The subject is a specific change set awaiting merge (use pre-merge-review).
+    - The artifact is a plan or design with no code on disk (use plan-review).
+    - The question is whether data schemas, migrations or transactions are correct (use data-integrity-review).
 input_contract:
   requires_worktree: true
   required_inputs:

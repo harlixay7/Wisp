@@ -1,5 +1,7 @@
 ---
-name: empirical-claim-falsification-engine
+name: claim-check
+aliases:
+  - empirical-claim-falsification-engine
 version: 4.0.0
 description: >-
   Use when a quantitative claim must be checked before it is believed, merged
@@ -8,9 +10,9 @@ description: >-
   Produces a claim ledger that re-derives each number by reproduction or by
   first-principles bounds and rules it holds, false or unverifiable. Not for
   finding where time goes in a running system (use
-  telemetry-hardware-profiling-gate), for model or prompt quality evals (use
-  ai-eval-regression-engine), or for prose accuracy without numbers (use
-  documentation-retraction-ledger-engine).
+  performance-profiling), for model or prompt quality evals (use
+  ai-eval-review), or for prose accuracy without numbers (use
+  docs-accuracy-review).
 brief: |
   Mission: for every quantitative claim, decide whether the evidence supports it as stated, and recompute the number independently.
   - Pin each claim exactly: quantity, unit, statistic (mean, median, p99, best-of), workload, hardware, versions, and the baseline it is compared against. A claim missing its conditions is unverifiable as stated, not true.
@@ -39,9 +41,9 @@ activation_triggers:
     - reproduce benchmark
     - cost claim
   do_not_use_when:
-    - The question is where time or memory goes in a running system (use telemetry-hardware-profiling-gate).
-    - The numbers are model or prompt quality scores from an eval harness (use ai-eval-regression-engine).
-    - The text has no numbers and the concern is accuracy or tone of prose (use documentation-retraction-ledger-engine).
+    - The question is where time or memory goes in a running system (use performance-profiling).
+    - The numbers are model or prompt quality scores from an eval harness (use ai-eval-review).
+    - The text has no numbers and the concern is accuracy or tone of prose (use docs-accuracy-review).
 input_contract:
   requires_worktree: true
   required_inputs:
@@ -197,7 +199,7 @@ This derivation matrix lets the caller re-check the reasoning.
 - **Absolute numbers judged on different hardware.** Your laptop being slower does not falsify a server figure. Compare relative effects, and state the environment difference.
 - **Exempting your own measurements.** Your runs obey the same hygiene: warm-up, N, interval, interleaving. A single reviewer run cannot overturn a well-documented claim.
 - **Unit pedantry.** GB versus GiB matters when it changes a decision or exceeds the noise; otherwise it is one P3 line, not a finding per occurrence.
-- **Drifting into optimization.** This skill rules on claims. If the question becomes why the system is slow, say so and route to telemetry-hardware-profiling-gate.
+- **Drifting into optimization.** This skill rules on claims. If the question becomes why the system is slow, say so and route to performance-profiling.
 
 ## Done when
 

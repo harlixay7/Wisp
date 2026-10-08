@@ -1,4 +1,4 @@
-name: CI
+name: Tests
 
 on:
   push:
@@ -56,3 +56,33 @@ jobs:
 
       - name: Test suite (offline; never calls the real agy)
         run: pytest tests/ -q
+
+  setup:
+    # Runs the one-command setup from a clean checkout on every desktop OS,
+    # the way a new user would.
+    name: setup / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: setup.bat --no-pause --no-widget
+
+      - name: Set up (macOS / Linux)
+        if: runner.os != 'Windows'
+        run: ./setup.sh --no-widget
+
+      - name: Check the result
+        run: python tools/wisp_setup.py --check --no-widget

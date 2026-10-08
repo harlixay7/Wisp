@@ -1,5 +1,7 @@
 ---
-name: ai-eval-regression-engine
+name: ai-eval-review
+aliases:
+  - ai-eval-regression-engine
 version: 4.0.0
 description: >-
   Use when deciding whether a prompt, model, retrieval, tool or agent change is
@@ -9,9 +11,9 @@ description: >-
   runs with uncertainty, cost and latency, overfitting, and the promotion gate.
   Produces an eval plan matrix, a results table with confidence intervals and a
   promotion decision. Not for auditing prompt wording (use
-  prompt-context-engineering-audit), retrieval pipeline design (use
-  hybrid-rag-retrieval-grounding-engine), or hardware and throughput claims
-  (use empirical-claim-falsification-engine).
+  prompt-review), retrieval pipeline design (use
+  rag-review), or hardware and throughput claims
+  (use claim-check).
 brief: |
   Mission: decide a stated claim about a model-system change with quantified uncertainty, so the calling agent knows whether to ship, hold or reject.
   - Write the claim and decision rule before looking at results: primary metric, guardrail metrics that must not regress (format validity, safety, cost, latency), the minimum effect worth shipping, and a non-inferiority margin for "no regression" claims.
@@ -38,9 +40,9 @@ activation_triggers:
     - model migration
     - pass@k
   do_not_use_when:
-    - The prompt text itself needs review or rewriting (use prompt-context-engineering-audit).
-    - The change is to chunking, retrieval or reranking design rather than its measured outcome (use hybrid-rag-retrieval-grounding-engine).
-    - The numbers are throughput, FLOPs or hardware claims (use empirical-claim-falsification-engine).
+    - The prompt text itself needs review or rewriting (use prompt-review).
+    - The change is to chunking, retrieval or reranking design rather than its measured outcome (use rag-review).
+    - The numbers are throughput, FLOPs or hardware claims (use claim-check).
 input_contract:
   requires_worktree: true
   required_inputs:

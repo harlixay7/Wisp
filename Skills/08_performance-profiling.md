@@ -1,5 +1,7 @@
 ---
-name: telemetry-hardware-profiling-gate
+name: performance-profiling
+aliases:
+  - telemetry-hardware-profiling-gate
 version: 4.0.0
 description: >-
   Use when a system is slow, resource-hungry or regressing and the cause must
@@ -9,8 +11,8 @@ description: >-
   serialization cost, cold starts and tail latency. Produces a measurement
   plan, a profiler-backed hotspot table and changes with predicted effects and
   confirmation steps. Not for adjudicating numbers someone already published
-  (use empirical-claim-falsification-engine) or for model quality regressions
-  (use ai-eval-regression-engine).
+  (use claim-check) or for model quality regressions
+  (use ai-eval-review).
 brief: |
   Mission: find where time and resources actually go, prove it with profiler or trace evidence, and recommend changes whose effect can be confirmed.
   - Measure before optimizing. A proposed optimization whose target is not shown hot in a profile or trace is unsupported.
@@ -40,9 +42,9 @@ activation_triggers:
     - allocation profiling
     - cold start
   do_not_use_when:
-    - The task is checking whether a published or claimed number is true (use empirical-claim-falsification-engine).
-    - The regression is in model or prompt output quality rather than speed or resources (use ai-eval-regression-engine).
-    - The concern is retrieval relevance rather than retrieval latency (use hybrid-rag-retrieval-grounding-engine).
+    - The task is checking whether a published or claimed number is true (use claim-check).
+    - The regression is in model or prompt output quality rather than speed or resources (use ai-eval-review).
+    - The concern is retrieval relevance rather than retrieval latency (use rag-review).
 input_contract:
   requires_worktree: true
   required_inputs:

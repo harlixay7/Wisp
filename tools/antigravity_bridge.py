@@ -1,7 +1,7 @@
 """Harness-agnostic bridge for delegating adversarial review to Google Antigravity (agy).
 
-Agent 1 (any coding harness) calls this module, which spawns the Antigravity CLI
-as an independent reviewer. The bridge provides:
+The calling agent (any coding harness) uses this module to spawn the
+Antigravity CLI as an independent reviewer. The bridge provides:
 
 * binary resolution without hardcoded paths (system PATH first, then
   ``~/.gemini/bin``),
@@ -14,7 +14,7 @@ as an independent reviewer. The bridge provides:
 * retries for transient failures and failover to the fallback model when a
   rate limit is detected,
 * a single unabridged Markdown critique (see ``tools.antigravity_aggregate``)
-  plus every raw line surfaced to Agent 1.
+  plus every raw line surfaced to the calling agent.
 
 CLI::
 
@@ -49,19 +49,16 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tools.antigravity_aggregate import (
-    _DeltaBuffer as _DeltaBuffer,
     aggregate_stream_json,
     extract_review_verdict,
     render_review_verdict,
 )
 from tools.antigravity_containment import (
     _CREATE_SUSPENDED,
-    _INVALID_WINDOWS_HANDLE as _INVALID_WINDOWS_HANDLE,
     CONTAINMENT_LABELS,
     _assign_to_job_object,
     _close_job_object,
     _create_job_object,
-    _descendant_pids as _descendant_pids,
     _resume_primary_thread,
     _signal_process_group,
     _terminate_process_tree,
@@ -102,12 +99,12 @@ WISP_VERSION = "1.1.0"
 REPORT_SCHEMA_VERSION = 2
 DEFAULT_KEEP_REPORTS = 50
 
+# Longest prompt shown in the live feed's task entry; reports keep it whole.
+LIVE_TASK_PREVIEW_CHARS = 4000
 # CreateProcess caps the command line at 32,767 characters. An oversized
 # payload otherwise fails with a confusing "filename or extension is too long"
 # launch error, so fail early with an actionable message. The limit below
 # leaves headroom for argument quoting.
-# Longest prompt shown in the live feed's task entry; reports keep it whole.
-LIVE_TASK_PREVIEW_CHARS = 4000
 _WINDOWS_COMMAND_LINE_LIMIT = 30_000
 
 RATE_LIMIT_PATTERN = re.compile(
@@ -174,6 +171,9 @@ _ESSENTIAL_ENV_POSIX: tuple[str, ...] = (
 
 _POLL_INTERVAL_SECONDS = 0.05
 _READER_JOIN_TIMEOUT_SECONDS = 5.0
+QUOTA_HOOK_TIMEOUT_SECONDS = 300
+_AGY_VERSION_TIMEOUT_SECONDS = 15
+_GIT_COMMIT_TIMEOUT_SECONDS = 5
 
 # What subprocess.run raises for a program that cannot be started, a timeout,
 # or an argument containing a NUL byte.
@@ -206,7 +206,7 @@ def sanitize_environment(
     prepended to ``PATH`` (idempotently), and the Google OAuth token cache under
     ``~/.gemini`` remains untouched because it lives on disk, not in the
     environment. The full policy is enumerated in this module and mirrored in
-    ``AGENTS.md`` — treat it as hygiene hardening, not a security boundary.
+    ``SECURITY.md`` — treat it as hygiene hardening, not a security boundary.
     """
     raw: dict[str, str] = dict(base_env) if base_env is not None else dict(os.environ)
     home_path = Path(home) if home is not None else Path.home()
@@ -247,11 +247,22 @@ def sanitize_environment(
     return sanitized
 
 
+AGY_INSTALL_HINT = (
+    "Install the Google Antigravity CLI (https://antigravity.google) and sign in, "
+    "or pass --executable with the full path to agy."
+)
+
+
 def resolve_agy_executable(
     which: Callable[[str], str | None] | None = None,
     home: Path | None = None,
 ) -> str:
-    """Locates the ``agy`` executable without hardcoding machine-specific paths."""
+    """Locates the ``agy`` executable without hardcoding machine-specific paths.
+
+    Searches ``PATH``, then ``~/.gemini/bin``. When neither has it, returns the
+    bare name ``agy`` so a later launch fails with a "not found" error naming
+    the command; use :func:`executable_available` to test for that case.
+    """
     lookup = which or shutil.which
     found = lookup("agy")
     if found:
@@ -263,6 +274,19 @@ def resolve_agy_executable(
         if candidate.is_file():
             return str(candidate)
     return "agy"
+
+
+def executable_available(
+    executable: str, which: Callable[[str], str | None] | None = None
+) -> bool:
+    """True when ``executable`` (a bare command name or a path) can be launched."""
+    lookup = which or shutil.which
+    return bool(executable) and lookup(executable) is not None
+
+
+def missing_executable_warning(executable: str) -> str:
+    """The warning reported when the agy executable cannot be found."""
+    return f"Antigravity executable {executable!r} was not found. {AGY_INSTALL_HINT}"
 
 
 def is_rate_limited(text: str | None) -> bool:
@@ -303,11 +327,16 @@ def parse_reset_seconds(text: str | None) -> int | None:
     return total
 
 
-def extract_reset_text(text: str | None) -> str | None:
-    """Returns the human-readable reset fragment (e.g. ``1h 30m``) or ``None``."""
+def extract_reset_text(text: str | None, *, last: bool = False) -> str | None:
+    """Returns the human-readable reset fragment (e.g. ``1h 30m``) or ``None``.
+
+    The first notice wins by default; ``last=True`` picks the final one, which
+    is the most recent in an append-only log.
+    """
     if not text:
         return None
-    match = _RESET_PATTERN.search(text)
+    matches = list(_RESET_PATTERN.finditer(text)) if last else [_RESET_PATTERN.search(text)]
+    match = matches[-1] if matches else None
     if not match:
         return None
     return " ".join(match.group(1).split())
@@ -371,7 +400,7 @@ def run_quota_hook(command: str) -> tuple[bool, str]:
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=300,
+            timeout=QUOTA_HOOK_TIMEOUT_SECONDS,
             shell=True,
         )
         output = (proc.stdout or "") + (proc.stderr or "")
@@ -451,7 +480,7 @@ def normalize_mode(value: Any) -> str:
 
 @dataclass(frozen=True)
 class DelegationEnvelope:
-    """Structured input contract between Agent 1 and the Antigravity sub-agent.
+    """Structured input contract between the calling agent and the reviewer.
 
     ``mode`` tells the reviewer whether it may change the workspace: review
     (default) is read-only with changes proposed as diffs; implement lets it
@@ -474,6 +503,7 @@ class DelegationEnvelope:
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> DelegationEnvelope:
+        """Validates a parsed JSON envelope; raises ``ValueError`` when it is malformed."""
         if not isinstance(data, Mapping):
             raise ValueError("Delegation envelope must be a JSON object")
         prompt = str(data.get("prompt") or "").strip()
@@ -522,6 +552,7 @@ class BridgeConfig:
     executable: str | None = None
 
     def hard_timeout_seconds(self) -> int:
+        """Seconds after which the bridge kills agy: print timeout plus grace."""
         return max(int(self.print_timeout_seconds) + int(self.grace_seconds), 1)
 
     def resolved_workspace(self) -> Path:
@@ -1073,12 +1104,16 @@ def build_prompt_payload(config: BridgeConfig, skills: SkillSections | None = No
     return "\n".join(parts)
 
 
+REPORT_TITLE = "# Antigravity delegation report"
+
+
 def _failure_critique(message: str) -> str:
+    """The report for a delegation that failed before agy produced any output."""
     return "\n".join(
         [
-            "# ANTIGRAVITY ADVERSARIAL DELEGATION REPORT",
+            REPORT_TITLE,
             "",
-            "## DELEGATION FAILED BEFORE CRITIQUE",
+            "## Delegation failed before a critique was produced",
             "",
             message,
         ]
@@ -1100,7 +1135,7 @@ def agy_version(executable: str) -> str | None:
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=15,
+            timeout=_AGY_VERSION_TIMEOUT_SECONDS,
             shell=False,
         )
         text = (proc.stdout or proc.stderr or "").strip().splitlines()
@@ -1123,7 +1158,7 @@ def git_commit(repo_root: Path | None = None) -> str | None:
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=5,
+            timeout=_GIT_COMMIT_TIMEOUT_SECONDS,
             shell=False,
         )
         out = (proc.stdout or "").strip()
@@ -1209,7 +1244,7 @@ def render_critique(
     provenance: Mapping[str, Any] | None = None,
     review_verdict: Mapping[str, Any] | None = None,
 ) -> str:
-    """Builds the complete report Agent 1 ingests; raw streams live in attempts[].
+    """Builds the report the calling agent ingests; raw streams live in attempts[].
 
     A parsed verdict leads the report (right under the title) so the calling
     agent sees PASS / PASS_WITH_FIXES / BLOCK before the full critique.
@@ -1217,12 +1252,12 @@ def render_critique(
     final = attempts[-1]
     containment = CONTAINMENT_LABELS.get(final.containment, final.containment or "unknown")
     lines: list[str] = [
-        "# ANTIGRAVITY ADVERSARIAL DELEGATION REPORT",
+        REPORT_TITLE,
         "",
         f"- **Executable**: `{executable}`",
         f"- **Workspace mounted**: `{config.resolved_workspace()}`",
         f"- **Model chain**: {' -> '.join(attempt.model for attempt in attempts)}",
-        f"- **Failover engaged**: {'YES' if failover_used else 'NO'}",
+        f"- **Failover engaged**: {'yes' if failover_used else 'no'}",
         f"- **Mode**: {config.envelope.mode}",
         f"- **Verdict**: {'SUCCESS' if success else 'FAILED'} (exit code {final.exit_code})",
         f"- **Duration**: {final.duration_seconds:.2f}s",
@@ -1249,7 +1284,7 @@ def render_critique(
     if review_verdict is not None:
         lines[1:1] = ["", render_review_verdict(review_verdict)]
     for index, attempt in enumerate(attempts):
-        label = "PRIMARY" if index == 0 else f"ATTEMPT {index + 1}"
+        label = "primary" if index == 0 else f"attempt {index + 1}"
         lines += [
             "",
             f"## Antigravity Critique — `{attempt.model}` ({label})",
@@ -1588,8 +1623,8 @@ def run_bridge(config: BridgeConfig, launcher: LaunchFn | None = None) -> Bridge
                 attempt = _execute(model_name)
             except FileNotFoundError as exc:
                 launch_errors.append(
-                    f"Antigravity executable {executable!r} was not found: {exc}. "
-                    "Install the CLI or pass an explicit executable path."
+                    f"Antigravity executable {executable!r} was not found ({exc}). "
+                    f"{AGY_INSTALL_HINT}"
                 )
                 launch_exit_code = 127  # the shell convention for "command not found"
                 return "LAUNCH_ERROR"
@@ -1834,6 +1869,7 @@ def _prune_reports(report_dir: Path, keep: int, exclude: Path | None = None) -> 
 
 
 def _load_envelope(path: Path) -> tuple[DelegationEnvelope, dict[str, Any]]:
+    """Reads an envelope file; returns the envelope and the raw mapping for extra fields."""
     data = json.loads(path.read_text(encoding="utf-8-sig"))
     envelope = DelegationEnvelope.from_mapping(data)
     return envelope, data if isinstance(data, dict) else {}
@@ -2081,12 +2117,20 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _cmd_status(args: argparse.Namespace, workspace: Path) -> int:
-    """Prints bridge health as JSON; exits 2 when the skill registry is unusable."""
+    """Prints bridge health as JSON; exits 2 when the skill registry is unusable.
+
+    A missing agy executable is reported (``executable_found: false`` plus a
+    warning) but does not change the exit code: the bridge itself is healthy
+    and only the reviewer still needs installing.
+    """
     registry, fell_back, registry_error = _resolve_registry_for_cli(workspace, args.skill_dir)
+    executable = args.executable or resolve_agy_executable()
+    executable_found = executable_available(executable)
     status: dict[str, Any] = {
         "schema_version": REPORT_SCHEMA_VERSION,
         "wisp_version": WISP_VERSION,
-        "executable": resolve_agy_executable(),
+        "executable": executable,
+        "executable_found": executable_found,
         "workspace": str(workspace),
         "skill_registry": str(registry or args.skill_dir or workspace / DEFAULT_SKILL_DIR),
         "registry_fell_back": fell_back,
@@ -2108,31 +2152,39 @@ def _cmd_status(args: argparse.Namespace, workspace: Path) -> int:
         try:
             loader = SkillLoader(registry)
             skills = [skill.name for skill in loader.skills]
-            warnings = loader.warnings
+            warnings = list(loader.warnings)
         except SkillError as exc:
             status["skill_error"] = str(exc)
+    if not executable_found:
+        warnings.append(missing_executable_warning(executable))
     status["skills"] = skills
     status["warnings"] = warnings
     print(json.dumps(status, indent=2, ensure_ascii=False))
     return 2 if "skill_error" in status else 0
 
 
+def _stderr(level: str, message: str) -> None:
+    """Writes one ``<level>: <message>`` diagnostic line to stderr."""
+    print(f"{level}: {message}", file=sys.stderr)
+
+
 def _cmd_list_skills(args: argparse.Namespace, workspace: Path) -> int:
+    """Lists the registry's skills; exits 2 when the registry is unusable."""
     registry, fell_back, registry_error = _resolve_registry_for_cli(workspace, args.skill_dir)
     if registry is None:
-        print(f"[SKILL REGISTRY ERROR] {registry_error}", file=sys.stderr)
+        _stderr("error", f"skill registry: {registry_error}")
         return 2
     try:
         loader = SkillLoader(registry)
     except SkillError as exc:
-        print(f"[SKILL REGISTRY ERROR] {exc}", file=sys.stderr)
+        _stderr("error", f"skill registry: {exc}")
         return 2
     for skill in loader.skills:
         print(f"{skill.name} (v{skill.version}) [{skill.kind}]")
     if fell_back:
-        print(f"[SKILL] using shipped fallback registry at {registry}", file=sys.stderr)
+        _stderr("note", f"using the shipped fallback registry at {registry}")
     for warning in loader.warnings:
-        print(f"[SKILL WARNING] {warning}", file=sys.stderr)
+        _stderr("warning", warning)
     return 0
 
 
@@ -2142,10 +2194,10 @@ def _cmd_dry_run(config: BridgeConfig) -> int:
     try:
         plan = _plan_dispatch(config, workspace)
     except SkillError as exc:
-        print(f"[SKILL REGISTRY ERROR] {exc}", file=sys.stderr)
+        _stderr("error", f"skill registry: {exc}")
         return 2
     for warning in plan.warnings:
-        print(f"[BRIDGE WARNING] {warning}", file=sys.stderr)
+        _stderr("warning", warning)
     executable = config.executable or resolve_agy_executable()
     command = build_agy_command(
         executable,
@@ -2157,7 +2209,7 @@ def _cmd_dry_run(config: BridgeConfig) -> int:
     )
     argv_error = _check_windows_argv(command)
     if argv_error is not None:
-        print(f"[BRIDGE ERROR] {argv_error}", file=sys.stderr)
+        _stderr("error", argv_error)
         return 2
     print(
         json.dumps(
@@ -2180,14 +2232,21 @@ def _cmd_run(config: BridgeConfig, args: argparse.Namespace) -> int:
     """Runs the delegation, persists the report, and maps the outcome to an exit code."""
     result = run_bridge(config)
     for warning in result.warnings:
-        print(f"[BRIDGE WARNING] {warning}", file=sys.stderr)
+        _stderr("warning", warning)
 
+    workspace = config.resolved_workspace()
     try:
         report_path: str | None = str(
-            write_report(config.resolved_workspace(), result, keep_reports=args.report_keep)
+            write_report(workspace, result, keep_reports=args.report_keep)
         )
-    except OSError:
+    except OSError as exc:
         report_path = None
+        _stderr(
+            "warning",
+            f"could not write the JSON report under {workspace / '.antigravity-reports'}: "
+            f"{exc}. Make the workspace writable, or rerun with --json to capture the "
+            "full result on stdout.",
+        )
 
     if args.json:
         data = result.to_dict()
@@ -2197,9 +2256,9 @@ def _cmd_run(config: BridgeConfig, args: argparse.Namespace) -> int:
     else:
         print(result.critique_markdown)
         if result.error:
-            print(f"\n[BRIDGE ERROR] {result.error}", file=sys.stderr)
+            _stderr("error", result.error)
         if report_path:
-            print(f"[BRIDGE] Complete JSON report: {report_path}", file=sys.stderr)
+            _stderr("note", f"complete JSON report: {report_path}")
 
     if result.success:
         return 0
@@ -2208,6 +2267,7 @@ def _cmd_run(config: BridgeConfig, args: argparse.Namespace) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """CLI entry point; returns the process exit code."""
     parser = _build_parser()
     args = parser.parse_args(argv)
     workspace = Path(args.workspace).expanduser().resolve()

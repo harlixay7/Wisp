@@ -16,3 +16,4 @@
 *.webp binary
 *.gif binary
 *.svg text eol=lf
+*.sh text eol=lf

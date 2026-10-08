@@ -1,5 +1,7 @@
 ---
-name: agentic-tool-dag-orchestration-engine
+name: agent-workflow-review
+aliases:
+  - agentic-tool-dag-orchestration-engine
 version: 4.0.0
 description: >-
   Use when reviewing agent loops, tool or MCP server definitions, multi-step tool
@@ -8,9 +10,9 @@ description: >-
   termination, parallel calls, cancellation, context growth and approval gates.
   Produces a tool contract registry, a control-flow and budget matrix, a
   side-effect ledger and EARS orchestration requirements. Not for prompt
-  injection or secret exposure through tools (use runtime-security-vault-engine),
-  retrieval quality (use hybrid-rag-retrieval-grounding-engine), or database
-  transaction integrity (use data-contract-state-integrity-engine).
+  injection or secret exposure through tools (use security-review),
+  retrieval quality (use rag-review), or database
+  transaction integrity (use data-integrity-review).
 brief: |
   Mission: make sure the model can call these tools correctly, the runtime always stops, and every failure leaves the world in a known state.
   - Schemas: complete `required`, enums for closed sets, `additionalProperties: false`, stated defaults and units, and descriptions that say when to use this tool rather than its neighbours. Validate arguments server-side anyway.
@@ -42,9 +44,9 @@ activation_triggers:
     - agent handoff
     - approval gate
   do_not_use_when:
-    - The question is whether tool inputs or outputs can be abused by an attacker (route to runtime-security-vault-engine).
-    - The question is retrieval, chunking or grounding quality (route to hybrid-rag-retrieval-grounding-engine).
-    - The state at risk is database rows and transactions rather than agent workflow state (route to data-contract-state-integrity-engine).
+    - The question is whether tool inputs or outputs can be abused by an attacker (route to security-review).
+    - The question is retrieval, chunking or grounding quality (route to rag-review).
+    - The state at risk is database rows and transactions rather than agent workflow state (route to data-integrity-review).
 input_contract:
   requires_worktree: true
   required_inputs:
@@ -254,7 +256,7 @@ middleware and the cancellation path.
 - **Schema absolutism.** Rule: demand enums only for closed sets, and check strict
   mode compatibility before demanding schema changes.
 - **Security drift.** Rule: route injection and secret findings to
-  runtime-security-vault-engine.
+  security-review.
 
 ## Done when
 

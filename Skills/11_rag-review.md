@@ -1,5 +1,7 @@
 ---
-name: hybrid-rag-retrieval-grounding-engine
+name: rag-review
+aliases:
+  - hybrid-rag-retrieval-grounding-engine
 version: 4.0.0
 description: >-
   Use when reviewing or designing a retrieval-augmented system: ingestion and
@@ -8,9 +10,9 @@ description: >-
   freshness and deletion, query rewriting, context assembly, citations and
   abstention. Produces a pipeline map, a retrieval evaluation table on
   labeled queries and findings. Not for general LLM eval harness design or
-  prompt regression gates (use ai-eval-regression-engine), for agent tool
-  loops (use agentic-tool-dag-orchestration-engine), or for retrieval latency
-  profiling (use telemetry-hardware-profiling-gate).
+  prompt regression gates (use ai-eval-review), for agent tool
+  loops (use agent-workflow-review), or for retrieval latency
+  profiling (use performance-profiling).
 brief: |
   Mission: verify that the pipeline retrieves the right evidence, only evidence the requester may see, and that answers are faithful to what was retrieved, measured on labeled queries, not judged from a few answers.
   - Map every stage (loaders through citation) with its code location and parameters.
@@ -41,9 +43,9 @@ activation_triggers:
     - context assembly
     - query rewriting
   do_not_use_when:
-    - The task is building a general eval harness, golden set or prompt regression gate (use ai-eval-regression-engine).
-    - The concern is agent tool schemas, loops or orchestration (use agentic-tool-dag-orchestration-engine).
-    - The concern is retrieval or indexing speed rather than relevance (use telemetry-hardware-profiling-gate).
+    - The task is building a general eval harness, golden set or prompt regression gate (use ai-eval-review).
+    - The concern is agent tool schemas, loops or orchestration (use agent-workflow-review).
+    - The concern is retrieval or indexing speed rather than relevance (use performance-profiling).
 input_contract:
   requires_worktree: true
   required_inputs:
@@ -176,7 +178,7 @@ finding them plausible, and approving a pipeline whose recall nobody has measure
   labels the citation step can reference.
 - Untrusted content: retrieved text delimited and treated as data; instructions inside
   documents ("ignore previous instructions") must not change behavior. Flag the exposure
-  here and route deep analysis to runtime-security-vault-engine.
+  here and route deep analysis to security-review.
 
 **Grounding and evaluation**
 - Citations reference chunk IDs present in this request's context; answers cite at the

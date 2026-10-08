@@ -7,12 +7,14 @@ semantic per component with the bridge/server version as the product version
 
 Component versions are tracked together: bridge + MCP server + viewer move as
 one product version; the adversarial skill registry (`Skills/`) and the
-delegation skill (`.opencode/skills/antigravity-delegation/SKILL.md`) version
+delegation skill (`integrations/antigravity-delegation/SKILL.md`) version
 independently; the Electron shell versions with the viewer.
 
 ## [Unreleased]
 
 ### Fixed
+- A rejected widget-server POST drains its small request body before closing,
+  so Windows clients receive the error response instead of a connection reset.
 - A clean review that quotes text such as `RESOURCE_EXHAUSTED` is no longer
   misclassified as rate-limited; a clean exit whose only output is a quota
   message still fails over.
@@ -35,6 +37,25 @@ independently; the Electron shell versions with the viewer.
   NaN bounds.
 
 ### Changed
+- Documentation reorganized so each topic has one home. The delegation skill
+  moved from `.opencode/skills/` to `integrations/antigravity-delegation/`
+  (version 3.0.0): standard Agent Skills front matter, no setup material, the
+  same gates, request fields, routing table and reconciliation rules, with
+  the plain playbook names. `docs/integrations.md` replaces `AgentSkill.md`
+  as the setup guide, with Claude Code first, then Codex, `mcpServers`
+  clients (Cline, Cursor, Roo Code) and opencode, plus the MCP server's
+  environment variables, every command-line option and troubleshooting.
+  `AGENTS.md` now covers only work on this repository; the playbook format
+  moved to `CONTRIBUTING.md`, and the credential blocklist is documented in
+  `SECURITY.md` (a test checks it against the bridge).
+- Setup also prints how to install the delegation skill for Claude Code.
+- Review playbooks have plain names: `plan-review`, `wiring-audit`,
+  `claim-check`, `safe-implementation`, `data-integrity-review`,
+  `ai-eval-review`, `security-review`, `performance-profiling`,
+  `portability-review`, `docs-accuracy-review`, `rag-review`,
+  `agent-workflow-review`, `pre-merge-review`, `root-cause-investigation`,
+  `prompt-review`, `ui-review` and `design-second-opinion`. Each file lists
+  its previous name under `aliases`, so existing requests keep working.
 - Widget redesigned ("Glass Dock"): one frosted panel with the owl perched on
   its corner and a floating dock for views, the command palette, settings and
   window controls; plain-language status labels; a shared motion system
@@ -54,6 +75,14 @@ independently; the Electron shell versions with the viewer.
 - Tests are organized by subject with shared helpers; `pyproject.toml`
   replaces `ruff.toml` and the lint rule set is wider.
 - README rewritten; the example delegation is now synthetic.
+- Setup and MCP registration docs cover Windows, macOS and Linux, with a
+  table of what works and what is tested on each. MCP registrations use
+  absolute paths; the old `claude mcp add antigravity -- python
+  tools/antigravity_mcp_server.py` only worked from inside the Wisp folder.
+  `SECURITY.md` and the delegation playbook are
+  rewritten in plain language, and stale facts are corrected (skill counts,
+  retired verdict names, what a malformed skill file does, and that
+  `.antigravity-reports/` must be ignored in your own project).
 - Skill registry v4: all twelve playbooks rewritten to one authoring contract
   (Mission, Method, Checklist, Evidence standard, Severity guide,
   Skill-specific output, Anti-patterns, Done when), each with a standalone
@@ -67,12 +96,32 @@ independently; the Electron shell versions with the viewer.
 - Widget chat and hotkey asks without skills get short consultation rules
   instead of the review protocol, so a quick question gets a direct answer.
 
+### Removed
+- `AgentSkill.md`, superseded by `docs/integrations.md` and the delegation
+  skill.
+- The repository's `opencode.json` and its Windows launcher
+  `tools/antigravity_mcp.cmd`. They only worked on Windows and only inside
+  the Wisp folder; register the `.venv` Python and
+  `tools/antigravity_mcp_server.py` directly, as setup prints.
+
 ### Added
+- One setup for every OS: `setup.bat` (Windows) and `./setup.sh` (macOS and
+  Linux) find Python 3.10+ and run `tools/wisp_setup.py`. It creates `.venv`,
+  installs the pinned dependencies, validates the playbooks, finds `agy` (on
+  `PATH` or in `~/.gemini/bin`) and reports its version, installs the
+  Electron overlay with `npm ci` when Node.js 18+ is present (by default only
+  on Windows), and prints ready-to-paste MCP registrations for Claude Code,
+  Codex and `mcpServers` clients with the machine's absolute paths. Options:
+  `--check` (report only), `--dev` (test tools plus the suite), `--widget` /
+  `--no-widget`, `--recreate-venv`. It never elevates, installs nothing
+  globally and only writes `.venv/` and `tools/wisp_shell/node_modules/`.
+  CI runs it from a clean checkout on Windows, Ubuntu and macOS.
+- `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1).
 - `CONTRIBUTING.md`, issue and pull request templates, Dependabot, and
   `.editorconfig`.
-- Five new playbooks: `pre-merge-diff-audit`,
-  `root-cause-failure-investigation`, `prompt-context-engineering-audit`,
-  `interface-craft-audit` and `independent-design-second-opinion`.
+- Five new playbooks: `pre-merge-review`,
+  `root-cause-investigation`, `prompt-review`,
+  `ui-review` and `design-second-opinion`.
 - Envelope `mode` (`review`, the read-only default, or `implement`), also as
   `--mode` and the MCP `mode` parameter. A skill that requires write access
   warns when run in review mode.

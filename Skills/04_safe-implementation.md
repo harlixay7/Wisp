@@ -1,5 +1,7 @@
 ---
-name: zero-regression-surgical-implementation
+name: safe-implementation
+aliases:
+  - zero-regression-surgical-implementation
 version: 4.0.0
 description: >-
   Use when a confirmed defect must be fixed, a specified feature built, or
@@ -8,9 +10,9 @@ description: >-
   with fresh test, type-check and lint output. In review mode it produces the
   complete patch as unified diffs plus the exact test plan instead of editing.
   The only skill that changes code. Not for finding the cause of a failure
-  that is not yet understood (use root-cause-failure-investigation), not for
-  judging a finished diff (use pre-merge-diff-audit), and not for designing
-  the approach (use adversarial-plan-hardening-engine).
+  that is not yet understood (use root-cause-investigation), not for
+  judging a finished diff (use pre-merge-review), and not for designing
+  the approach (use plan-review).
 brief: |
   Mission: make the requirement true with the smallest change, proven by a test that failed before and passes after, with no regressions against a recorded baseline.
   - Mode: in implement mode, edit the workspace. In review mode (read-only), change nothing; deliver complete unified diffs that apply cleanly, the new tests in full, and the exact commands, validated in a throwaway copy if possible.
@@ -40,9 +42,9 @@ activation_triggers:
     - write code
     - apply findings
   do_not_use_when:
-    - The cause of the failure is not yet understood or two fixes have already failed (use root-cause-failure-investigation).
-    - The request is to review a completed change before merge (use pre-merge-diff-audit).
-    - The design or approach is still undecided (use adversarial-plan-hardening-engine first).
+    - The cause of the failure is not yet understood or two fixes have already failed (use root-cause-investigation).
+    - The request is to review a completed change before merge (use pre-merge-review).
+    - The design or approach is still undecided (use plan-review first).
 input_contract:
   requires_worktree: true
   write_access: required
@@ -124,7 +126,7 @@ reporting success from a test run that predates the final edit.
    new failures and the revert check fails as expected.
 7. Escalation rule. If two attempts to reach green on the same cause fail, stop.
    Revert speculative edits that did not help, keep the red test, and report the
-   attempts with their output, recommending root-cause-failure-investigation.
+   attempts with their output, recommending root-cause-investigation.
    Widening the diff in search of green is not allowed.
 8. Review mode variant. Perform steps 1 to 4 read-only. Produce the patch as unified
    diffs against the recorded revision and validate it in a disposable copy

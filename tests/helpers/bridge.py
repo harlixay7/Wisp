@@ -19,11 +19,13 @@ def make_skill_yaml(
     description: str = "A test skill.",
     brief: str | None = None,
     input_contract: dict[str, Any] | None = None,
+    aliases: list[str] | None = None,
 ) -> str:
     """Renders a complete skill definition; ``omit`` drops one mandatory field.
 
     ``brief`` adds the optional front-matter brief; ``input_contract``
-    replaces the default contract (e.g. to declare ``write_access``).
+    replaces the default contract (e.g. to declare ``write_access``);
+    ``aliases`` adds earlier names that still resolve to the skill.
     """
     fields: dict[str, Any] = {
         "name": name,
@@ -36,6 +38,8 @@ def make_skill_yaml(
     }
     if brief is not None:
         fields["brief"] = brief
+    if aliases is not None:
+        fields["aliases"] = aliases
     if omit:
         fields.pop(omit, None)
     lines = [f"kind: {kind}"]

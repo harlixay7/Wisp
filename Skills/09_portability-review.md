@@ -1,5 +1,7 @@
 ---
-name: git-hygiene-portability-gate
+name: portability-review
+aliases:
+  - git-hygiene-portability-gate
 version: 4.0.0
 description: >-
   Use when checking that a repository goes from a fresh clone to a passing
@@ -9,8 +11,8 @@ description: >-
   the tree and history, ignore-file gaps, CI matrix coverage, reproducible
   artifacts, licensing and tag hygiene. Produces a clone-to-green log, a
   portability matrix and findings. Not for exploitability of leaked secrets or
-  vulnerable dependencies (use runtime-security-vault-engine) or accuracy of
-  documentation beyond setup steps (use documentation-retraction-ledger-engine).
+  vulnerable dependencies (use security-review) or accuracy of
+  documentation beyond setup steps (use docs-accuracy-review).
 brief: |
   Mission: prove or disprove that a stranger can clone this repository and reach green tests on each supported platform using only what is documented, and that a release built from it is reproducible and clean.
   - Work from a fresh clone (or `git archive HEAD`) with a fresh environment, never the developer's working tree; run the documented setup literally and log every command, exit code and undocumented fix.
@@ -39,9 +41,9 @@ activation_triggers:
     - reproducible build
     - release tag
   do_not_use_when:
-    - The question is whether a leaked secret or vulnerable dependency is exploitable (use runtime-security-vault-engine).
-    - The README's claims about features or performance are under review rather than its setup steps (use documentation-retraction-ledger-engine).
-    - A failing test needs a code fix rather than an environment or packaging fix (use zero-regression-surgical-implementation).
+    - The question is whether a leaked secret or vulnerable dependency is exploitable (use security-review).
+    - The README's claims about features or performance are under review rather than its setup steps (use docs-accuracy-review).
+    - A failing test needs a code fix rather than an environment or packaging fix (use safe-implementation).
 input_contract:
   requires_worktree: true
   required_inputs:
@@ -104,7 +106,7 @@ An excellent result tells the calling agent exactly where a newcomer's first hou
 
 ### Tree and history
 - Largest current files: `git ls-tree -r -l HEAD | sort -k4 -n | tail -20`. Largest objects in all history: `git rev-list --objects --all | git cat-file --batch-check='%(objecttype) %(objectname) %(objectsize) %(rest)' | sort -k3 -n | tail -20`. Pack size: `git count-objects -vH`; use `git-sizer` when installed.
-- Secret patterns in history: `git log -p --all -G '<regex>'` for key prefixes and `BEGIN .* PRIVATE KEY`; deleted env and credential files via `git log --all --diff-filter=D --name-only`; gitleaks with `--log-opts=--all` when available. Record existence and location; exploitability and rotation belong to runtime-security-vault-engine.
+- Secret patterns in history: `git log -p --all -G '<regex>'` for key prefixes and `BEGIN .* PRIVATE KEY`; deleted env and credential files via `git log --all --diff-filter=D --name-only`; gitleaks with `--log-opts=--all` when available. Record existence and location; exploitability and rotation belong to security-review.
 - `git ls-files -ci --exclude-standard` lists tracked files that ignore rules now match (committed before the rule existed).
 - `.gitignore` coverage: virtual environments, dependency directories, build and dist outputs, caches, coverage, local env files (while keeping `.env.example` tracked), OS and editor files, report and log directories the tools write.
 - Git LFS: patterns in `.gitattributes` vs `git lfs ls-files`; a clone without LFS installed receives pointer files, so the docs must say so. Submodules: pinned commits reachable, URLs usable without SSH keys in CI.

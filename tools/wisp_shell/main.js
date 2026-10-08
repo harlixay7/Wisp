@@ -1,7 +1,27 @@
+// Electron shell that hosts the Wisp widget as a transparent desktop overlay.
+//
+// Started by tools/antigravity_viewer.py (open_electron_window), which passes
+// the widget URL in WISP_URL. Other environment variables:
+//   WISP_HOTKEY_ASK, WISP_HOTKEY_ASK_PROMPT  global hotkeys (accelerator syntax)
+//   WISP_CANVAS_W, WISP_CANVAS_H             transparent canvas size in pixels
+// Diagnostics (all write to the shell log in the OS temp directory):
+//   WISP_OPAQUE=1     opaque window resized per view instead of a fixed canvas
+//   WISP_DEBUG_BG     background colour of the opaque window
+//   WISP_NUDGE=1      force two repaints after load (compositor glitches)
+//   WISP_DIAG=1       log page errors and creature state 3 s after load
+//   WISP_CAPTURE=1    save window screenshots to the temp directory at 4 s and 9 s
+//   WISP_DEBUG_PORT   open a Chromium remote-debugging port (see below)
+
 const { app, BrowserWindow, globalShortcut, ipcMain, screen, session } = require("electron");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+
+// A positive integer from the environment, or `fallback` when unset or invalid.
+function envInt(name, fallback) {
+  const value = parseInt(process.env[name] || "", 10);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
 
 const WIDGET_URL = process.env.WISP_URL || "http://127.0.0.1:48477/";
 const MARGIN = 18;
@@ -10,13 +30,16 @@ const LOG_MAX_BYTES = 512 * 1024; // rotated in place; the shell log is diagnost
 // Fixed transparent canvas. It must hold the widget's tallest footprint (SIZES in
 // antigravity_viewer.html): 52 + 384 + 44 wide; the settings view with the
 // perched owl and its halo, the dock and shadow clearance is 624 tall.
-const CANVAS_W = parseInt(process.env.WISP_CANVAS_W || "480", 10);
-const CANVAS_H = parseInt(process.env.WISP_CANVAS_H || "624", 10);
+const CANVAS_W = envInt("WISP_CANVAS_W", 480);
+const CANVAS_H = envInt("WISP_CANVAS_H", 624);
+// Smallest window the opaque debug shell accepts from the page.
+const MIN_VIEW_W = 200;
+const MIN_VIEW_H = 160;
 const HOTKEY_ASK = process.env.WISP_HOTKEY_ASK || "Control+Alt+Q";
 const HOTKEY_ASK_PROMPT = process.env.WISP_HOTKEY_ASK_PROMPT || "Control+Alt+E";
 const CURSOR_FEED_MS = 33; // ~30 Hz is plenty for hover hit-testing
-const OPAQUE = process.env.WISP_OPAQUE === "1"; // debug: opaque, per-mode sized window
-const NUDGE = process.env.WISP_NUDGE === "1"; // debug: force repaints after load
+const OPAQUE = process.env.WISP_OPAQUE === "1";
+const NUDGE = process.env.WISP_NUDGE === "1";
 const ALLOWED_ORIGIN = (() => {
   try {
     return new URL(WIDGET_URL).origin;
@@ -35,6 +58,10 @@ function isWidgetUrl(url) {
 function fromWidget(event) {
   return !!(event && event.senderFrame && isWidgetUrl(event.senderFrame.url));
 }
+
+let win = null;
+let userPositioned = false;
+let cursorTimer = null;
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
@@ -93,10 +120,6 @@ function log(message) {
     /* logging is best effort */
   }
 }
-
-let win = null;
-let userPositioned = false;
-let cursorTimer = null;
 
 function startCursorFeed() {
   if (cursorTimer) return;
@@ -247,8 +270,8 @@ ipcMain.handle("wisp:set-view", (event, width, height) => {
   if (!Number.isFinite(Number(width)) || !Number.isFinite(Number(height))) {
     return false; // NaN from a misbehaving renderer must not reach setBounds
   }
-  const w = Math.max(200, Math.round(width));
-  const h = Math.max(160, Math.round(height));
+  const w = Math.max(MIN_VIEW_W, Math.round(width));
+  const h = Math.max(MIN_VIEW_H, Math.round(height));
   // The transparent shell keeps a fixed canvas and the page sizes its own
   // widget inside it; only the opaque debug window is resized per mode.
   if (!OPAQUE) return true;
@@ -338,8 +361,8 @@ ipcMain.handle("wisp:close", (event) => {
 
 if (gotSingleInstanceLock) {
   app.whenReady().then(() => {
-    // The widget needs no permissions beyond writing to the clipboard
-    // ("COPY LIVE DIR"); deny everything else, from every origin.
+    // The widget needs no permission beyond writing to the clipboard (its
+    // copy buttons); deny everything else, from every origin.
     session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
       const requester = (details && details.requestingUrl) || contents.getURL();
       callback(permission === "clipboard-sanitized-write" && isWidgetUrl(requester));

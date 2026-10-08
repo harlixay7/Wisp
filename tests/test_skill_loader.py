@@ -1,4 +1,4 @@
-"""Skill loader: YAML/Markdown parsing, validation, selection, directory resolution, and manifests."""
+"""Skill loader: YAML/Markdown parsing, validation, selection, and directory resolution."""
 
 from __future__ import annotations
 
@@ -60,14 +60,16 @@ ESCAPED_MARKDOWN_SKILL = (
 
 
 class TestSkillLoader:
-    def test_valid_registry_loads_and_renders(self, registry: Path) -> None:
+    def test_valid_registry_loads_and_selects(self, registry: Path) -> None:
         loader = SkillLoader(registry)
 
-        rendered = loader.render_selected(ALL_SELECTOR)
+        payloads = " ".join(
+            skill.instructions_payload for skill in loader.select(ALL_SELECTOR)
+        )
 
-        assert "CRASH_OPS_INSTRUCTIONS" in rendered
-        assert "AST_AUDIT_INSTRUCTIONS" in rendered
-        assert "TEMPLATE_ONLY_INSTRUCTIONS" not in rendered
+        assert "CRASH_OPS_INSTRUCTIONS" in payloads
+        assert "AST_AUDIT_INSTRUCTIONS" in payloads
+        assert "TEMPLATE_ONLY_INSTRUCTIONS" not in payloads
         assert loader.available() == [
             "crash_ops",
             "ast_audit",
@@ -226,32 +228,6 @@ class TestSkillDirResolution:
             resolve_skill_dir(tmp_path, tmp_path / "missing")
 
 
-class TestSkillManifest:
-    def test_manifest_is_metadata_only(self, registry: Path) -> None:
-        loader = SkillLoader(registry)
-
-        manifest = loader.render_manifest()
-
-        assert "## ADVERSARIAL SKILL REGISTRY MANIFEST" in manifest
-        for skill in loader.skills:
-            assert f"**{skill.name}**" in manifest
-            assert str(skill.source_path) in manifest
-            marker = skill.instructions_payload.strip()[:60]
-            assert marker not in manifest
-
-    def test_prompt_blocks_are_labeled(self, registry: Path) -> None:
-        loader = SkillLoader(registry)
-        skills = loader.select(["crash_ops"])
-
-        active = loader.render_prompt(skills, heading="## ACTIVE ADVERSARIAL SKILLS (MANDATORY)")
-        recommended = loader.render_prompt(
-            skills, heading="## RECOMMENDED ADVERSARIAL SKILLS (TASK-DEPENDENT)"
-        )
-
-        assert "## ACTIVE ADVERSARIAL SKILLS (MANDATORY)" in active
-        assert "## RECOMMENDED ADVERSARIAL SKILLS (TASK-DEPENDENT)" in recommended
-
-
 class TestSkillBriefs:
     def test_brief_is_parsed_and_stripped(self, tmp_path: Path) -> None:
         skill_dir = tmp_path / "Skills"
@@ -365,3 +341,53 @@ class TestCompactRendering:
 
         with pytest.raises(ValueError):
             render_skill_block(skill, "optional")
+
+
+class TestSkillAliases:
+    """Renamed skills keep resolving under their earlier names."""
+
+    @staticmethod
+    def _registry(tmp_path: Path, *files: tuple[str, str]) -> Path:
+        skill_dir = tmp_path / "Skills"
+        skill_dir.mkdir()
+        for file_name, text in files:
+            (skill_dir / file_name).write_text(text, encoding="utf-8")
+        return skill_dir
+
+    def test_alias_resolves_to_the_renamed_skill(self, tmp_path: Path) -> None:
+        skill_dir = self._registry(
+            tmp_path,
+            ("01_plan-review.yaml", make_skill_yaml("plan-review", aliases=["old-plan-engine"])),
+        )
+        loader = SkillLoader(skill_dir)
+
+        assert loader.load("OLD-PLAN-ENGINE").name == "plan-review"
+        selected = loader.select("old-plan-engine, plan-review")
+        assert [skill.name for skill in selected] == ["plan-review"]
+        assert loader.available() == ["plan-review"]
+
+    def test_alias_colliding_with_another_skill_name_fails(self, tmp_path: Path) -> None:
+        skill_dir = self._registry(
+            tmp_path,
+            ("01_a.yaml", make_skill_yaml("alpha", aliases=["beta"])),
+            ("02_b.yaml", make_skill_yaml("beta")),
+        )
+
+        with pytest.raises(SkillValidationError, match="Duplicate skill name or alias 'beta'"):
+            _ = SkillLoader(skill_dir).skills
+
+    def test_invalid_alias_is_rejected(self, tmp_path: Path) -> None:
+        skill_dir = self._registry(
+            tmp_path, ("01_a.yaml", make_skill_yaml("alpha", aliases=["has spaces"]))
+        )
+
+        with pytest.raises(SkillValidationError, match="invalid alias"):
+            _ = SkillLoader(skill_dir).skills
+
+    def test_every_shipped_skill_keeps_its_previous_name(self) -> None:
+        skills = SkillLoader(SHIPPED_SKILL_DIR).skills
+
+        assert all(skill.aliases for skill in skills)
+        for skill in skills:
+            for alias in skill.aliases:
+                assert SkillLoader(SHIPPED_SKILL_DIR).load(alias).name == skill.name

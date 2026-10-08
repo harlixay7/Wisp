@@ -1,5 +1,7 @@
 ---
-name: pre-merge-diff-audit
+name: pre-merge-review
+aliases:
+  - pre-merge-diff-audit
 version: 4.0.0
 description: >-
   Use when a change set (diff, branch, or pull request) is about to be declared
@@ -7,10 +9,10 @@ description: >-
   acceptance criteria for an independent bug hunt. Produces a change map, an
   acceptance-criteria coverage table, a test-adequacy assessment, and only
   those defects that have a concrete failure scenario. Not for whole-codebase
-  wiring audits of existing code (use zero-trust-ast-wiring-verifier), not for
-  writing or applying the fix (use zero-regression-surgical-implementation),
+  wiring audits of existing code (use wiring-audit), not for
+  writing or applying the fix (use safe-implementation),
   and not for reviewing a plan before code exists (use
-  adversarial-plan-hardening-engine).
+  plan-review).
 brief: |
   Mission: decide whether this exact change is safe to merge and actually meets its acceptance criteria.
   - Review the change that will merge: diff against the merge base, plus staged, unstaged and untracked files that changed code imports. Classify every changed file.
@@ -38,9 +40,9 @@ activation_triggers:
     - hunk review
     - change set
   do_not_use_when:
-    - There is no diff and the question is whether existing code is connected end to end (use zero-trust-ast-wiring-verifier).
-    - The change has failed to work two or more times and the cause is unknown (use root-cause-failure-investigation).
-    - The request is to write or apply the fix itself (use zero-regression-surgical-implementation).
+    - There is no diff and the question is whether existing code is connected end to end (use wiring-audit).
+    - The change has failed to work two or more times and the cause is unknown (use root-cause-investigation).
+    - The request is to write or apply the fix itself (use safe-implementation).
 input_contract:
   requires_worktree: true
   required_inputs:
@@ -170,7 +172,7 @@ Security-relevant shifts
   path segments joined without containment (note `Path(base) / "/abs"` discards
   `base`); bind address widened to `0.0.0.0`; secrets newly logged or passed via
   environment to children; `yaml.load` without a safe loader, `pickle` on external
-  data. Note the mechanism and route deep analysis to runtime-security-vault-engine.
+  data. Note the mechanism and route deep analysis to security-review.
 
 Config, flags and wiring of the change itself
 - A new flag or setting parsed but not plumbed to where it acts; defaults that
@@ -253,7 +255,7 @@ Verification runs
   input that produces the null, or move it to "Checked and cleared".
 - Re-litigating the design. Rule: audit the change against its criteria; if the
   approach itself is unsound, say so in one finding and route the redesign to
-  adversarial-plan-hardening-engine.
+  plan-review.
 - Demanding tests for trivial plumbing while missing the untested error path. Rule:
   rank test gaps by the severity of what an undetected regression would cost.
 - Blocking on missing criteria the caller never stated. Rule: mark inferred

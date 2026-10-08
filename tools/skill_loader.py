@@ -20,7 +20,6 @@ Run ``python -m tools.skill_loader --validate`` to validate a registry.
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
 import sys
@@ -235,6 +234,9 @@ class Skill:
     # Optional: third-party registries predate the field, so it is not part of
     # REQUIRED_FIELDS and an absent value falls back to the description.
     brief: str = field(default="", repr=False)
+    # Optional earlier names that still resolve to this skill, so renaming a
+    # skill does not break envelopes and harness configs that use the old name.
+    aliases: tuple[str, ...] = ()
 
     @property
     def stem(self) -> str:
@@ -328,6 +330,7 @@ def parse_skill_document(document: object, source_path: Path) -> Skill:
     if raw_brief is not None and not isinstance(raw_brief, str):
         raise SkillValidationError(f"{source_path}: 'brief' must be text")
     brief = (raw_brief or "").strip()
+    aliases = _parse_aliases(document.get("aliases"), source_path)
 
     return Skill(
         name=name,
@@ -340,7 +343,26 @@ def parse_skill_document(document: object, source_path: Path) -> Skill:
         source_path=source_path,
         kind=kind,
         brief=brief,
+        aliases=aliases,
     )
+
+
+def _parse_aliases(value: Any, source_path: Path) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    items = [value] if isinstance(value, str) else value
+    if not isinstance(items, (list, tuple)):
+        raise SkillValidationError(f"{source_path}: 'aliases' must be a name or a list of names")
+    aliases: list[str] = []
+    for item in items:
+        alias = str(item).strip()
+        if not _NAME_PATTERN.match(alias):
+            raise SkillValidationError(
+                f"{source_path}: invalid alias {alias!r}; expected {_NAME_PATTERN.pattern}"
+            )
+        if alias not in aliases:
+            aliases.append(alias)
+    return tuple(aliases)
 
 
 def _load_markdown_skill(raw_text: str, path: Path) -> Skill:
@@ -394,7 +416,7 @@ def load_skill_file(path: Path) -> Skill:
 
 
 class SkillLoader:
-    """Discovers, validates, resolves, and renders skills from a registry directory."""
+    """Discovers, validates and resolves skills from a registry directory."""
 
     def __init__(self, skill_dir: Path | str | None = None) -> None:
         self.skill_dir = Path(skill_dir) if skill_dir is not None else DEFAULT_SKILL_DIR
@@ -403,6 +425,7 @@ class SkillLoader:
 
     @property
     def skills(self) -> list[Skill]:
+        """Every valid skill in the registry; raises ``SkillError`` on a broken file."""
         if self._skills is None:
             self._skills = self._discover()
         return list(self._skills)
@@ -437,26 +460,31 @@ class SkillLoader:
                 )
                 continue
             skill = _parse_skill_text(raw_text, path)
-            prior = seen.get(skill.name)
-            if prior is not None:
-                raise SkillValidationError(
-                    f"Duplicate skill name {skill.name!r} in {path} "
-                    f"(already defined in {prior})"
-                )
-            seen[skill.name] = path
+            for identifier in (skill.name, *skill.aliases):
+                prior = seen.get(identifier.lower())
+                if prior is not None:
+                    raise SkillValidationError(
+                        f"Duplicate skill name or alias {identifier!r} in {path} "
+                        f"(already defined in {prior})"
+                    )
+                seen[identifier.lower()] = path
             skills.append(skill)
         return skills
 
     def available(self) -> list[str]:
+        """Names of every registered skill, in filename order."""
         return [skill.name for skill in self.skills]
 
     def load(self, identifier: str) -> Skill:
+        """Resolves one skill by name, alias or filename stem (case-insensitive)."""
         key = str(identifier).strip()
         if not key:
             raise SkillNotFoundError("Skill identifier must not be empty")
         lowered = key.lower()
         for skill in self.skills:
             if skill.name.lower() == lowered or skill.stem.lower() == lowered:
+                return skill
+            if any(alias.lower() == lowered for alias in skill.aliases):
                 return skill
         available = ", ".join(self.available()) or "(none)"
         raise SkillNotFoundError(
@@ -467,7 +495,7 @@ class SkillLoader:
         """Resolves a selector (``all``, a comma list, or a sequence) into skills.
 
         ``all`` selects every non-template skill sorted by filename. Explicit
-        identifiers resolve by skill name or filename stem and are de-duplicated
+        identifiers resolve by skill name, alias or filename stem and are de-duplicated
         while preserving request order. Templates are never auto-selected.
         """
         entries = self._normalize_selector(selector)
@@ -491,68 +519,6 @@ class SkillLoader:
         if isinstance(selector, str):
             return [part.strip() for part in selector.split(",") if part.strip()]
         return [str(part).strip() for part in selector if str(part).strip()]
-
-    def render_prompt(
-        self,
-        skills: Sequence[Skill],
-        heading: str | None = None,
-        note: str | None = None,
-    ) -> str:
-        """Renders selected skills with their full instruction bodies.
-
-        Kept for tooling that wants a self-contained document (it is not
-        size-bounded). The bridge does not use it: full bodies overflow the
-        Windows command line, so it sends :func:`render_skill_block` instead.
-        """
-        if not skills:
-            return ""
-        blocks = [
-            heading or "## ACTIVATED ADVERSARIAL SKILLS (REGISTRY-GOVERNED)",
-            note
-            or (
-                "The following domain skills are binding for this consultation. "
-                "Execute their operating procedures exactly; do not paraphrase them away."
-            ),
-        ]
-        for skill in skills:
-            triggers = ", ".join(skill.activation_triggers)
-            blocks.append(
-                f"### SKILL: {skill.name} (v{skill.version})\n"
-                f"{skill.description}\n\n"
-                f"Activation triggers: {triggers}\n\n"
-                f"Input contract: {json.dumps(dict(skill.input_contract), ensure_ascii=False, default=str)}\n\n"
-                f"Output contract: {json.dumps(dict(skill.output_contract), ensure_ascii=False, default=str)}\n\n"
-                f"#### Skill Instructions\n\n{skill.instructions_payload}"
-            )
-        return "\n\n".join(blocks).strip() + "\n"
-
-    def render_selected(self, selector: str | Sequence[str] | None) -> str:
-        return self.render_prompt(self.select(selector))
-
-    def render_manifest(self, skills: Sequence[Skill] | None = None) -> str:
-        """Full-metadata manifest of the registry (no instruction bodies).
-
-        Not used by the bridge, whose payload carries the much smaller
-        :func:`render_registry_index` instead.
-        """
-        entries = list(skills if skills is not None else self.skills)
-        if not entries:
-            return ""
-        lines = [
-            "## ADVERSARIAL SKILL REGISTRY MANIFEST",
-            (
-                "Complete metadata for every registered skill. If the task touches a "
-                "domain listed below that is not active or recommended, read that "
-                "skill's raw file (source path) in full and apply it."
-            ),
-            "",
-        ]
-        for skill in entries:
-            triggers = ", ".join(skill.activation_triggers)
-            lines.append(f"- **{skill.name}** (v{skill.version}) \u2014 {skill.description}")
-            lines.append(f"  - triggers: {triggers}")
-            lines.append(f"  - file: `{skill.source_path}`")
-        return "\n".join(lines)
 
 
 def _check_role(role: str) -> str:
@@ -616,11 +582,11 @@ def _main(argv: Sequence[str] | None = None) -> int:
     try:
         skills = loader.skills
     except SkillError as exc:
-        print(f"[SKILL REGISTRY ERROR] {exc}", file=sys.stderr)
+        print(f"error: skill registry: {exc}", file=sys.stderr)
         return 2
 
     for warning in loader.warnings:
-        print(f"[SKILL WARNING] {warning}", file=sys.stderr)
+        print(f"warning: {warning}", file=sys.stderr)
 
     if args.validate:
         print(f"OK: {len(skills)} skill definition(s) validated in {args.skill_dir}")

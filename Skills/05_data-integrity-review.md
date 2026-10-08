@@ -1,5 +1,7 @@
 ---
-name: data-contract-state-integrity-engine
+name: data-integrity-review
+aliases:
+  - data-contract-state-integrity-engine
 version: 4.0.0
 description: >-
   Use when a change touches database schemas, migrations, serialized formats
@@ -7,9 +9,9 @@ description: >-
   and the question is whether data stays correct across deploys, retries,
   concurrent writers and crashes. Produces a schema evolution matrix, a migration
   safety table, an invariant enforcement map and EARS data-contract requirements.
-  Not for general code wiring (use zero-trust-ast-wiring-verifier), attacking a
-  whole implementation plan (use adversarial-plan-hardening-engine), or agent and
-  tool orchestration state (use agentic-tool-dag-orchestration-engine).
+  Not for general code wiring (use wiring-audit), attacking a
+  whole implementation plan (use plan-review), or agent and
+  tool orchestration state (use agent-workflow-review).
 brief: |
   Mission: prove data stays correct through migrations, rolling deploys, retries, concurrent writers and crashes, on the engine and isolation level actually in use.
   - First pin the engine and version, the configured isolation level, and the driver's transaction mode; lock behaviour and anomalies depend on all three.
@@ -39,9 +41,9 @@ activation_triggers:
     - state transition
     - money precision
   do_not_use_when:
-    - The concern is whether code is reachable and wired, not data correctness (route to zero-trust-ast-wiring-verifier).
-    - The concern is agent loops, tool retries or multi-agent handoffs (route to agentic-tool-dag-orchestration-engine).
-    - The data change is one step of a broader plan that needs end-to-end attack (route to adversarial-plan-hardening-engine first).
+    - The concern is whether code is reachable and wired, not data correctness (route to wiring-audit).
+    - The concern is agent loops, tool retries or multi-agent handoffs (route to agent-workflow-review).
+    - The data change is one step of a broader plan that needs end-to-end attack (route to plan-review first).
 input_contract:
   requires_worktree: true
   required_inputs:

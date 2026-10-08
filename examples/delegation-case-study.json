@@ -1,7 +1,7 @@
 {
   "harness": "claude-code",
-  "skills": ["adversarial-plan-hardening-engine"],
-  "recommended_skills": ["data-contract-state-integrity-engine"],
+  "skills": ["plan-review"],
+  "recommended_skills": ["data-integrity-review"],
   "context": "Python 3.11 service. Jobs are stored in SQLite (WAL mode, one writer process) and executed by a pool of worker threads in src/jobs/worker.py. The current retry logic re-enqueues a failed job immediately with no limit. 212 tests pass at HEAD; verification gates are `pytest -q` and `ruff check src tests`. A previous attempt to add backoff with time.sleep() inside the worker blocked the whole pool and was reverted.",
   "prompt": "Review this plan before we implement it and tell us what will break.\n\nPLAN\n1. Add `attempts` (int, default 0) and `next_run_at` (UTC timestamp, nullable) columns to the `jobs` table via migration 0007.\n2. On failure, increment `attempts` and set `next_run_at = now + min(2 ** attempts, 300) seconds` with up to 20% jitter.\n3. Change the dequeue query to `WHERE status = 'queued' AND (next_run_at IS NULL OR next_run_at <= :now) ORDER BY next_run_at NULLS FIRST, id LIMIT 1`.\n4. After 8 attempts, move the job to status 'dead' and emit a `job.dead` event.\n5. Remove the old immediate re-enqueue path in `Worker._on_failure`.\n\nWHAT WE NEED\n- Any way a job can run twice, never run again, or starve other jobs.\n- Whether the migration is safe on a live database with workers running.\n- The order in which to land these changes so every step is independently shippable.\n\nGround every finding in a file path and line range, or in a command you ran. If a claim below holds, say so and show the evidence.",
   "claims_to_falsify": [

@@ -144,7 +144,7 @@ class TestRegistryGovernance:
             for doc in _documents().values()
             if (doc.get("input_contract") or {}).get("write_access") == "required"
         )
-        assert writers == ["zero-regression-surgical-implementation"]
+        assert writers == ["safe-implementation"]
 
     def test_skills_defer_to_the_shared_protocol(self) -> None:
         """The bridge sends the review protocol once; skills must not restate it."""

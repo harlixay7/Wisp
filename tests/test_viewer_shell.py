@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 import threading
 import types
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -124,3 +125,31 @@ class TestShellHelpers:
 
     def test_viewer_uses_the_shell_module(self) -> None:
         assert antigravity_viewer.open_native_window is viewer_shell.open_native_window
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX Electron layouts")
+class TestElectronExecutable:
+    def _install(self, root: Path, *parts: str) -> Path:
+        binary = root.joinpath("node_modules", "electron", "dist", *parts)
+        binary.parent.mkdir(parents=True)
+        binary.write_text("", encoding="utf-8")
+        return binary
+
+    def test_finds_the_macos_app_bundle(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        binary = self._install(tmp_path, "Electron.app", "Contents", "MacOS", "Electron")
+        monkeypatch.setattr(viewer_shell, "SHELL_DIR", tmp_path)
+        monkeypatch.setattr(viewer_shell.sys, "platform", "darwin")
+        assert viewer_shell.electron_executable() == binary
+
+    def test_finds_the_linux_binary(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        binary = self._install(tmp_path, "electron")
+        monkeypatch.setattr(viewer_shell, "SHELL_DIR", tmp_path)
+        monkeypatch.setattr(viewer_shell.sys, "platform", "linux")
+        assert viewer_shell.electron_executable() == binary
+
+    def test_missing_shell_is_none(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(viewer_shell, "SHELL_DIR", tmp_path)
+        monkeypatch.setattr(viewer_shell.sys, "platform", "darwin")
+        assert viewer_shell.electron_executable() is None

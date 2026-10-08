@@ -1,5 +1,7 @@
 ---
-name: runtime-security-vault-engine
+name: security-review
+aliases:
+  - runtime-security-vault-engine
 version: 4.0.0
 description: >-
   Use when reviewing code, services, CLIs, local servers, MCP servers or
@@ -8,9 +10,9 @@ description: >-
   escape, crypto misuse, supply-chain exposure, and over-privileged agents.
   Produces a threat-model-driven review with a trust-boundary map, attack paths
   and minimal fixes. Not for prompt wording quality (use
-  prompt-context-engineering-audit), tool-schema or DAG correctness (use
-  agentic-tool-dag-orchestration-engine), or clone and release hygiene (use
-  git-hygiene-portability-gate).
+  prompt-review), tool-schema or DAG correctness (use
+  agent-workflow-review), or clone and release hygiene (use
+  portability-review).
 brief: |
   Mission: report only vulnerabilities an attacker can actually reach, ranked by exploitability and impact, each with the smallest fix that closes the path.
   - Threat model first: state the deployment model and attacker profiles, then list every attacker-controlled input (requests, files, IPC, CLI args, tool results, retrieved documents, model output) and the sinks it reaches. No reachable source, no finding.
@@ -39,9 +41,9 @@ activation_triggers:
     - supply chain attack
     - prompt injection
   do_not_use_when:
-    - The question is whether a prompt or charter is well written rather than whether its tools are dangerous (use prompt-context-engineering-audit).
-    - The concern is tool-schema validity, DAG cycles or step budgets (use agentic-tool-dag-orchestration-engine).
-    - The concern is reproducible setup, lockfile drift or tree hygiene without an attacker in the picture (use git-hygiene-portability-gate).
+    - The question is whether a prompt or charter is well written rather than whether its tools are dangerous (use prompt-review).
+    - The concern is tool-schema validity, DAG cycles or step budgets (use agent-workflow-review).
+    - The concern is reproducible setup, lockfile drift or tree hygiene without an attacker in the picture (use portability-review).
 input_contract:
   requires_worktree: true
   required_inputs:

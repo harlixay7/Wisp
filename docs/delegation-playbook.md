@@ -1,113 +1,155 @@
-# Delegation Payload Guide
+# Writing a good review request
 
-How to construct review delegations that get the **most** out of the Antigravity
-bridge: independent second opinions on design decisions *alongside* adversarial
-verification of claims.
+A Wisp review is only as useful as the request behind it. "Review my code"
+gets you a polite skim. A request that says what was decided, what must not
+change and which claims to test gets you findings you can act on. This guide
+shows how to write the second kind. It applies whether your coding assistant
+sends the request through the MCP tool or you run the command line yourself.
 
-> **Privacy convention:** documents in this repo carry **no machine-specific
-> absolute paths, usernames, or system identifiers**. Real paths are injected at
-> delegation time by the requesting agent (`workspace` field); examples use
-> `<wisp-repo>` placeholders.
+The exact fields and limits are in the
+[delegation skill](../integrations/antigravity-delegation/SKILL.md#2-writing-the-request),
+and the command-line options in [integrations.md](integrations.md#command-line).
+This page is about what to put in them.
 
----
+## 1. What to send to the reviewer, and what to keep
 
-## 1. When to delegate at all (comparative advantage)
+The reviewer is a second model with no stake in your plan. That independence
+is what you're paying for, so spend it on judgment rather than chores your
+assistant can do itself.
 
-Delegate **judgment**, never mechanical work the main agent can do cheaper:
+| Send it to the reviewer | Keep it with your assistant |
+| --- | --- |
+| A second opinion on decisions your assistant made alone | Running tests, linters and compile checks |
+| Testing claims the plan depends on | Reading files your assistant already has open |
+| "What should we ask the user before building this?" | Mechanical scans (searches, AST or contract checks) |
+| Alternative designs worth considering | Applying patches |
+| Checking that finished work is really wired up | Anything that needs the assistant's conversation history |
 
-| Delegate to Antigravity | Keep local |
-|---|---|
-| Second opinion on design decisions the agent made alone | Running test suites, linters, compile checks |
-| Adversarial falsification of load-bearing claims | Grepping / reading files already in the agent's context |
-| "What would you ask the user?" clarify-stage mining | Deterministic scans (AST, regex, contract checks) |
-| Alternative designs / architectures worth considering | Applying patches (the main agent implements) |
-| Pre-completion wiring audits | Anything needing the agent's accumulated session context |
+A request that only says "run the tests" pays for a consultant and gets a
+shell script.
 
-Rationale: a second model's unique value is **independence** (no sunk cost in the
-plan it's reviewing), **different priors**, and **a stance that isn't
-self-directed**. A delegation that only asks it to "run the tests" pays consultant
-rates for a shell script.
+## 2. The parts of a request
 
-## 2. The payload anatomy (apply in this order — cache-friendly)
+Every field except `prompt` is optional, but each one makes the answer
+sharper. Write them in this order:
 
-1. **`skills`** — name the registry skill(s) explicitly. Never tell the
-   reviewer to ignore the registry; that silently disables every skill.
-2. **`workspace`** — the repo root the artifacts resolve against.
-3. **`context`** — machine-readable environment facts: OS, verification gates,
-   event/render model, known landmines. Facts only, no instructions.
-4. **`prompt`** — the engagement itself, structured as:
-   - `ROLE & OBJECTIVE` — independent second-opinion reviewer + adversarial
-     auditor; state explicitly that disagreement is expected and that
-     `ADOPT_MINE` without justification counts as *unreviewed*.
-   - `PHASE 0: REVIEW READ` — mandatory one-line pre-flight + calibration dials
-     (`OPINION_WEIGHT`, `ADVERSARIAL_DEPTH`, `REPORT_COMPRESSION`).
-   - `EVIDENCE & CONTEXT RULES` — scratchpad-first (format tax), targeted seam
-     reading (never bulk-dump big files), untrusted-content quarantine,
-     read-only engagement.
-   - `<user_complaints>` — the product owner's complaints **verbatim**.
-   - `<expectations>` — what "done" means per complaint.
-   - `<immutable_constraints>` — what is genuinely fixed (user demands, test
-     couplings) and may not be challenged.
-   - `<risk_appetite>` — behavioral vs cosmetic vs structural risk tiers.
-   - `<open_decisions>` — the scope that is **deliberately not locked**: each
-     decision as `PLANNED | AGENT PREFERENCE | ALTERNATIVES CONSIDERED |
-     CONFIDENCE | WHAT WOULD CHANGE MY MIND`.
-   - Project ground truth + the plan itself (full mechanics).
-   - `MODE A` asks (design verdicts + alternatives + user-question queue) and
-     `MODE B` asks (regression vectors + claim falsification).
-   - `<return_contract>` — the exact output sections with enums.
-5. **`claims_to_falsify`** — specific, mechanical, individually testable claims
-   with the expected evidence named. An unfalsified claim is UNTESTED, not true.
-6. **`artifacts`** — exact `file:line` seams. This is the single highest-leverage
-   field: it converts the review from "re-derive my repo" to "check these seams".
+1. **`skills`**: the playbook to follow, such as `plan-review` or
+   `pre-merge-review`, plus up to three in `recommended_skills` when the task
+   touches their area. The [README](../README.md#review-playbooks) lists all
+   seventeen. Don't tell the reviewer to ignore the playbooks; leave `skills`
+   out instead.
+2. **`context`**: facts about the environment, not instructions. The
+   language and versions, how you verify changes (`pytest -q`,
+   `ruff check`), known traps, and what was already tried and failed.
+3. **`prompt`**: the request itself. Section 3 describes what to put in it.
+4. **`claims_to_falsify`**: specific statements the reviewer should try to
+   prove wrong, one per item, each testable on its own. "Two workers can
+   never claim the same job" is good. "The code is correct" is not.
+5. **`artifacts`**: the exact files and line ranges to read first, such as
+   `src/jobs/worker.py:40-180`. This field does the most for the least
+   effort: it turns "work out how my repository fits together" into "check
+   these places".
 
-## 3. Scope locking — the tiered rule
+`workspace`, `mode` and `notes` exist too; the skill explains when they
+matter.
 
-Never present the whole plan as immutable; never present it as all-open. Partition:
+## 3. What to put in the prompt
 
-- **Immutable** — only what is *actually* fixed: explicit user demands
-  ("preserve every handler"), test-pinned strings, packaging constraints.
-- **Open** — every decision the agent made on its own authority. Mark confidence
-  and the falsifier ("what would change my mind") so the reviewer spends its
-  attention where it changes outcomes.
-- **Suggested** — improvements *beyond* the plan are explicitly welcome
-  (Recommendation Registry, capped at 5, ranked, each tied to a complaint).
+For a short question, a few sentences are enough. For a plan or a large
+change, these sections help:
 
-## 4. The return contract (machine-checkable)
+- **The goal and what you want back.** For example: "Review this plan before
+  we build it. Tell us how it breaks, and where you would do it differently."
+  Say that disagreement is welcome.
+- **The user's words.** Quote the request or complaint as the user wrote it.
+  Paraphrases lose the detail the reviewer needs.
+- **What "done" means.** One line per requirement.
+- **What can't change.** Only what is really fixed: an explicit user demand,
+  a string a test depends on, a packaging constraint.
+- **What is still open.** Every decision your assistant made on its own. See
+  section 4.
+- **The plan itself, in full.** Don't make the reviewer reconstruct it from
+  a 4,000-line file.
+
+## 4. Lock only what is really fixed
+
+Never present the whole plan as fixed, and never present it as completely
+open. Split it three ways:
+
+- **Fixed**: only things you can't change, as listed above.
+- **Open**: every decision your assistant made on its own authority. For
+  each one, give the plan, the preferred option, the alternatives considered,
+  how confident you are, and what would change your mind. That last item
+  tells the reviewer where its attention changes the outcome.
+- **Suggestions welcome**: say that improvements beyond the plan are fine,
+  but ask for a short ranked list (five at most), each tied to a requirement.
+
+If you mainly want an independent design rather than an attack on yours, use
+`design-second-opinion`. It compares options, recommends one and
+lists the questions to put to the user.
+
+## 5. What comes back
+
+Wisp sends the reviewer one shared set of rules with every request, so every
+answer has the same shape:
+
+- the playbook's own sections first (for plan hardening, for example: a
+  premise table, a failure-mode list, requirements and a build order);
+- then one block per finding, headed like `### F-001 · P1 · high · <category>`,
+  with where it is, what's wrong, the evidence, a failure scenario, a fix and
+  how to verify the fix;
+- then a short "checked and cleared" list;
+- and last, a verdict block that Wisp reads into `review_verdict`:
 
 ```
-1. <review_scratchpad>
-2. Review Read line
-3. Design Verdicts      | Decision | ADOPT_MINE / PREFER_ALTERNATIVE / NEEDS_USER_FIRST | Alternative | Rationale |
-4. Recommendation Registry (max 5, ranked, complaint-tagged)
-5. User-Question Queue  (top 3, multiple-choice, recommended default)
-6. Claim Falsification  | Claim | VERIFIED / DEFECTIVE / FATAL / UNTESTED | Evidence | Margin |
-7. Failure Registry     | FL-ID | Failure | Trigger | Blast Radius | EARS mitigation |
-8. Final Verdict        PLAN_SOUND | PLAN_SOUND_WITH_AMENDMENTS | REDESIGN_RECOMMENDED
+<<<WISP_VERDICT
+verdict: PASS | PASS_WITH_FIXES | BLOCK
+confidence: high | medium | low
+summary: <one or two sentences>
+counts: P0=<n> P1=<n> P2=<n> P3=<n>
+must_fix: <finding IDs, or none>
+WISP_VERDICT>>>
 ```
 
-After the delegation returns, the main agent: adopts `PREFER_ALTERNATIVE` items
-it agrees with (its call, with the reviewer's rationale), routes
-`NEEDS_USER_FIRST` items to the user as real questions, and only then proceeds —
-re-running a hardening pass if the plan changed materially.
+You can ask for extra sections in your prompt, such as a per-decision table
+(keep mine / prefer the alternative / ask the user first) or a short list of
+questions for the user. They appear before the findings. Don't ask for a
+different final verdict: the verdict block always comes last, and a review
+without it counts as incomplete.
 
-## 5. Efficiency rules
+## 6. After the review
 
-- **One delegation, two modes.** Mode A (opinion) and Mode B (verification) in a
-  single payload with separated return sections — one round trip, no diluted
-  attention (the dials + sectioned contract keep the modes from bleeding).
-- **Ground truth travels with the payload.** The plan text is included in full so
-  the reviewer reads it instead of re-deriving it from a 4,661-line file.
-- **Cap the open-ended surface.** Alternatives are "one per decision",
-  recommendations "max 5" — divergence without runaway scope.
-- **Artifact precision over volume.** 20 exact seams beat 200 vague pointers.
+Your assistant should answer every finding: accepted with a fix, or rejected
+with evidence such as a file and line, command output or a recalculation. "I
+think it's fine" doesn't count. Questions meant for the user go to the user
+before any building starts. If the plan changes a lot, send the changed parts
+for another review and mention the earlier one. The exact rules are in
+[section 6 of the delegation skill](../integrations/antigravity-delegation/SKILL.md#6-answering-every-finding).
 
-## 6. Ready-to-use example
+## 7. Keeping requests efficient
 
-`examples/delegation-case-study.json` is a complete request built with this
-playbook: a plan to add retry backoff to a job queue, the context the reviewer
-needs, three falsifiable claims, the exact files to read, and an explicit skill
-selection.
+- **Ask for opinions and checks together.** Design feedback and claim
+  testing fit in one request with separate sections, so you only make one
+  round trip.
+- **Send the plan with the request.** Include the plan text in full so the
+  reviewer reads it instead of reconstructing it.
+- **Put limits on open questions.** One alternative per decision, five
+  suggestions at most. That keeps the answer broad without letting it sprawl.
+- **Prefer precise artifacts to many.** Twenty exact line ranges beat two
+  hundred vague pointers.
+- **Watch the size on Windows.** The request travels on the command line,
+  which Windows limits. Move long material into files and list them as
+  artifacts.
 
-**Rule reminder:** never place non-skill files in `<wisp-repo>/Skills/` —
-every `.md` there must carry YAML frontmatter or the whole registry empties.
+## 8. A worked example
+
+[`examples/delegation-case-study.json`](../examples/delegation-case-study.json)
+is a complete request: a plan to add retry backoff to a job queue, the
+context the reviewer needs (including a failed earlier attempt), three claims
+to test, the exact files to read, a primary and a recommended playbook, and a
+note asking for the smallest change. Try it with `--dry-run` to see exactly
+what would be sent:
+
+```bash
+python tools/antigravity_bridge.py --envelope examples/delegation-case-study.json --dry-run
+```

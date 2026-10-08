@@ -1,4 +1,12 @@
-param([string]$Path, [int]$TimeoutSec = 120)
+param(
+  [Parameter(Mandatory = $true)][string]$Path,
+  [int]$TimeoutSec = 120
+)
+# Waits for a new image on the clipboard (the result of a screen snip) and
+# saves it to $Path as PNG. An image already on the clipboard when the script
+# starts is ignored, so a stale copy is never mistaken for the snip.
+# Exit codes: 0 = saved, 1 = no new image before the timeout, 2 = error, with
+# the reason on stderr.
 $ErrorActionPreference = "Stop"
 try {
   Add-Type -AssemblyName System.Windows.Forms
@@ -10,12 +18,15 @@ try {
         $img = [System.Windows.Forms.Clipboard]::GetImage()
         if ($img) {
           $stream = New-Object System.IO.MemoryStream
-          $img.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
-          $img.Dispose()
           $sha = [System.Security.Cryptography.SHA1]::Create()
-          $hash = [System.BitConverter]::ToString($sha.ComputeHash($stream.ToArray()))
-          $stream.Dispose()
-          return $hash
+          try {
+            $img.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
+            return [System.BitConverter]::ToString($sha.ComputeHash($stream.ToArray()))
+          } finally {
+            $img.Dispose()
+            $sha.Dispose()
+            $stream.Dispose()
+          }
         }
       }
     } catch { }
@@ -26,20 +37,21 @@ try {
     if ([System.Windows.Forms.Clipboard]::ContainsImage()) {
       $image = [System.Windows.Forms.Clipboard]::GetImage()
       if ($image) {
-        $dir = Split-Path -Parent $target
-        if ($dir -and -not (Test-Path -LiteralPath $dir)) {
-          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        try {
+          $dir = Split-Path -Parent $target
+          if ($dir -and -not (Test-Path -LiteralPath $dir)) {
+            New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          }
+          $image.Save($target, [System.Drawing.Imaging.ImageFormat]::Png)
+          return $true
+        } finally {
+          $image.Dispose()
         }
-        $image.Save($target, [System.Drawing.Imaging.ImageFormat]::Png)
-        $image.Dispose()
-        return $true
       }
     }
     return $false
   }
 
-  # Guards against stale clipboard images: only accept an image that differs
-  # from whatever was already on the clipboard before the snip started.
   $previousHash = Get-ClipboardImageHash
   $deadline = (Get-Date).AddSeconds($TimeoutSec)
   while ((Get-Date) -lt $deadline) {
@@ -51,5 +63,6 @@ try {
   }
   exit 1
 } catch {
+  [System.Console]::Error.WriteLine($_.Exception.Message)
   exit 2
 }

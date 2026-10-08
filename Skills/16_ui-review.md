@@ -1,5 +1,7 @@
 ---
-name: interface-craft-audit
+name: ui-review
+aliases:
+  - interface-craft-audit
 version: 4.0.0
 description: >-
   Use when a UI change, screenshot set or running page needs review for craft
@@ -8,9 +10,9 @@ description: >-
   responsiveness, and consistency with the existing design system. Produces a
   one-line design read, a screen-by-screen review table backed by renders and
   measurements, and findings with concrete CSS or markup fixes. Not for
-  documentation text accuracy (use documentation-retraction-ledger-engine),
-  rendering performance (use telemetry-hardware-profiling-gate), or UI code
-  wiring and dead handlers (use zero-trust-ast-wiring-verifier).
+  documentation text accuracy (use docs-accuracy-review),
+  rendering performance (use performance-profiling), or UI code
+  wiring and dead handlers (use wiring-audit).
 brief: |
   Mission: judge whether the interface is well crafted and usable for its intended audience, with evidence from the rendered result, and return fixes as concrete CSS or markup.
   - Start with a one-line design read: product, audience, primary task, visual register, brand constraints. Judge every choice against it, not against a universal taste list.
@@ -41,9 +43,9 @@ activation_triggers:
     - interface polish
     - responsive layout
   do_not_use_when:
-    - The concern is whether documentation or help text is accurate (use documentation-retraction-ledger-engine).
-    - The concern is frame rate, long tasks or rendering cost (use telemetry-hardware-profiling-gate).
-    - The concern is whether UI handlers and components are wired to real code paths (use zero-trust-ast-wiring-verifier).
+    - The concern is whether documentation or help text is accurate (use docs-accuracy-review).
+    - The concern is frame rate, long tasks or rendering cost (use performance-profiling).
+    - The concern is whether UI handlers and components are wired to real code paths (use wiring-audit).
 input_contract:
   requires_worktree: false
   required_inputs:

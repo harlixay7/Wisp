@@ -6,9 +6,26 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 dependencies = ["PyYAML==6.0.3"]
+authors = [{ name = "Wisp contributors" }]
+keywords = ["code-review", "mcp", "ai-agents", "antigravity", "developer-tools"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Software Development :: Quality Assurance",
+]
+
+[project.urls]
+Homepage = "https://github.com/harlixay7/Wisp"
+Issues = "https://github.com/harlixay7/Wisp/issues"
+Changelog = "https://github.com/harlixay7/Wisp/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
-# Mirrors requirements-dev.txt, which setup.bat and CI install from.
+# Mirrors requirements-dev.txt, which the setup script (--dev) and CI install from.
 dev = ["pytest==9.1.1", "ruff==0.14.4"]
 
 [tool.pytest.ini_options]

@@ -1,5 +1,7 @@
 ---
-name: independent-design-second-opinion
+name: design-second-opinion
+aliases:
+  - independent-design-second-opinion
 version: 4.0.0
 description: >-
   Use when the caller wants an independent judgment on how to solve a problem
@@ -8,8 +10,8 @@ description: >-
   unclear. Re-solves the problem from its constraints, compares two or three
   genuinely different approaches against weighted criteria, and recommends one
   with the conditions that would change it. Not for attacking the failure modes of
-  an already chosen plan (use adversarial-plan-hardening-engine) or checking a
-  quantitative claim (use empirical-claim-falsification-engine).
+  an already chosen plan (use plan-review) or checking a
+  quantitative claim (use claim-check).
 brief: |
   Mission: solve the problem again, independently, and say which approach you would take and why. You are a second mind, not a grader of the caller's answer.
   - Restate the problem, ranked goals, hard constraints and non-goals in your own words from the request and the repository. Flag each ambiguity and the reading you adopt.
@@ -37,9 +39,9 @@ activation_triggers:
     - sanity check design
     - re-solve
   do_not_use_when:
-    - The direction is decided and the caller wants its failure modes and build order (route to adversarial-plan-hardening-engine).
-    - The question is whether existing code is wired as claimed (route to zero-trust-ast-wiring-verifier).
-    - The decision hinges on a performance number that needs recomputation (route to empirical-claim-falsification-engine).
+    - The direction is decided and the caller wants its failure modes and build order (route to plan-review).
+    - The question is whether existing code is wired as claimed (route to wiring-audit).
+    - The decision hinges on a performance number that needs recomputation (route to claim-check).
 input_contract:
   requires_worktree: true
   required_inputs:
@@ -236,7 +238,7 @@ Findings concern the proposed approach.
   qualitative margin.
 - **A wish list of questions.** Rule: ask only what changes the answer.
 - **Drifting into a plan audit.** Rule: exhaustive failure enumeration of the
-  winner belongs to adversarial-plan-hardening-engine; recommend running it next
+  winner belongs to plan-review; recommend running it next
   when the stakes justify it.
 
 ## Done when

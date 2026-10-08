@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import base64
 import http.client
+import io
 import json
 import socket
 import subprocess
 import threading
 import time
+import types
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -437,6 +439,25 @@ class TestStatRaceSafety:
         assert state["account"] is None or isinstance(state["account"], str)
 
 
+class TestAuthStateQuota:
+    def test_recent_quota_notice_reports_the_full_reset_window(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        log_dir = tmp_path / "logdir"
+        log_dir.mkdir()
+        (log_dir / "agy.log").write_text(
+            "RESOURCE_EXHAUSTED: Individual quota reached. Resets in 2h 5m\n"
+            "RESOURCE_EXHAUSTED: Individual quota reached. Resets in 1h 30m\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(antigravity_viewer, "_AUTH_LOG_DIRS", (log_dir,))
+
+        state = antigravity_viewer.collect_auth_state()
+
+        assert state["rate_limited"] is True
+        assert state["resets_in"] == "1h 30m"
+
+
 class TestForeignWorkspaceVisibility:
     def test_runs_merge_and_foreign_replay(self, tmp_path: Path) -> None:
         registry = tmp_path / "registry.json"
@@ -690,6 +711,81 @@ class TestRejectedPostConnection:
         assert received.startswith(b"HTTP/1.1 403")
         assert b"Connection: close" in received
         assert received.count(b"HTTP/1.") == 1, received
+
+    def test_rejection_is_delivered_before_the_connection_closes(self, tmp_path: Path) -> None:
+        # Closing a socket with unread request bytes makes the OS reset the
+        # connection, which can discard the response before the client reads
+        # it (seen on Windows). The server must drain a small body first.
+        body = b'{"pad": "' + b"x" * 32_000 + b'"}'
+        raw = (
+            b"POST /api/shutdown HTTP/1.1\r\n"
+            b"Host: 127.0.0.1\r\n"
+            b"X-Wisp-Request: 1\r\n"
+            b"Content-Type: application/json\r\n"
+            b"Content-Length: " + str(len(body)).encode("ascii") + b"\r\n\r\n" + body
+        )
+        with serving("127.0.0.1", tmp_path) as (host, port, _live):
+            with socket.create_connection((host, port), timeout=10) as conn:
+                conn.sendall(raw)
+                # Give the server time to answer and close before reading.
+                time.sleep(0.5)
+                received = b""
+                while chunk := conn.recv(65536):
+                    received += chunk
+        assert received.startswith(b"HTTP/1.1 4"), received[:80]
+        assert b"Connection: close" in received
+
+
+class TestDiscardUnreadBody:
+    """The drain step itself, which only Windows needs but every OS runs."""
+
+    @staticmethod
+    def _handler(body: bytes, declared: int | None = None, command: str = "POST"):
+        from email.message import Message
+
+        handler = object.__new__(antigravity_viewer.ViewerHandler)
+        handler.command = command
+        handler.headers = Message()
+        handler.headers["Content-Length"] = str(len(body) if declared is None else declared)
+        handler.rfile = io.BytesIO(body)
+        handler.connection = types.SimpleNamespace(settimeout=lambda _seconds: None)
+        handler._body_read = False
+        return handler
+
+    def test_small_unread_body_is_consumed(self) -> None:
+        handler = self._handler(b"{}" * 100)
+
+        handler._discard_unread_body()
+
+        assert handler.rfile.tell() == 200
+        assert handler._body_read is True
+
+    def test_body_above_the_cap_is_left_alone(self) -> None:
+        body = b"x" * (antigravity_viewer.DISCARD_BODY_BYTES + 1)
+        handler = self._handler(body)
+
+        handler._discard_unread_body()
+
+        assert handler.rfile.tell() == 0
+
+    def test_already_read_or_non_post_requests_are_untouched(self) -> None:
+        read = self._handler(b"{}")
+        read._body_read = True
+        get = self._handler(b"{}", command="GET")
+
+        read._discard_unread_body()
+        get._discard_unread_body()
+
+        assert read.rfile.tell() == 0
+        assert get.rfile.tell() == 0
+
+    def test_invalid_length_is_ignored(self) -> None:
+        handler = self._handler(b"{}")
+        handler.headers.replace_header("Content-Length", "nope")
+
+        handler._discard_unread_body()
+
+        assert handler.rfile.tell() == 0
 
 
 class TestShutdownAuthorization:
@@ -1198,10 +1294,10 @@ class TestAskPrompt:
     def test_prompt_lists_all_images(self) -> None:
         prompt = build_ask_prompt("check", "", ("a/b.png", "c/d.jpg"))
 
-        assert "## ATTACHED IMAGES" in prompt
+        assert "## Attached images" in prompt
         assert "`a/b.png`" in prompt
         assert "`c/d.jpg`" in prompt
-        assert "ATTACHED IMAGES" not in build_ask_prompt("check", "", ())
+        assert "Attached images" not in build_ask_prompt("check", "", ())
 
     def test_ask_prompt_demands_brevity(self) -> None:
         prompt = build_ask_prompt("what is a list comprehension?", "", ())
@@ -1266,11 +1362,18 @@ class TestAskFlow:
                 break
             time.sleep(0.3)
 
-        status, data2 = post_json(
-            base,
-            "/api/ask",
-            {"prompt": "follow-up question", "thread_id": thread_id},
-        )
+        # The answer is saved a moment before the ask lock is released, so a
+        # follow-up sent immediately can still be told the reviewer is busy.
+        deadline = time.time() + 10
+        while True:
+            status, data2 = post_json(
+                base,
+                "/api/ask",
+                {"prompt": "follow-up question", "thread_id": thread_id},
+            )
+            if status != 409 or time.time() > deadline:
+                break
+            time.sleep(0.1)
         assert status == 200
         assert data2["thread_id"] == thread_id
 
@@ -1364,7 +1467,8 @@ class TestAskLockRelease:
         base, _ = fake_viewer
         status, data = post_json(base, "/api/ask", {"prompt": "x" * (MAX_MESSAGE_CHARS + 1)})
         assert status == 400
-        assert "MAX_MESSAGE_CHARS" in data["error"]
+        assert "too long" in data["error"]
+        assert str(MAX_MESSAGE_CHARS) in data["error"]
 
     def test_oversized_prompt_does_not_brick_the_ask_feature(self, fake_viewer) -> None:
         base, _ = fake_viewer
@@ -1419,22 +1523,21 @@ class TestChatAnswerExtraction:
     def test_prefers_critique_section(self) -> None:
         report = "\n".join(
             [
-                "# ANTIGRAVITY ADVERSARIAL DELEGATION REPORT",
+                "# Antigravity delegation report",
                 "- **Verdict**: SUCCESS",
                 "",
-                "## Antigravity Critique â€” `gemini-3.8-flash-high` (PRIMARY)",
+                "## Review verdict",
+                "",
+                "- **Verdict**: PASS (confidence: high)",
+                "",
+                "## Antigravity Critique \u2014 `gemini-3.8-flash-high` (primary)",
                 "",
                 "### Findings & Response",
                 "",
                 "Bottom line: looks fine.",
                 "",
                 "### Lifecycle",
-                "- step 4 Â· DONE",
-                "",
-                "## Complete stdout (verbatim) â€” `gemini-3.8-flash-high`",
-                "```text",
-                json.dumps({"event": "step_update", "step_update": {"text_delta": "raw"}}),
-                "```",
+                "- step 4 \u00b7 DONE",
             ]
         )
 
@@ -1442,14 +1545,14 @@ class TestChatAnswerExtraction:
 
         assert "Bottom line: looks fine." in answer
         assert "step 4" in answer
-        assert "Complete stdout" not in answer
-        assert "step_update" not in answer
+        assert "Review verdict" not in answer
+        assert "delegation report" not in answer
         assert not answer.startswith("## Antigravity Critique")
 
-    def test_fallback_trim_without_marker(self) -> None:
-        answer = extract_chat_answer("plain answer\n## Complete stderr\njunk")
+    def test_report_without_critique_is_returned_whole(self) -> None:
+        report = "# Antigravity delegation report\n\nagy was not found."
 
-        assert answer == "plain answer"
+        assert extract_chat_answer(report) == report
 
     def test_empty_report_is_explicit(self) -> None:
         assert "No answer" in extract_chat_answer("")

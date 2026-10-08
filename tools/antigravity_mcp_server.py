@@ -38,11 +38,15 @@ from tools.antigravity_bridge import (
     DEFAULT_FALLBACK_MODEL,
     DEFAULT_PRIMARY_MODEL,
     DEFAULT_PRINT_TIMEOUT_SECONDS,
+    DEFAULT_RETRIES,
+    DEFAULT_RETRY_BACKOFF_SECONDS,
     DELEGATION_MODES,
     REVIEW_MODE,
     WISP_VERSION,
     BridgeConfig,
     DelegationEnvelope,
+    executable_available,
+    missing_executable_warning,
     resolve_agy_executable,
     run_bridge,
     write_report,
@@ -77,8 +81,9 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "name": "antigravity_review",
         "description": (
-            "Delegate an adversarial review to Google Antigravity (agy). Use BEFORE implementing "
-            "multi-file plans or high-risk changes (concurrency, persistence, process spawning, IPC) "
+            "Delegate an adversarial review to Google Antigravity (agy). Use BEFORE "
+            "implementing multi-file plans or high-risk changes (concurrency, persistence, "
+            "process spawning, IPC) "
             "and BEFORE declaring work complete. Pass the necessary skill in 'skills' and up to 3 "
             "task-dependent skills in 'recommended_skills'; the payload also carries a compact "
             "index of every registry skill. Set 'mode' to 'implement' to let the reviewer edit "
@@ -92,7 +97,9 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                 "prompt": {
                     "type": "string",
                     "maxLength": MAX_PROMPT_CHARS,
-                    "description": "The plan, diff summary, question, or claim set under review. Required.",
+                    "description": (
+                        "The plan, diff summary, question, or claim set under review. Required."
+                    ),
                 },
                 "context": {
                     "type": "string",
@@ -103,13 +110,17 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "type": "array",
                     "items": {"type": "string"},
                     "maxItems": MAX_CLAIMS,
-                    "description": "Empirical claims that must be independently recomputed or falsified.",
+                    "description": (
+                        "Empirical claims that must be independently recomputed or falsified."
+                    ),
                 },
                 "artifacts": {
                     "type": "array",
                     "items": {"type": "string"},
                     "maxItems": MAX_ARTIFACTS,
-                    "description": "Workspace-relative files or path:line ranges to inspect on disk.",
+                    "description": (
+                        "Workspace-relative files or path:line ranges to inspect on disk."
+                    ),
                 },
                 "skills": {
                     "type": "array",
@@ -143,7 +154,10 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                 "workspace": {
                     "type": "string",
                     "maxLength": MAX_WORKSPACE_CHARS,
-                    "description": "Workspace root to mount via --add-dir (defaults to the server workspace).",
+                    "description": (
+                        "Workspace root to mount via --add-dir (defaults to the server "
+                        "workspace)."
+                    ),
                 },
                 "model": {
                     "type": "string",
@@ -175,8 +189,8 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "name": "antigravity_skills",
         "description": (
-            "List the adversarial skill registry with names, versions, descriptions, and activation "
-            "triggers so the right skills can be selected for a delegation."
+            "List the adversarial skill registry with names, versions, descriptions, and "
+            "activation triggers so the right skills can be selected for a delegation."
         ),
         "inputSchema": {
             "type": "object",
@@ -212,8 +226,8 @@ def _bounded_list(
 ) -> list[Any]:
     """Runtime mirror of a schema ``maxItems``; raises InvalidParams on breach.
 
-    A bare string is accepted because AGENTS.md documents claims, artifacts,
-    and skill selectors as string-or-list. With ``split_commas=True`` the
+    A bare string is accepted because the delegation skill documents claims,
+    artifacts and skill selectors as string-or-list. With ``split_commas=True`` the
     string is comma-split (skill selectors); without it the whole string is a
     single item (free-text claims may legitimately contain commas).
     """
@@ -335,13 +349,16 @@ def _tool_status() -> dict[str, Any]:
     workspace = _workspace()
     registry = _skill_dir(workspace)
     models = _selected_models(workspace)
+    executable = resolve_agy_executable()
+    executable_found = executable_available(executable)
     payload: dict[str, Any] = {
-        "executable": resolve_agy_executable(),
+        "executable": executable,
+        "executable_found": executable_found,
         "workspace": str(workspace),
         "skill_registry": str(registry),
         "primary_model": models["model"],
         "fallback_model": models["fallback_model"],
-        "retries": _env_number("ANTIGRAVITY_RETRIES", 2),
+        "retries": _env_number("ANTIGRAVITY_RETRIES", DEFAULT_RETRIES),
         "quota_wait_seconds": _env_number("ANTIGRAVITY_QUOTA_WAIT", 0),
         "quota_hook_configured": bool(os.environ.get("ANTIGRAVITY_QUOTA_HOOK")),
         "live_enabled": _live_enabled(),
@@ -362,9 +379,11 @@ def _tool_status() -> dict[str, Any]:
             }
             for skill in loader.skills
         ]
-        payload["warnings"] = loader.warnings
+        payload["warnings"] = list(loader.warnings)
     except SkillError as exc:
         payload["skill_error"] = str(exc)
+    if not executable_found:
+        payload["warnings"].append(missing_executable_warning(executable))
     return payload
 
 
@@ -448,8 +467,10 @@ def _tool_review(arguments: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         print_timeout_seconds=_env_number(
             "ANTIGRAVITY_PRINT_TIMEOUT", DEFAULT_PRINT_TIMEOUT_SECONDS
         ),
-        retries=_env_number("ANTIGRAVITY_RETRIES", 2),
-        retry_backoff_seconds=_env_number("ANTIGRAVITY_RETRY_BACKOFF", 5.0),
+        retries=_env_number("ANTIGRAVITY_RETRIES", DEFAULT_RETRIES),
+        retry_backoff_seconds=_env_number(
+            "ANTIGRAVITY_RETRY_BACKOFF", DEFAULT_RETRY_BACKOFF_SECONDS
+        ),
         quota_wait_seconds=_env_number("ANTIGRAVITY_QUOTA_WAIT", 0),
         quota_hook=os.environ.get("ANTIGRAVITY_QUOTA_HOOK") or None,
         live=_live_enabled(),
@@ -585,7 +606,11 @@ def serve(stdin: TextIO | None = None, stdout: TextIO | None = None) -> int:
         if params is None:
             params = {}
         if not isinstance(params, dict):
-            _error(request_id, -32602, f"Invalid params: expected an object, got {type(params).__name__}")
+            _error(
+                request_id,
+                -32602,
+                f"Invalid params: expected an object, got {type(params).__name__}",
+            )
             continue
 
         try:

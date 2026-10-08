@@ -1,5 +1,7 @@
 ---
-name: root-cause-failure-investigation
+name: root-cause-investigation
+aliases:
+  - root-cause-failure-investigation
 version: 4.0.0
 description: >-
   Use when the same problem has survived two or more fix attempts, when a
@@ -7,10 +9,10 @@ description: >-
   why a symptom appears. Produces an attempts ledger, ranked competing
   hypotheses, a log of discriminating experiments, and a causal chain from
   root cause to symptom with the fix direction and the regression test that
-  proves it. Not for auditing a finished diff (use pre-merge-diff-audit), not
+  proves it. Not for auditing a finished diff (use pre-merge-review), not
   for applying the fix once the cause is known (use
-  zero-regression-surgical-implementation), and not for performance or latency
-  regressions that need profiling (use telemetry-hardware-profiling-gate).
+  safe-implementation), and not for performance or latency
+  regressions that need profiling (use performance-profiling).
 brief: |
   Mission: stop the fix loop by finding the cause that explains every observation, including why earlier fixes failed.
   - Start from verbatim evidence: exact error text and full trace (the first error, not the last), the reproduction command, environment and versions, failure rate, and what changed since it last worked (git log, lockfile and config diffs).
@@ -38,9 +40,9 @@ activation_triggers:
     - works on my machine
     - fix loop
   do_not_use_when:
-    - The cause is already confirmed and only the change remains to be made (use zero-regression-surgical-implementation).
-    - A completed change needs a merge-readiness review (use pre-merge-diff-audit).
-    - The problem is slowness, stalls or resource pressure that needs measurement rather than a defect hunt (use telemetry-hardware-profiling-gate).
+    - The cause is already confirmed and only the change remains to be made (use safe-implementation).
+    - A completed change needs a merge-readiness review (use pre-merge-review).
+    - The problem is slowness, stalls or resource pressure that needs measurement rather than a defect hunt (use performance-profiling).
 input_contract:
   requires_worktree: true
   required_inputs:
