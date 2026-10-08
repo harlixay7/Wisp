@@ -1642,11 +1642,12 @@ function flipOwl(first) {
 // a clip (panel), a translate (content and the perched owl) and a scale (the
 // separate shadow layer). Offsets are measured down from the tall layout's
 // top. Only full motion moves the edge; gentle and off change it at once.
+// Returns whether the FLIP runs.
 function flipPanelHeight(fromOffset, toOffset) {
-  if (motionLevel() !== 'full' || fromOffset === toOffset) return;
+  if (motionLevel() !== 'full' || fromOffset === toOffset) return false;
   const panel = $('panel');
   const total = panel.offsetHeight;
-  if (!total) return;
+  if (!total) return false;
   const options = { duration: MOTION.view, easing: MOTION.easeOut, fill: 'forwards', hold: true };
   const clip = (offset) => ({ clipPath: 'inset(' + offset + 'px 0 0 0 round ' + LAYOUT.radius + 'px)' });
   const shift = (offset) => ({ transform: 'translateY(' + offset + 'px)' });
@@ -1655,6 +1656,7 @@ function flipPanelHeight(fromOffset, toOffset) {
   trackViewAnim(animate($('panelInner'), [shift(fromOffset), shift(toOffset)], options));
   trackViewAnim(animate($('owl'), [shift(fromOffset), shift(toOffset)], options));
   trackViewAnim(animate($('panelShadow'), [squash(fromOffset), squash(toOffset)], options));
+  return true;
 }
 
 function markDock(view) {
@@ -1752,8 +1754,11 @@ function showView(next, options) {
     }
     const tall = Math.max(fromH, toH);
     views.style.height = tall + 'px';
-    cleanup.push(() => { if (app.dataset.view === next) views.style.height = toH + 'px'; });
-    flipPanelHeight(tall - fromH, tall - toH);
+    if (flipPanelHeight(tall - fromH, tall - toH)) {
+      cleanup.push(() => { if (app.dataset.view === next) views.style.height = toH + 'px'; });
+    } else {
+      views.style.height = toH + 'px';
+    }
     trackViewAnim(animate(nextEl, enter, { duration: MOTION.view, delay: 90, fill: 'backwards' }));
     trackViewAnim(animate($('phText'), [{ opacity: 0.2 }, { opacity: 1 }], { duration: MOTION.ui }));
   } else if (nextPanel) {
