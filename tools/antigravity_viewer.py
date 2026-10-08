@@ -710,9 +710,18 @@ def build_ask_prompt(
     parts += [
         "",
         "## Response requirements",
-        "- Be brief: use the fewest words that fully answer the question. A simple question gets a few sentences, not a report.",
-        "- Lead with the direct answer; include only the details that matter. Do not restate the question, pad with caveats, or add structure the answer does not need.",
-        "- If the capture shows code or UI, cite exactly what you observe, name risks, and give precise fixes.",
+        (
+            "- Be brief: use the fewest words that fully answer the question. A simple "
+            "question gets a few sentences, not a report."
+        ),
+        (
+            "- Lead with the direct answer; include only the details that matter. Do not "
+            "restate the question, pad with caveats, or add structure the answer does not need."
+        ),
+        (
+            "- If the capture shows code or UI, cite exactly what you observe, name risks, "
+            "and give precise fixes."
+        ),
         "- Use Markdown only when it genuinely helps; keep it tight.",
         "- If something is unclear, state the assumption you are making; never invent facts.",
     ]
@@ -1891,7 +1900,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "--shell",
         choices=("auto", "electron", "native", "browser"),
         default="auto",
-        help="Widget shell: electron (frameless transparent, preferred), native (pywebview), browser, or auto (default).",
+        help=(
+            "Widget shell: electron (frameless transparent, preferred), native (pywebview), "
+            "browser, or auto (default)."
+        ),
     )
     parser.add_argument("--width", type=int, default=240)
     parser.add_argument("--height", type=int, default=240)
@@ -1899,7 +1911,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "--transparent",
         action=argparse.BooleanOptionalAction,
         default=False,
-        help="Native shell only: attempt a transparent widget background (not supported on all WebView2 builds).",
+        help=(
+            "Native shell only: attempt a transparent widget background (not supported on "
+            "all WebView2 builds)."
+        ),
     )
     parser.add_argument(
         "--open",
@@ -2047,7 +2062,10 @@ def main(argv: list[str] | None = None) -> int:
     _write_viewer_manifest(live_dir, manifest)
     print(f"[wisp-viewer] serving on {url} (live dir: {live_dir})")
     if non_loopback:
-        print(f"[wisp-viewer] bound to non-loopback host {host}: every route requires the bearer token.")
+        print(
+            f"[wisp-viewer] bound to non-loopback host {host}: every route requires "
+            "the bearer token."
+        )
         if args.generate_token:
             print(f"[wisp-viewer] generated auth token: {auth_token}")
     print("[wisp-viewer] watching for delegations; Ctrl+C to stop.")

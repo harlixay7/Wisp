@@ -1,4 +1,4 @@
-"""Skill loader: YAML/Markdown parsing, validation, selection, directory resolution, and manifests."""
+"""Skill loader: YAML/Markdown parsing, validation, selection, and directory resolution."""
 
 from __future__ import annotations
 
