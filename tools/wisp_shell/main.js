@@ -7,8 +7,11 @@ const WIDGET_URL = process.env.WISP_URL || "http://127.0.0.1:48477/";
 const MARGIN = 18;
 const LOG = path.join(os.tmpdir(), "wisp-shell.log");
 const LOG_MAX_BYTES = 512 * 1024; // rotated in place; the shell log is diagnostics only
-const CANVAS_W = parseInt(process.env.WISP_CANVAS_W || "470", 10);
-const CANVAS_H = parseInt(process.env.WISP_CANVAS_H || "452", 10);
+// Fixed transparent canvas. It must hold the widget's tallest footprint (SIZES in
+// antigravity_viewer.html): 52 + 384 + 44 wide; the settings view with the
+// perched owl, the dock and shadow clearance is 612 tall.
+const CANVAS_W = parseInt(process.env.WISP_CANVAS_W || "480", 10);
+const CANVAS_H = parseInt(process.env.WISP_CANVAS_H || "612", 10);
 const HOTKEY_ASK = process.env.WISP_HOTKEY_ASK || "Control+Alt+Q";
 const HOTKEY_ASK_PROMPT = process.env.WISP_HOTKEY_ASK_PROMPT || "Control+Alt+E";
 const CURSOR_FEED_MS = 33; // ~30 Hz is plenty for hover hit-testing
