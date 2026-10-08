@@ -45,7 +45,7 @@ from tools.antigravity_viewer import (
     url_host,
     write_viewer_settings,
 )
-from tools.wisp_chat import MAX_MESSAGE_CHARS
+from tools.wisp_chat import MAX_MESSAGE_CHARS, ChatStore
 
 PNG_BLOB = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
 PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
@@ -232,6 +232,141 @@ class TestRunMetadata:
         assert record["finished"] is False
         assert record["success"] is None
         assert record["model"] == "claude-sonnet-4-6"
+
+
+class TestRunTask:
+    @staticmethod
+    def _event(kind: str, seq: int, text: str = "", **meta: object) -> dict:
+        return {
+            "kind": kind,
+            "run_id": "t",
+            "seq": seq,
+            "ts": 1000.0 + seq,
+            "model": "m",
+            "text": text,
+            "meta": dict(meta),
+        }
+
+    def test_describe_run_reports_task_first_line_and_harness(self, tmp_path: Path) -> None:
+        path = write_run(
+            tmp_path,
+            "run-t.jsonl",
+            [
+                self._event("run_start", 1, primary_model="m", harness="claude-code"),
+                self._event(
+                    "task",
+                    2,
+                    "\n  Stress-test   the migration plan  \nsecond line",
+                    harness="opencode",
+                ),
+            ],
+        )
+
+        record = describe_run(path)
+
+        assert record["task"] == "Stress-test the migration plan"
+        assert record["harness"] == "opencode"
+
+    def test_describe_run_clips_long_task_lines(self, tmp_path: Path) -> None:
+        path = write_run(
+            tmp_path,
+            "run-t.jsonl",
+            [self._event("run_start", 1), self._event("task", 2, "x" * 500)],
+        )
+
+        task = describe_run(path)["task"]
+
+        assert len(task) == antigravity_viewer.TASK_TITLE_CHARS
+        assert task.endswith("…")
+
+    def test_older_runs_without_a_task_event(self, tmp_path: Path) -> None:
+        path = write_run(
+            tmp_path,
+            "run-t.jsonl",
+            [self._event("run_start", 1, harness="cline"), self._event("thinking", 2, "t")],
+        )
+
+        record = describe_run(path)
+
+        assert record["task"] == ""
+        assert record["harness"] == "cline"
+
+    def test_task_scan_reads_only_the_head_of_the_file(self, tmp_path: Path) -> None:
+        events = [self._event("run_start", 1)]
+        events += [
+            self._event("thinking", seq, "t")
+            for seq in range(2, antigravity_viewer.TASK_SCAN_LINES + 3)
+        ]
+        events.append(self._event("task", 99, "late task"))
+        path = write_run(tmp_path, "run-t.jsonl", events)
+
+        assert describe_run(path)["task"] == ""
+
+    def test_runs_endpoint_includes_task(self, tmp_path: Path) -> None:
+        with serving("127.0.0.1", tmp_path) as (host, port, live):
+            write_run(
+                live,
+                "run-20260101-000000-aaaaaa.jsonl",
+                [self._event("run_start", 1), self._event("task", 2, "Review the diff")],
+            )
+            status, data = http_request(host, port, "GET", "/api/runs")
+
+        assert status == 200
+        assert data["runs"][0]["task"] == "Review the diff"
+
+
+class TestThreadDelete:
+    @staticmethod
+    def _post(host: str, port: int, path: str, headers: dict[str, str] | None = None):
+        base_headers = {"X-Wisp-Request": "1", "Content-Type": "application/json"}
+        return http_request(
+            host, port, "POST", path, body=b"{}", headers={**base_headers, **(headers or {})}
+        )
+
+    def test_delete_removes_the_thread(self, tmp_path: Path) -> None:
+        with serving("127.0.0.1", tmp_path) as (host, port, live):
+            thread = ChatStore(live).create("delete me")
+            assert thread is not None
+            path = "/api/chat/thread/" + thread["id"] + "/delete"
+
+            status, data = self._post(host, port, path)
+            assert status == 200
+            assert data == {"deleted": thread["id"]}
+
+            status, _ = http_request(host, port, "GET", "/api/chat/thread/" + thread["id"])
+            assert status == 404
+            status, threads = http_request(host, port, "GET", "/api/chat/threads")
+            assert all(item["id"] != thread["id"] for item in threads["threads"])
+
+            status, _ = self._post(host, port, path)
+            assert status == 404
+
+    def test_delete_rejects_malformed_ids(self, tmp_path: Path) -> None:
+        with serving("127.0.0.1", tmp_path) as (host, port, _live):
+            for bad in ("nope", "..%2F..%2Fviewer", "20260101-000000-ZZZZZZ"):
+                status, data = self._post(host, port, "/api/chat/thread/" + bad + "/delete")
+                assert status == 400, bad
+                assert data["error"] == "invalid thread id"
+
+    def test_delete_of_unknown_thread_is_404(self, tmp_path: Path) -> None:
+        with serving("127.0.0.1", tmp_path) as (host, port, _live):
+            status, _ = self._post(host, port, "/api/chat/thread/20260101-000000-abcdef/delete")
+        assert status == 404
+
+    def test_delete_is_guarded_like_pin(self, tmp_path: Path) -> None:
+        with serving("127.0.0.1", tmp_path) as (host, port, live):
+            thread = ChatStore(live).create("keep me")
+            assert thread is not None
+            path = "/api/chat/thread/" + thread["id"] + "/delete"
+
+            status, _ = http_request(
+                host, port, "POST", path, body=b"{}", headers={"Content-Type": "application/json"}
+            )
+            assert status == 403
+            status, _ = self._post(host, port, path, {"Origin": "http://evil.example"})
+            assert status == 403
+
+            assert ChatStore(live).load(thread["id"]) is not None
 
 
 class TestRunEndDetection:

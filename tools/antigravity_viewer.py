@@ -128,6 +128,11 @@ MAX_UPLOAD_BYTES = 12 * 1024 * 1024
 MAX_BODY_BYTES = 32 * 1024 * 1024
 MAX_LOG_TAIL_BYTES = 400_000
 LAST_EVENT_TAIL_BYTES = 16_384
+# describe_run() looks for the bridge's ``task`` event among the first few
+# lines of a run file; both bounds keep the History list cheap on huge runs.
+TASK_SCAN_LINES = 6
+TASK_SCAN_BYTES = 65_536
+TASK_TITLE_CHARS = 160
 MAX_AUTH_LOGS_SCANNED = 20
 RUN_LIST_LIMIT = 60
 MAX_ASK_SKILLS = 32
@@ -457,6 +462,40 @@ def _read_first_event(path: Path) -> dict[str, Any] | None:
     return None
 
 
+def _read_task_event(path: Path) -> dict[str, Any] | None:
+    """The run's ``task`` event when it is among the first few lines.
+
+    Reads at most ``TASK_SCAN_BYTES`` from the head of the file, never the
+    whole run. Older runs (written before the bridge emitted ``task``) have
+    none and yield ``None``.
+    """
+    try:
+        with open(path, "rb") as handle:
+            head = handle.read(TASK_SCAN_BYTES)
+    except OSError:
+        return None
+    for line in head.decode("utf-8", errors="replace").splitlines()[:TASK_SCAN_LINES]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            data = json.loads(stripped)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict) and data.get("kind") == "task":
+            return data
+    return None
+
+
+def task_title(text: Any, limit: int = TASK_TITLE_CHARS) -> str:
+    """First non-empty line of a task prompt, clipped to ``limit`` characters."""
+    for line in str(text or "").splitlines():
+        stripped = " ".join(line.split())
+        if stripped:
+            return stripped if len(stripped) <= limit else stripped[: limit - 1] + "\u2026"
+    return ""
+
+
 def _read_last_event(path: Path) -> dict[str, Any] | None:
     try:
         size = path.stat().st_size
@@ -497,6 +536,8 @@ def describe_run(path: Path) -> dict[str, Any]:
     end = last if last and last.get("kind") == "run_end" else None
     start_meta = (start or {}).get("meta") or {}
     end_meta = (end or {}).get("meta") or {}
+    task = _read_task_event(path)
+    task_meta = (task or {}).get("meta") or {}
     return {
         "file": path.name,
         "mtime": stat.st_mtime,
@@ -508,6 +549,8 @@ def describe_run(path: Path) -> dict[str, Any]:
         "success": end_meta.get("success") if end else None,
         "elapsed_seconds": end_meta.get("elapsed_seconds") if end else None,
         "failover_used": bool(end_meta.get("failover_used")) if end else False,
+        "task": task_title((task or {}).get("text")),
+        "harness": str(task_meta.get("harness") or start_meta.get("harness") or ""),
     }
 
 
@@ -1199,10 +1242,11 @@ class ViewerHandler(BaseHTTPRequestHandler):
         if handler is not None:
             handler(self)
             return
-        thread_prefix, pin_suffix = "/api/chat/thread/", "/pin"
-        if route.startswith(thread_prefix) and route.endswith(pin_suffix):
-            self._post_pin(route[len(thread_prefix) : -len(pin_suffix)].strip("/"))
-            return
+        thread_prefix = "/api/chat/thread/"
+        for suffix, action in (("/pin", self._post_pin), ("/delete", self._post_delete)):
+            if route.startswith(thread_prefix) and route.endswith(suffix):
+                action(route[len(thread_prefix) : -len(suffix)].strip("/"))
+                return
         self._send_json(404, {"error": f"not found: {route}"})
 
     # ------------------------------------------------------------- GET routes
@@ -1423,6 +1467,17 @@ class ViewerHandler(BaseHTTPRequestHandler):
             self._send_json(404, {"error": "thread not found"})
             return
         self._send_json(200, {"thread": thread})
+
+    def _post_delete(self, thread_id: str) -> None:
+        """Deletes one chat thread; 400 for a malformed id, 404 when absent."""
+        if not valid_thread_id(thread_id):
+            self._send_json(400, {"error": "invalid thread id"})
+            return
+        store = ChatStore(self.context.live_dir)
+        if store.load(thread_id) is None or not store.delete_thread(thread_id):
+            self._send_json(404, {"error": "thread not found"})
+            return
+        self._send_json(200, {"deleted": thread_id})
 
     def _post_ask(self) -> None:
         payload = self._json_body()
