@@ -474,6 +474,73 @@ class TestRecommendedSkillsValidation:
         assert schema["maxItems"] == 3
 
 
+class TestReviewMode:
+    @staticmethod
+    def _review_schema() -> dict:
+        review = next(tool for tool in TOOL_DEFINITIONS if tool["name"] == "antigravity_review")
+        return review["inputSchema"]
+
+    def test_schema_declares_mode_enum_with_review_default(self) -> None:
+        schema = self._review_schema()
+
+        assert schema["properties"]["mode"]["enum"] == ["review", "implement"]
+        assert schema["properties"]["mode"]["default"] == "review"
+        assert schema["additionalProperties"] is False
+        assert "mode" not in schema["required"]
+
+    @pytest.mark.parametrize("bad", ["write", "Implement", 5, ["review"]])
+    def test_bad_mode_is_invalid_params_before_dispatch(self, bad, monkeypatch) -> None:
+        def exploding_run_bridge(config):  # pragma: no cover - must not run
+            raise AssertionError("run_bridge must not be called for invalid input")
+
+        monkeypatch.setattr(server, "run_bridge", exploding_run_bridge)
+
+        with pytest.raises(InvalidParams) as excinfo:
+            handle_request(
+                "tools/call",
+                {"name": "antigravity_review", "arguments": {"prompt": "p", "mode": bad}},
+            )
+        assert "'mode'" in str(excinfo.value)
+
+    @pytest.mark.parametrize(
+        ("arguments", "expected"), [({}, "review"), ({"mode": "implement"}, "implement")]
+    )
+    def test_mode_reaches_the_envelope(self, arguments, expected, tmp_path, monkeypatch) -> None:
+        captured: dict = {}
+
+        def capturing_run_bridge(config):
+            captured["mode"] = config.envelope.mode
+            return real_run_bridge(
+                config,
+                launcher=lambda *args: AttemptResult(exit_code=0, stdout="CRITIQUE"),
+            )
+
+        monkeypatch.setattr(server, "run_bridge", capturing_run_bridge)
+
+        server._tool_review({"prompt": "p", "workspace": str(tmp_path), **arguments})
+
+        assert captured["mode"] == expected
+
+    def test_stdio_lists_mode_and_rejects_bad_mode_with_32602(self) -> None:
+        responses = serve(
+            request(1, "initialize", {"protocolVersion": PROTOCOL_VERSION}),
+            request(2, "tools/list"),
+            request(
+                3,
+                "tools/call",
+                {"name": "antigravity_review", "arguments": {"prompt": "p", "mode": "write"}},
+            ),
+        )
+
+        by_id = {response["id"]: response for response in responses}
+        review = next(
+            tool for tool in by_id[2]["result"]["tools"] if tool["name"] == "antigravity_review"
+        )
+        assert review["inputSchema"]["properties"]["mode"]["enum"] == ["review", "implement"]
+        assert by_id[3]["error"]["code"] == -32602
+        assert "mode" in by_id[3]["error"]["message"]
+
+
 class TestConfigFromEnvironment:
     def test_malformed_env_int_degrades_with_warning(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTIGRAVITY_RETRIES", "not-a-number")

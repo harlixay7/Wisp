@@ -1,10 +1,16 @@
-"""Stream-json aggregation into the organized critique, including delta folding."""
+"""Stream-json aggregation into the organized critique, delta folding, and verdict parsing."""
 
 from __future__ import annotations
 
 import json
 
-from tools.antigravity_aggregate import _DeltaBuffer, aggregate_stream_json
+from tools.antigravity_aggregate import (
+    _DeltaBuffer,
+    aggregate_stream_json,
+    extract_review_verdict,
+    parse_review_verdict,
+    render_review_verdict,
+)
 
 
 class TestStreamAggregation:
@@ -316,3 +322,124 @@ class TestDeltaBuffer:
         # Duplicate-and-cumulative folding leaves one clean accumulated text.
         assert buffer.chunks == ["Hello world", "!", "new"]
         assert buffer.text() == "Hello world!new"
+
+
+VALID_BLOCK = (
+    "<<<WISP_VERDICT\n"
+    "verdict: PASS_WITH_FIXES\n"
+    "confidence: medium\n"
+    "summary: One P1 race in the writer.\n"
+    "counts: P0=0 P1=1 P2=2 P3=0\n"
+    "must_fix: F-001\n"
+    "WISP_VERDICT>>>"
+)
+
+
+class TestReviewVerdictParsing:
+    def test_valid_block_is_parsed(self) -> None:
+        verdict = parse_review_verdict(f"## Findings\n\n...\n\n{VALID_BLOCK}\n")
+
+        assert verdict == {
+            "verdict": "PASS_WITH_FIXES",
+            "confidence": "medium",
+            "summary": "One P1 race in the writer.",
+            "counts": {"P0": 0, "P1": 1, "P2": 2, "P3": 0},
+            "must_fix": ["F-001"],
+        }
+
+    def test_block_inside_a_code_fence_with_loose_formatting(self) -> None:
+        text = (
+            "Verdict follows.\n\n```text\n"
+            "<<< wisp_verdict\n"
+            "  **Verdict**:  pass with fixes \n"
+            "CONFIDENCE: High\n"
+            "Summary: Fix the race:\n"
+            "  the writer drops a flush.\n"
+            "Counts: p0 = 0, P1=2, P2: 1, P3=0\n"
+            "Must fix: `F-001`, F-003\n"
+            "WISP_VERDICT >>>\n```\n"
+        )
+
+        verdict = parse_review_verdict(text)
+
+        assert verdict is not None
+        assert verdict["verdict"] == "PASS_WITH_FIXES"
+        assert verdict["confidence"] == "high"
+        assert verdict["summary"] == "Fix the race: the writer drops a flush."
+        assert verdict["counts"] == {"P0": 0, "P1": 2, "P2": 1, "P3": 0}
+        assert verdict["must_fix"] == ["F-001", "F-003"]
+
+    def test_last_block_wins(self) -> None:
+        draft = VALID_BLOCK.replace("PASS_WITH_FIXES", "PASS")
+        final = VALID_BLOCK.replace("PASS_WITH_FIXES", "BLOCK").replace("P0=0", "P0=1")
+
+        verdict = parse_review_verdict(f"{draft}\n\nOn reflection:\n\n{final}")
+
+        assert verdict is not None
+        assert verdict["verdict"] == "BLOCK"
+        assert verdict["counts"]["P0"] == 1
+
+    def test_malformed_values_are_ignored_not_fatal(self) -> None:
+        text = (
+            "<<<WISP_VERDICT\n"
+            "verdict: PASS | PASS_WITH_FIXES | BLOCK\n"
+            "confidence: very sure\n"
+            "counts: P0=x P1=3 P7=9\n"
+            "must_fix: none\n"
+            "unexpected line without a key\n"
+            "WISP_VERDICT>>>"
+        )
+
+        verdict = parse_review_verdict(text)
+
+        assert verdict is not None
+        assert verdict["verdict"] is None
+        assert verdict["confidence"] is None
+        assert verdict["summary"] is None
+        assert verdict["counts"] == {"P0": 0, "P1": 3, "P2": 0, "P3": 0}
+        assert verdict["must_fix"] == []
+
+    def test_missing_block_is_none(self) -> None:
+        assert parse_review_verdict("verdict: PASS but no markers") is None
+        assert parse_review_verdict("") is None
+        assert parse_review_verdict(None) is None
+
+    def test_extracts_from_the_final_response_of_a_stream(self) -> None:
+        raw = "\n".join(
+            [
+                json.dumps({"step_update": {"step_index": 0, "text": "reading files"}}),
+                json.dumps(
+                    {"event": "result", "result": {"status": "SUCCESS", "response": VALID_BLOCK}}
+                ),
+            ]
+        )
+
+        verdict = extract_review_verdict(raw)
+
+        assert verdict is not None and verdict["verdict"] == "PASS_WITH_FIXES"
+
+    def test_block_quoted_in_a_tool_result_is_not_the_verdict(self) -> None:
+        raw = "\n".join(
+            [
+                json.dumps({"tool_result": {"output": VALID_BLOCK}}),
+                json.dumps(
+                    {"event": "result", "result": {"status": "SUCCESS", "response": "No block."}}
+                ),
+            ]
+        )
+
+        assert extract_review_verdict(raw) is None
+
+    def test_plain_text_output_is_searched(self) -> None:
+        assert extract_review_verdict(f"plain critique\n{VALID_BLOCK}") is not None
+
+    def test_rendered_section_summarizes_the_verdict(self) -> None:
+        verdict = parse_review_verdict(VALID_BLOCK)
+        assert verdict is not None
+
+        section = render_review_verdict(verdict)
+
+        assert section.startswith("## Review verdict")
+        assert "PASS_WITH_FIXES (confidence: medium)" in section
+        assert "P0=0 · P1=1 · P2=2 · P3=0" in section
+        assert "**Must fix**: F-001" in section

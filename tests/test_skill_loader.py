@@ -9,10 +9,18 @@ import pytest
 from tests.helpers.bridge import make_skill_yaml
 from tools.skill_loader import (
     ALL_SELECTOR,
+    INDEX_PURPOSE_MAX_CHARS,
     SHIPPED_SKILL_DIR,
+    SKILL_ROLE_MANDATORY,
+    SKILL_ROLE_RECOMMENDED,
     SkillLoader,
     SkillNotFoundError,
     SkillValidationError,
+    clip_line,
+    first_sentence,
+    render_registry_index,
+    render_skill_block,
+    render_skill_pointer,
     resolve_skill_dir,
 )
 
@@ -242,3 +250,118 @@ class TestSkillManifest:
 
         assert "## ACTIVE ADVERSARIAL SKILLS (MANDATORY)" in active
         assert "## RECOMMENDED ADVERSARIAL SKILLS (TASK-DEPENDENT)" in recommended
+
+
+class TestSkillBriefs:
+    def test_brief_is_parsed_and_stripped(self, tmp_path: Path) -> None:
+        skill_dir = tmp_path / "Skills"
+        skill_dir.mkdir()
+        (skill_dir / "01_briefed.md").write_text(
+            "---\n"
+            "name: briefed\n"
+            "version: 4.0.0\n"
+            "description: Use when testing briefs. Not for anything else.\n"
+            "brief: |\n"
+            "  Mission line.\n"
+            "  - rule one\n"
+            "activation_triggers: [brief]\n"
+            "input_contract: {requires_worktree: true}\n"
+            "output_contract: {findings: shared format}\n"
+            "---\n"
+            "# Body\n",
+            encoding="utf-8",
+        )
+
+        skill = SkillLoader(skill_dir).load("briefed")
+
+        assert skill.brief == "Mission line.\n- rule one"
+        assert skill.effective_brief == skill.brief
+
+    def test_missing_brief_falls_back_to_first_sentence(self, tmp_path: Path) -> None:
+        (tmp_path / "a.yaml").write_text(
+            make_skill_yaml(
+                "no_brief",
+                description="Use when auditing e.g. parsers. Not for docs (use other).",
+            ),
+            encoding="utf-8",
+        )
+
+        skill = SkillLoader(tmp_path).load("no_brief")
+
+        assert skill.brief == ""
+        assert skill.effective_brief == "Use when auditing e.g. parsers."
+        assert skill.purpose == "Use when auditing e.g. parsers."
+
+    def test_non_text_brief_fails_validation(self, tmp_path: Path) -> None:
+        (tmp_path / "a.yaml").write_text(
+            make_skill_yaml("bad_brief") + "brief:\n  - not text\n", encoding="utf-8"
+        )
+
+        with pytest.raises(SkillValidationError) as excinfo:
+            _ = SkillLoader(tmp_path).skills
+
+        assert "brief" in str(excinfo.value)
+
+    def test_purpose_is_one_short_line(self) -> None:
+        text = "Use when " + "auditing very long things " * 20 + "now. Second sentence."
+
+        sentence = first_sentence(text)
+        clipped = clip_line(sentence, INDEX_PURPOSE_MAX_CHARS)
+
+        assert sentence.endswith("now.")
+        assert len(clipped) <= INDEX_PURPOSE_MAX_CHARS
+        assert "\n" not in clipped
+        assert clipped.endswith("…")
+
+    def test_write_access_flag_reads_input_contract(self, tmp_path: Path) -> None:
+        (tmp_path / "a.yaml").write_text(
+            make_skill_yaml("writer", input_contract={"write_access": "required"}),
+            encoding="utf-8",
+        )
+        (tmp_path / "b.yaml").write_text(make_skill_yaml("reader"), encoding="utf-8")
+
+        loader = SkillLoader(tmp_path)
+
+        assert loader.load("writer").requires_write_access is True
+        assert loader.load("reader").requires_write_access is False
+
+
+class TestCompactRendering:
+    def test_registry_index_lists_every_skill_with_absolute_path(self, registry: Path) -> None:
+        loader = SkillLoader(registry)
+
+        index = render_registry_index(loader.skills)
+
+        lines = index.splitlines()
+        assert len(lines) == len(loader.skills)
+        for line, skill in zip(lines, loader.skills, strict=True):
+            assert line.startswith(f"- **{skill.name}** — ")
+            assert line.endswith(f" · {skill.absolute_path}")
+            assert skill.instructions_payload not in line
+
+    def test_skill_block_points_at_the_full_file(self, tmp_path: Path) -> None:
+        (tmp_path / "a.yaml").write_text(
+            make_skill_yaml("briefed", version="4.0.0", brief="BRIEF TEXT", payload="FULL BODY"),
+            encoding="utf-8",
+        )
+        skill = SkillLoader(tmp_path).load("briefed")
+
+        block = render_skill_block(skill, SKILL_ROLE_MANDATORY)
+
+        assert block.splitlines()[0] == "### briefed (v4.0.0) — mandatory"
+        assert block.splitlines()[1] == (
+            f"Full procedure: {skill.absolute_path} — read it in full before "
+            "starting; it is binding."
+        )
+        assert block.endswith("BRIEF TEXT")
+        assert "FULL BODY" not in block
+        pointer = render_skill_pointer(skill, SKILL_ROLE_RECOMMENDED)
+        assert "recommended" in pointer
+        assert str(skill.absolute_path) in pointer
+        assert "BRIEF TEXT" not in pointer
+
+    def test_unknown_role_is_rejected(self, registry: Path) -> None:
+        skill = SkillLoader(registry).load("crash_ops")
+
+        with pytest.raises(ValueError):
+            render_skill_block(skill, "optional")
