@@ -19,6 +19,7 @@ import ctypes
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import webbrowser
@@ -284,9 +285,19 @@ def open_native_window(url: str, width: int, height: int, transparent: bool = Fa
 
 
 def electron_executable() -> Path | None:
-    binary = "electron.exe" if os.name == "nt" else "electron"
-    candidate = SHELL_DIR / "node_modules" / "electron" / "dist" / binary
-    return candidate if candidate.exists() else None
+    """The Electron binary installed by ``npm install`` in ``tools/wisp_shell``.
+
+    Returns ``None`` when the shell is not installed. macOS ships the binary
+    inside an app bundle rather than directly under ``dist/``.
+    """
+    dist = SHELL_DIR / "node_modules" / "electron" / "dist"
+    if os.name == "nt":
+        candidate = dist / "electron.exe"
+    elif sys.platform == "darwin":
+        candidate = dist / "Electron.app" / "Contents" / "MacOS" / "Electron"
+    else:
+        candidate = dist / "electron"
+    return candidate if candidate.is_file() else None
 
 
 def open_electron_window(url: str) -> subprocess.Popen | None:
